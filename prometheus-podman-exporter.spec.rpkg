@@ -1,0 +1,100 @@
+%global with_debug 0
+
+%if 0%{?with_debug}
+%global _find_debuginfo_dwz_opts %{nil}
+%global _dwz_low_mem_die_limit 0
+%else
+%global debug_package %{nil}
+%endif
+
+%global shortname podman_exporter
+%global provider github
+%global provider_tld com
+%global project containers
+%global repo %{name}
+%global import_path %{provider}.%{provider_tld}/%{project}/%{repo}
+%global git0 https://%{import_path}
+
+Name: prometheus-podman-exporter
+Version: 1.0.0
+Release: dev.1%{?dist}
+Summary: Prometheus exporter for podman v4.x
+License: ASL 2.0
+URL: %{git0}
+VCS: {{{ git_dir_vcs }}}
+Source0: {{{ git_dir_pack }}}
+
+%if 0%{?fedora} && ! 0%{?rhel}
+BuildRequires: btrfs-progs-devel
+%endif
+BuildRequires: gcc
+%if 0%{?rhel} >= 9
+BuildRequires: golang >= 1.17
+%else
+BuildRequires: golang >= 1.18.2
+%endif
+BuildRequires: glib2-devel
+BuildRequires: glibc-devel
+BuildRequires: glibc-static
+BuildRequires: git-core
+BuildRequires: go-rpm-macros
+BuildRequires: make
+BuildRequires: gpgme-devel
+BuildRequires: device-mapper-devel
+BuildRequires: libassuan-devel
+%if 0%{?fedora} >= 35
+BuildRequires: shadow-utils-subid-devel
+%endif
+
+%description
+%{name} is a prometheus exporter for podman v4.x
+
+%prep
+{{{ git_dir_setup_macro }}}
+
+%build
+%set_build_flags
+%if 0%{?rhel} >= 9
+export BUILDFLAGS="-tags \"exclude_graphdriver_btrfs\""
+%endif
+make binary
+
+%install
+install -dp %{buildroot}%{_bindir}
+install -dp %{buildroot}%{_unitdir}
+install -dp %{buildroot}%{_userunitdir}
+install -p ./bin/%{name} %{buildroot}%{_bindir}
+install -Dpm0644 ./contrib/systemd/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
+install -Dpm0644 ./contrib/systemd/%{name}.service %{buildroot}%{_userunitdir}/%{name}.service
+
+pushd %{buildroot}%{_unitdir}
+ln -s %{name}.service %{shortname}.service
+popd
+
+pushd %{buildroot}%{_userunitdir}
+ln -s %{name}.service %{shortname}.service
+popd
+
+pushd %{buildroot}%{_bindir}
+ln -s %{name} %{shortname}
+popd
+
+%check
+
+#define license tag if not already defined
+%{!?_licensedir:%global license %doc}
+
+%files
+%license LICENSE
+%doc README.md MAINTAINERS.md SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md
+%{_bindir}/%{name}
+%{_bindir}/%{shortname}
+%{_unitdir}/%{name}.service
+%{_unitdir}/%{shortname}.service
+%{_userunitdir}/%{name}.service
+%{_userunitdir}/%{shortname}.service
+
+
+%changelog
+* Thu Jun 30 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.0.0-dev-1
+- initial package

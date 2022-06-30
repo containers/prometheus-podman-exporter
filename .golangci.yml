@@ -1,0 +1,29 @@
+run:
+  deadline: 5m
+linters:
+  enable-all: true
+  disable:
+    - wrapcheck
+    - gochecknoinits
+    - varnamelen
+    - exhaustruct
+    - ireturn
+    - gochecknoglobals
+    - exhaustivestruct
+    - funlen
+    - golint
+    - forbidigo
+    - maligned
+    - interfacer
+    - scopelint
+linters-settings:
+  errcheck:
+    check-blank: false
+    ignore: fmt:.*
+    exclude-functions:
+      # Used in HTTP handlers, any error is handled by the server itself.
+      - (net/http.ResponseWriter).Write
+      # Never check the logger error.
+      - (github.com/go-kit/log.Logger).Log
+  nolintlint:
+    require-specific: true

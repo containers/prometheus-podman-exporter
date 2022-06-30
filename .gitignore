@@ -1,0 +1,5 @@
+.vagrant/
+.vscode/
+bin/*
+*.log
+*.out
