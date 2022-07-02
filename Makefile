@@ -54,7 +54,7 @@ uninstall:  ## Uninstall prometheus-podman-exporter binary
 install.tools: .install.pre-commit .install.codespell .install.golangci-lint ## Install needed tools
 
 .PHONY: .install.codespell
-.install.bats:
+.install.codespell:
 	sudo ${PKG_MANAGER} -y install codespell
 
 .PHONY: .install.pre-commit
