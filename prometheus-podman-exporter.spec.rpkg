@@ -17,7 +17,7 @@
 
 Name: prometheus-podman-exporter
 Version: 1.0.0
-Release: dev.1%{?dist}
+Release: 1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
 URL: %{git0}
@@ -96,5 +96,5 @@ popd
 
 
 %changelog
-* Thu Jun 30 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.0.0-dev-1
-- initial package
+* Sun Jul 03 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.0.0-1
+- initial release
