@@ -6,7 +6,7 @@
 
 Prometheus exporter for podman v4.x environment exposing containers, pods, images, volumes and networks information.
 
-prometheus-podman-exporter uses the podman v4.x (libpod) library to fetch the statistics and not rest api (no need to enable podman.socket service).
+prometheus-podman-exporter uses the podman v4.x (libpod) library to fetch the statistics and therefore no need to enable podman.socket service unless using the container image.
 
 - [**Installation**](#installation)
 - [**Usage and Options**](#usage-and-options)
