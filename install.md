@@ -33,10 +33,26 @@ prometheus-podman-exporter is using go v1.17 or above.
     ```
 ## Container Image
 
-```shell
-$ podman system service --time=0 tcp://<ip>:<port>
-$ podman run -e CONTAINER_HOST=tcp://<ip>:<port> --network=host -p 9882:9882 quay.io/navidys/prometheus-podman-exporter:latest
-```
+* Using unix socket (rootless):
+
+    ```shell
+    $ systemctl start --user podman.socket
+    $ podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v $XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock --userns=keep-id --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
+    ```
+
+* Using unix socket (root):
+
+    ```shell
+    $ systemctl start podman.socket
+    $ podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v $XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock --userns=keep-id --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
+    ```
+
+* Using TCP:
+
+    ```shell
+    $ podman system service --time=0 tcp://<ip>:<port>
+    $ podman run -e CONTAINER_HOST=tcp://<ip>:<port> --network=host -p 9882:9882 quay.io/navidys/prometheus-podman-exporter:latest
+    ```
 
 ## Installing Packaged Versions
 
