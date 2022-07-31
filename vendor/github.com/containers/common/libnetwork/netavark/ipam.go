@@ -1,5 +1,5 @@
-//go:build linux || freebsd
-// +build linux freebsd
+//go:build linux
+// +build linux
 
 package netavark
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/libnetwork/util"
+	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 )
 
@@ -179,7 +180,7 @@ func getFreeIPFromBucket(bucket *bbolt.Bucket, subnet *types.Subnet) (net.IP, er
 		lastIP, err := util.LastIPInSubnet(&subnet.Subnet.IPNet)
 		// this error should never happen but lets check anyways to prevent panics
 		if err != nil {
-			return nil, fmt.Errorf("failed to get lastIP: %w", err)
+			return nil, errors.Wrap(err, "failed to get lastIP")
 		}
 		// ipv4 uses the last ip in a subnet for broadcast so we cannot use it
 		if util.IsIPv4(lastIP) {

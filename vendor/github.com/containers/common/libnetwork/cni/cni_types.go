@@ -1,5 +1,5 @@
-//go:build linux || freebsd
-// +build linux freebsd
+//go:build linux
+// +build linux
 
 package cni
 
@@ -26,9 +26,6 @@ const (
 
 	// podmanOptionsKey key used to store the podman network options in a cni config
 	podmanOptionsKey = "podman_options"
-
-	// ingressPolicySameBridge is used to only allow connection on the same bridge network
-	ingressPolicySameBridge = "same-bridge"
 )
 
 // cniPortMapEntry struct is used by the portmap plugin
@@ -98,9 +95,8 @@ type VLANConfig struct {
 
 // firewallConfig describes the firewall plugin
 type firewallConfig struct {
-	PluginType    string `json:"type"`
-	Backend       string `json:"backend"`
-	IngressPolicy string `json:"ingressPolicy,omitempty"`
+	PluginType string `json:"type"`
+	Backend    string `json:"backend"`
 }
 
 // tuningConfig describes the tuning plugin
@@ -226,14 +222,10 @@ func newPortMapPlugin() portMapConfig {
 }
 
 // newFirewallPlugin creates a generic firewall plugin
-func newFirewallPlugin(isolate bool) firewallConfig {
-	fw := firewallConfig{
+func newFirewallPlugin() firewallConfig {
+	return firewallConfig{
 		PluginType: "firewall",
 	}
-	if isolate {
-		fw.IngressPolicy = ingressPolicySameBridge
-	}
-	return fw
 }
 
 // newTuningPlugin creates a generic tuning section

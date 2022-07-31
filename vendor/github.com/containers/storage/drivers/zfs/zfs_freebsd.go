@@ -3,7 +3,8 @@ package zfs
 import (
 	"fmt"
 
-	graphdriver "github.com/containers/storage/drivers"
+	"github.com/containers/storage/drivers"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -11,13 +12,13 @@ import (
 func checkRootdirFs(rootdir string) error {
 	var buf unix.Statfs_t
 	if err := unix.Statfs(rootdir, &buf); err != nil {
-		return fmt.Errorf("failed to access '%s': %s", rootdir, err)
+		return fmt.Errorf("Failed to access '%s': %s", rootdir, err)
 	}
 
 	// on FreeBSD buf.Fstypename contains ['z', 'f', 's', 0 ... ]
 	if (buf.Fstypename[0] != 122) || (buf.Fstypename[1] != 102) || (buf.Fstypename[2] != 115) || (buf.Fstypename[3] != 0) {
 		logrus.WithField("storage-driver", "zfs").Debugf("no zfs dataset found for rootdir '%s'", rootdir)
-		return fmt.Errorf("no zfs dataset found for rootdir '%s': %w", rootdir, graphdriver.ErrPrerequisites)
+		return errors.Wrapf(graphdriver.ErrPrerequisites, "no zfs dataset found for rootdir '%s'", rootdir)
 	}
 
 	return nil

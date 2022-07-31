@@ -1,4 +1,4 @@
-// +build !linux,!windows,!freebsd,!solaris,!darwin
+// +build !linux,!windows,!freebsd,!solaris
 
 package graphdriver
 

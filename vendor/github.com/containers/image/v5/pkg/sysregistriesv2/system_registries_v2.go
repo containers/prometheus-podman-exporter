@@ -15,6 +15,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage/pkg/homedir"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,11 +25,19 @@ import (
 // -ldflags '-X github.com/containers/image/v5/sysregistries.systemRegistriesConfPath=$your_path'
 var systemRegistriesConfPath = builtinRegistriesConfPath
 
+// builtinRegistriesConfPath is the path to the registry configuration file.
+// DO NOT change this, instead see systemRegistriesConfPath above.
+const builtinRegistriesConfPath = "/etc/containers/registries.conf"
+
 // systemRegistriesConfDirPath is the path to the system-wide registry
 // configuration directory and is used to add/subtract potential registries for
 // obtaining images.  You can override this at build time with
 // -ldflags '-X github.com/containers/image/v5/sysregistries.systemRegistriesConfDirectoryPath=$your_path'
 var systemRegistriesConfDirPath = builtinRegistriesConfDirPath
+
+// builtinRegistriesConfDirPath is the path to the registry configuration directory.
+// DO NOT change this, instead see systemRegistriesConfDirectoryPath above.
+const builtinRegistriesConfDirPath = "/etc/containers/registries.conf.d"
 
 // AuthenticationFileHelper is a special key for credential helpers indicating
 // the usage of consulting containers-auth.json files instead of a credential
@@ -102,7 +111,7 @@ func (e *Endpoint) rewriteReference(ref reference.Named, prefix string) (referen
 	newNamedRef = e.Location + refString[prefixLen:]
 	newParsedRef, err := reference.ParseNamed(newNamedRef)
 	if err != nil {
-		return nil, fmt.Errorf("rewriting reference: %w", err)
+		return nil, errors.Wrapf(err, "rewriting reference")
 	}
 
 	return newParsedRef, nil
@@ -665,7 +674,7 @@ func dropInConfigs(wrapper configWrapper) ([]string, error) {
 		if err != nil && !os.IsNotExist(err) {
 			// Ignore IsNotExist errors: most systems won't have a registries.conf.d
 			// directory.
-			return nil, fmt.Errorf("reading registries.conf.d: %w", err)
+			return nil, errors.Wrapf(err, "reading registries.conf.d")
 		}
 	}
 
@@ -707,7 +716,7 @@ func tryUpdatingCache(ctx *types.SystemContext, wrapper configWrapper) (*parsedC
 				return nil, err // Should never happen
 			}
 		} else {
-			return nil, fmt.Errorf("loading registries configuration %q: %w", wrapper.configPath, err)
+			return nil, errors.Wrapf(err, "loading registries configuration %q", wrapper.configPath)
 		}
 	}
 
@@ -720,7 +729,7 @@ func tryUpdatingCache(ctx *types.SystemContext, wrapper configWrapper) (*parsedC
 		// Enforce v2 format for drop-in-configs.
 		dropIn, err := loadConfigFile(path, true)
 		if err != nil {
-			return nil, fmt.Errorf("loading drop-in registries configuration %q: %w", path, err)
+			return nil, errors.Wrapf(err, "loading drop-in registries configuration %q", path)
 		}
 		config.updateWithConfigurationFrom(dropIn)
 	}
@@ -781,7 +790,7 @@ func parseShortNameMode(mode string) (types.ShortNameMode, error) {
 	case "permissive":
 		return types.ShortNameModePermissive, nil
 	default:
-		return types.ShortNameModeInvalid, fmt.Errorf("invalid short-name mode: %q", mode)
+		return types.ShortNameModeInvalid, errors.Errorf("invalid short-name mode: %q", mode)
 	}
 }
 
@@ -974,7 +983,7 @@ func loadConfigFile(path string, forceV2 bool) (*parsedConfig, error) {
 	// Parse and validate short-name aliases.
 	cache, err := newShortNameAliasCache(path, &res.partialV2.shortNameAliasConf)
 	if err != nil {
-		return nil, fmt.Errorf("validating short-name aliases: %w", err)
+		return nil, errors.Wrap(err, "validating short-name aliases")
 	}
 	res.aliasCache = cache
 	// Clear conf.partialV2.shortNameAliasConf to make it available for garbage collection and

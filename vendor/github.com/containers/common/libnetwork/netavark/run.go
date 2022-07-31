@@ -1,5 +1,5 @@
-//go:build linux || freebsd
-// +build linux freebsd
+//go:build linux
+// +build linux
 
 package netavark
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/containers/common/libnetwork/internal/util"
 	"github.com/containers/common/libnetwork/types"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,7 +42,7 @@ func (n *netavarkNetwork) Setup(namespacePath string, options types.SetupOptions
 
 	netavarkOpts, err := n.convertNetOpts(options.NetworkOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert net opts: %w", err)
+		return nil, errors.Wrap(err, "failed to convert net opts")
 	}
 
 	// Warn users if one or more networks have dns enabled
@@ -102,7 +103,7 @@ func (n *netavarkNetwork) Teardown(namespacePath string, options types.TeardownO
 
 	netavarkOpts, err := n.convertNetOpts(options.NetworkOptions)
 	if err != nil {
-		return fmt.Errorf("failed to convert net opts: %w", err)
+		return errors.Wrap(err, "failed to convert net opts")
 	}
 
 	retErr := n.execNetavark([]string{"teardown", namespacePath}, netavarkOpts, nil)

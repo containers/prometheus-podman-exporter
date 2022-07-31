@@ -2,8 +2,6 @@ package graphdriver
 
 import (
 	"io"
-	"os"
-	"runtime"
 	"time"
 
 	"github.com/containers/storage/pkg/archive"
@@ -172,16 +170,9 @@ func (gdw *NaiveDiffDriver) ApplyDiff(id, parent string, options ApplyDiffOpts) 
 	}
 	defer driver.Put(id)
 
-	defaultForceMask := os.FileMode(0700)
-	var forceMask *os.FileMode = nil
-	if runtime.GOOS == "darwin" {
-		forceMask = &defaultForceMask
-	}
-
 	tarOptions := &archive.TarOptions{
 		InUserNS:          userns.RunningInUserNS(),
 		IgnoreChownErrors: options.IgnoreChownErrors,
-		ForceMask:         forceMask,
 	}
 	if options.Mappings != nil {
 		tarOptions.UIDMaps = options.Mappings.UIDs()

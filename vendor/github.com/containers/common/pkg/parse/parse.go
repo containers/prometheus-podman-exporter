@@ -4,24 +4,24 @@ package parse
 // user input and is shared either amongst container engine subcommands
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 // ValidateVolumeOpts validates a volume's options
 func ValidateVolumeOpts(options []string) ([]string, error) {
-	var foundRootPropagation, foundRWRO, foundLabelChange, bindType, foundExec, foundDev, foundSuid, foundChown, foundUpperDir, foundWorkDir, foundCopy int
+	var foundRootPropagation, foundRWRO, foundLabelChange, bindType, foundExec, foundDev, foundSuid, foundChown, foundUpperDir, foundWorkDir int
 	finalOpts := make([]string, 0, len(options))
 	for _, opt := range options {
 		// support advanced options like upperdir=/path, workdir=/path
 		if strings.Contains(opt, "upperdir") {
 			foundUpperDir++
 			if foundUpperDir > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 upperdir per overlay", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 upperdir per overlay", strings.Join(options, ", "))
 			}
 			finalOpts = append(finalOpts, opt)
 			continue
@@ -29,7 +29,7 @@ func ValidateVolumeOpts(options []string) ([]string, error) {
 		if strings.Contains(opt, "workdir") {
 			foundWorkDir++
 			if foundWorkDir > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 workdir per overlay", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 workdir per overlay", strings.Join(options, ", "))
 			}
 			finalOpts = append(finalOpts, opt)
 			continue
@@ -43,42 +43,42 @@ func ValidateVolumeOpts(options []string) ([]string, error) {
 		case "noexec", "exec":
 			foundExec++
 			if foundExec > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'noexec' or 'exec' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'noexec' or 'exec' option", strings.Join(options, ", "))
 			}
 		case "nodev", "dev":
 			foundDev++
 			if foundDev > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'nodev' or 'dev' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'nodev' or 'dev' option", strings.Join(options, ", "))
 			}
 		case "nosuid", "suid":
 			foundSuid++
 			if foundSuid > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'nosuid' or 'suid' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'nosuid' or 'suid' option", strings.Join(options, ", "))
 			}
 		case "rw", "ro":
 			foundRWRO++
 			if foundRWRO > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'rw' or 'ro' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'rw' or 'ro' option", strings.Join(options, ", "))
 			}
 		case "z", "Z", "O":
 			foundLabelChange++
 			if foundLabelChange > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'z', 'Z', or 'O' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'z', 'Z', or 'O' option", strings.Join(options, ", "))
 			}
 		case "U":
 			foundChown++
 			if foundChown > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'U' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 'U' option", strings.Join(options, ", "))
 			}
 		case "private", "rprivate", "shared", "rshared", "slave", "rslave", "unbindable", "runbindable":
 			foundRootPropagation++
 			if foundRootPropagation > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 '[r]shared', '[r]private', '[r]slave' or '[r]unbindable' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 '[r]shared', '[r]private', '[r]slave' or '[r]unbindable' option", strings.Join(options, ", "))
 			}
 		case "bind", "rbind":
 			bindType++
 			if bindType > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 '[r]bind' option", strings.Join(options, ", "))
+				return nil, errors.Errorf("invalid options %q, can only specify 1 '[r]bind' option", strings.Join(options, ", "))
 			}
 		case "cached", "delegated":
 			// The discarded ops are OS X specific volume options
@@ -88,13 +88,8 @@ func ValidateVolumeOpts(options []string) ([]string, error) {
 			// are intended to be always safe to use, even not on OS
 			// X).
 			continue
-		case "copy", "nocopy":
-			foundCopy++
-			if foundCopy > 1 {
-				return nil, fmt.Errorf("invalid options %q, can only specify 1 'copy' or 'nocopy' option", strings.Join(options, ", "))
-			}
 		default:
-			return nil, fmt.Errorf("invalid option type %q", opt)
+			return nil, errors.Errorf("invalid option type %q", opt)
 		}
 		finalOpts = append(finalOpts, opt)
 	}
@@ -113,7 +108,7 @@ func Device(device string) (src, dest, permissions string, err error) {
 	switch len(arr) {
 	case 3:
 		if !isValidDeviceMode(arr[2]) {
-			return "", "", "", fmt.Errorf("invalid device mode: %s", arr[2])
+			return "", "", "", errors.Errorf("invalid device mode: %s", arr[2])
 		}
 		permissions = arr[2]
 		fallthrough
@@ -122,7 +117,7 @@ func Device(device string) (src, dest, permissions string, err error) {
 			permissions = arr[1]
 		} else {
 			if arr[1] == "" || arr[1][0] != '/' {
-				return "", "", "", fmt.Errorf("invalid device mode: %s", arr[1])
+				return "", "", "", errors.Errorf("invalid device mode: %s", arr[1])
 			}
 			dest = arr[1]
 		}
@@ -134,7 +129,7 @@ func Device(device string) (src, dest, permissions string, err error) {
 		}
 		fallthrough
 	default:
-		return "", "", "", fmt.Errorf("invalid device specification: %s", device)
+		return "", "", "", errors.Errorf("invalid device specification: %s", device)
 	}
 
 	if dest == "" {
@@ -184,7 +179,7 @@ func ValidateVolumeCtrDir(ctrDir string) error {
 		return errors.New("container directory cannot be empty")
 	}
 	if !path.IsAbs(ctrDir) {
-		return fmt.Errorf("invalid container path %q, must be an absolute path", ctrDir)
+		return errors.Errorf("invalid container path %q, must be an absolute path", ctrDir)
 	}
 	return nil
 }

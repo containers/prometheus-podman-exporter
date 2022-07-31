@@ -2,12 +2,12 @@ package secrets
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type db struct {
@@ -31,8 +31,9 @@ func (s *SecretsManager) loadDB() error {
 			// the db cache will show no entries anyway.
 			// The file will be created later on a store()
 			return nil
+		} else {
+			return err
 		}
-		return err
 	}
 
 	// We check if the file has been modified after the last time it was loaded into the cache.
@@ -70,21 +71,21 @@ func (s *SecretsManager) getNameAndID(nameOrID string) (name, id string, err err
 	name, id, err = s.getExactNameAndID(nameOrID)
 	if err == nil {
 		return name, id, nil
-	} else if !errors.Is(err, ErrNoSuchSecret) {
+	} else if errors.Cause(err) != ErrNoSuchSecret {
 		return "", "", err
 	}
 
 	// ID prefix may have been given, iterate through all IDs.
 	// ID and partial ID has a max length of 25, so we return if its greater than that.
 	if len(nameOrID) > secretIDLength {
-		return "", "", fmt.Errorf("no secret with name or id %q: %w", nameOrID, ErrNoSuchSecret)
+		return "", "", errors.Wrapf(ErrNoSuchSecret, "no secret with name or id %q", nameOrID)
 	}
 	exists := false
 	var foundID, foundName string
 	for id, name := range s.db.IDToName {
 		if strings.HasPrefix(id, nameOrID) {
 			if exists {
-				return "", "", fmt.Errorf("more than one result secret with prefix %s: %w", nameOrID, errAmbiguous)
+				return "", "", errors.Wrapf(errAmbiguous, "more than one result secret with prefix %s", nameOrID)
 			}
 			exists = true
 			foundID = id
@@ -95,7 +96,7 @@ func (s *SecretsManager) getNameAndID(nameOrID string) (name, id string, err err
 	if exists {
 		return foundName, foundID, nil
 	}
-	return "", "", fmt.Errorf("no secret with name or id %q: %w", nameOrID, ErrNoSuchSecret)
+	return "", "", errors.Wrapf(ErrNoSuchSecret, "no secret with name or id %q", nameOrID)
 }
 
 // getExactNameAndID takes a secret's name or ID and returns both its name and full ID.
@@ -114,7 +115,7 @@ func (s *SecretsManager) getExactNameAndID(nameOrID string) (name, id string, er
 		return name, id, nil
 	}
 
-	return "", "", fmt.Errorf("no secret with name or id %q: %w", nameOrID, ErrNoSuchSecret)
+	return "", "", errors.Wrapf(ErrNoSuchSecret, "no secret with name or id %q", nameOrID)
 }
 
 // exactSecretExists checks if the secret exists, given a name or ID
@@ -122,7 +123,7 @@ func (s *SecretsManager) getExactNameAndID(nameOrID string) (name, id string, er
 func (s *SecretsManager) exactSecretExists(nameOrID string) (bool, error) {
 	_, _, err := s.getExactNameAndID(nameOrID)
 	if err != nil {
-		if errors.Is(err, ErrNoSuchSecret) {
+		if errors.Cause(err) == ErrNoSuchSecret {
 			return false, nil
 		}
 		return false, err
@@ -157,7 +158,7 @@ func (s *SecretsManager) lookupSecret(nameOrID string) (*Secret, error) {
 		return &secret, nil
 	}
 
-	return nil, fmt.Errorf("no secret with name or id %q: %w", nameOrID, ErrNoSuchSecret)
+	return nil, errors.Wrapf(ErrNoSuchSecret, "no secret with name or id %q", nameOrID)
 }
 
 // Store creates a new secret in the secrets database.

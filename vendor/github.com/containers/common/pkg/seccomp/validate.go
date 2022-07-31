@@ -5,7 +5,8 @@ package seccomp
 
 import (
 	"encoding/json"
-	"fmt"
+
+	"github.com/pkg/errors"
 )
 
 // ValidateProfile does a basic validation for the provided seccomp profile
@@ -13,16 +14,16 @@ import (
 func ValidateProfile(content string) error {
 	profile := &Seccomp{}
 	if err := json.Unmarshal([]byte(content), &profile); err != nil {
-		return fmt.Errorf("decoding seccomp profile: %w", err)
+		return errors.Wrap(err, "decoding seccomp profile")
 	}
 
 	spec, err := setupSeccomp(profile, nil)
 	if err != nil {
-		return fmt.Errorf("create seccomp spec: %w", err)
+		return errors.Wrap(err, "create seccomp spec")
 	}
 
 	if _, err := BuildFilter(spec); err != nil {
-		return fmt.Errorf("build seccomp filter: %w", err)
+		return errors.Wrap(err, "build seccomp filter")
 	}
 
 	return nil

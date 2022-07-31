@@ -1,5 +1,4 @@
-//go:build !windows && !darwin
-// +build !windows,!darwin
+//+build !windows
 
 package chrootarchive
 
@@ -69,7 +68,7 @@ func applyLayer() {
 
 	encoder := json.NewEncoder(os.Stdout)
 	if err := encoder.Encode(applyLayerResponse{size}); err != nil {
-		fatal(fmt.Errorf("unable to encode layerSize JSON: %w", err))
+		fatal(fmt.Errorf("unable to encode layerSize JSON: %s", err))
 	}
 
 	if _, err := flush(os.Stdin); err != nil {
@@ -105,7 +104,7 @@ func applyLayerHandler(dest string, layer io.Reader, options *archive.TarOptions
 
 	data, err := json.Marshal(options)
 	if err != nil {
-		return 0, fmt.Errorf("ApplyLayer json encode: %w", err)
+		return 0, fmt.Errorf("ApplyLayer json encode: %v", err)
 	}
 
 	cmd := reexec.Command("storage-applyLayer", dest)
@@ -116,14 +115,14 @@ func applyLayerHandler(dest string, layer io.Reader, options *archive.TarOptions
 	cmd.Stdout, cmd.Stderr = outBuf, errBuf
 
 	if err = cmd.Run(); err != nil {
-		return 0, fmt.Errorf("ApplyLayer stdout: %s stderr: %s %w", outBuf, errBuf, err)
+		return 0, fmt.Errorf("ApplyLayer %s stdout: %s stderr: %s", err, outBuf, errBuf)
 	}
 
 	// Stdout should be a valid JSON struct representing an applyLayerResponse.
 	response := applyLayerResponse{}
 	decoder := json.NewDecoder(outBuf)
 	if err = decoder.Decode(&response); err != nil {
-		return 0, fmt.Errorf("unable to decode ApplyLayer JSON response: %w", err)
+		return 0, fmt.Errorf("unable to decode ApplyLayer JSON response: %s", err)
 	}
 
 	return response.LayerSize, nil

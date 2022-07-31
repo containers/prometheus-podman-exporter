@@ -84,23 +84,24 @@ type advancedState struct {
 	length         int
 	offset         int
 	maxInsertIndex int
-	chainHead      int
-	hashOffset     int
-
-	ii uint16 // position of last match, intended to overflow to reset.
-
-	// input window: unprocessed data is window[index:windowEnd]
-	index          int
-	estBitsPerByte int
-	hashMatch      [maxMatchLength + minMatchLength]uint32
 
 	// Input hash chains
 	// hashHead[hashValue] contains the largest inputIndex with the specified hash value
 	// If hashHead[hashValue] is within the current window, then
 	// hashPrev[hashHead[hashValue] & windowMask] contains the previous index
 	// with the same hash value.
-	hashHead [hashSize]uint32
-	hashPrev [windowSize]uint32
+	chainHead  int
+	hashHead   [hashSize]uint32
+	hashPrev   [windowSize]uint32
+	hashOffset int
+
+	// input window: unprocessed data is window[index:windowEnd]
+	index          int
+	estBitsPerByte int
+	hashMatch      [maxMatchLength + minMatchLength]uint32
+
+	hash uint32
+	ii   uint16 // position of last match, intended to overflow to reset.
 }
 
 type compressor struct {
@@ -258,6 +259,7 @@ func (d *compressor) fillWindow(b []byte) {
 			// Set the head of the hash chain to us.
 			s.hashHead[newH] = uint32(di + s.hashOffset)
 		}
+		s.hash = newH
 	}
 	// Update window information.
 	d.windowEnd += n
@@ -401,6 +403,7 @@ func (d *compressor) initDeflate() {
 	s.hashOffset = 1
 	s.length = minMatchLength - 1
 	s.offset = 0
+	s.hash = 0
 	s.chainHead = -1
 }
 
@@ -429,6 +432,9 @@ func (d *compressor) deflateLazy() {
 	}
 
 	s.maxInsertIndex = d.windowEnd - (minMatchLength - 1)
+	if s.index < s.maxInsertIndex {
+		s.hash = hash4(d.window[s.index:])
+	}
 
 	for {
 		if sanity && s.index > d.windowEnd {
@@ -460,11 +466,11 @@ func (d *compressor) deflateLazy() {
 		}
 		if s.index < s.maxInsertIndex {
 			// Update the hash
-			hash := hash4(d.window[s.index:])
-			ch := s.hashHead[hash]
+			s.hash = hash4(d.window[s.index:])
+			ch := s.hashHead[s.hash&hashMask]
 			s.chainHead = int(ch)
 			s.hashPrev[s.index&windowMask] = ch
-			s.hashHead[hash] = uint32(s.index + s.hashOffset)
+			s.hashHead[s.hash&hashMask] = uint32(s.index + s.hashOffset)
 		}
 		prevLength := s.length
 		prevOffset := s.offset
@@ -497,7 +503,7 @@ func (d *compressor) deflateLazy() {
 				end += prevIndex
 				idx := prevIndex + prevLength - (4 - checkOff)
 				h := hash4(d.window[idx:])
-				ch2 := int(s.hashHead[h]) - s.hashOffset - prevLength + (4 - checkOff)
+				ch2 := int(s.hashHead[h&hashMask]) - s.hashOffset - prevLength + (4 - checkOff)
 				if ch2 > minIndex {
 					length := matchLen(d.window[prevIndex:end], d.window[ch2:])
 					// It seems like a pure length metric is best.
@@ -541,6 +547,7 @@ func (d *compressor) deflateLazy() {
 					// Set the head of the hash chain to us.
 					s.hashHead[newH] = uint32(di + s.hashOffset)
 				}
+				s.hash = newH
 			}
 
 			s.index = newIndex
@@ -786,6 +793,7 @@ func (d *compressor) reset(w io.Writer) {
 		d.tokens.Reset()
 		s.length = minMatchLength - 1
 		s.offset = 0
+		s.hash = 0
 		s.ii = 0
 		s.maxInsertIndex = 0
 	}

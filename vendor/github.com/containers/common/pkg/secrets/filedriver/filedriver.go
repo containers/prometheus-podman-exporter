@@ -2,14 +2,13 @@ package filedriver
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/containers/storage/pkg/lockfile"
+	"github.com/pkg/errors"
 )
 
 // secretsDataFile is the file where secrets data/payload will be stored
@@ -56,7 +55,7 @@ func (d *Driver) List() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	allID := make([]string, 0, len(secretData))
+	var allID []string
 	for k := range secretData {
 		allID = append(allID, k)
 	}
@@ -76,7 +75,7 @@ func (d *Driver) Lookup(id string) ([]byte, error) {
 	if data, ok := secretData[id]; ok {
 		return data, nil
 	}
-	return nil, fmt.Errorf("%s: %w", id, errNoSecretData)
+	return nil, errors.Wrapf(errNoSecretData, "%s", id)
 }
 
 // Store stores the bytes associated with an ID. An error is returned if the ID arleady exists
@@ -89,7 +88,7 @@ func (d *Driver) Store(id string, data []byte) error {
 		return err
 	}
 	if _, ok := secretData[id]; ok {
-		return fmt.Errorf("%s: %w", id, errSecretIDExists)
+		return errors.Wrapf(errSecretIDExists, "%s", id)
 	}
 	secretData[id] = data
 	marshalled, err := json.MarshalIndent(secretData, "", "  ")
@@ -114,7 +113,7 @@ func (d *Driver) Delete(id string) error {
 	if _, ok := secretData[id]; ok {
 		delete(secretData, id)
 	} else {
-		return fmt.Errorf("%s: %w", id, errNoSecretData)
+		return errors.Wrap(errNoSecretData, id)
 	}
 	marshalled, err := json.MarshalIndent(secretData, "", "  ")
 	if err != nil {
@@ -132,11 +131,12 @@ func (d *Driver) getAllData() (map[string][]byte, error) {
 	// check if the db file exists
 	_, err := os.Stat(d.secretsDataFilePath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if os.IsNotExist(err) {
 			// the file will be created later on a store()
 			return make(map[string][]byte), nil
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 
 	file, err := os.Open(d.secretsDataFilePath)

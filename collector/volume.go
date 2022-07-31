@@ -1,8 +1,8 @@
 package collector
 
 import (
+	"github.com/containers/prometheus-podman-exporter/pdcs"
 	"github.com/go-kit/log"
-	"github.com/navidys/prometheus-podman-exporter/pdcs"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

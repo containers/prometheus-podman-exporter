@@ -4,7 +4,6 @@
 package util
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/containers/storage/pkg/unshare"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -72,7 +72,7 @@ func GetRuntimeDir() (string, error) {
 			}
 			resolvedHome, err := filepath.EvalSymlinks(home)
 			if err != nil {
-				rootlessRuntimeDirError = fmt.Errorf("cannot resolve home: %w", err)
+				rootlessRuntimeDirError = errors.Wrap(err, "cannot resolve home")
 				return
 			}
 			runtimeDir = filepath.Join(resolvedHome, "rundir")

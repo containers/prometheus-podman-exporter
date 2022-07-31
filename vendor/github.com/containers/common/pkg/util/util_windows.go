@@ -4,7 +4,7 @@
 package util
 
 import (
-	"errors"
+	"github.com/pkg/errors"
 )
 
 // getRuntimeDir returns the runtime directory

@@ -1,10 +1,9 @@
-//go:build !linux || exclude_disk_quota || !cgo
 // +build !linux exclude_disk_quota !cgo
 
 package quota
 
 import (
-	"errors"
+	"github.com/pkg/errors"
 )
 
 // Quota limit params - currently we only control blocks hard limit

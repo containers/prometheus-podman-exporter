@@ -1,12 +1,11 @@
 package util
 
 import (
-	"errors"
-	"fmt"
 	"net"
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/libnetwork/util"
+	"github.com/pkg/errors"
 )
 
 // ValidateSubnet will validate a given Subnet. It checks if the
@@ -26,18 +25,18 @@ func ValidateSubnet(s *types.Subnet, addGateway bool, usedNetworks []*net.IPNet)
 	// the network address and not a random ip in the subnet.
 	_, n, err := net.ParseCIDR(s.Subnet.String())
 	if err != nil {
-		return fmt.Errorf("subnet invalid: %w", err)
+		return errors.Wrap(err, "subnet invalid")
 	}
 
 	// check that the new subnet does not conflict with existing ones
 	if NetworkIntersectsWithNetworks(n, usedNetworks) {
-		return fmt.Errorf("subnet %s is already used on the host or by another config", n.String())
+		return errors.Errorf("subnet %s is already used on the host or by another config", n.String())
 	}
 
 	s.Subnet = types.IPNet{IPNet: *n}
 	if s.Gateway != nil {
 		if !s.Subnet.Contains(s.Gateway) {
-			return fmt.Errorf("gateway %s not in subnet %s", s.Gateway, &s.Subnet)
+			return errors.Errorf("gateway %s not in subnet %s", s.Gateway, &s.Subnet)
 		}
 		util.NormalizeIP(&s.Gateway)
 	} else if addGateway {
@@ -51,13 +50,13 @@ func ValidateSubnet(s *types.Subnet, addGateway bool, usedNetworks []*net.IPNet)
 	if s.LeaseRange != nil {
 		if s.LeaseRange.StartIP != nil {
 			if !s.Subnet.Contains(s.LeaseRange.StartIP) {
-				return fmt.Errorf("lease range start ip %s not in subnet %s", s.LeaseRange.StartIP, &s.Subnet)
+				return errors.Errorf("lease range start ip %s not in subnet %s", s.LeaseRange.StartIP, &s.Subnet)
 			}
 			util.NormalizeIP(&s.LeaseRange.StartIP)
 		}
 		if s.LeaseRange.EndIP != nil {
 			if !s.Subnet.Contains(s.LeaseRange.EndIP) {
-				return fmt.Errorf("lease range end ip %s not in subnet %s", s.LeaseRange.EndIP, &s.Subnet)
+				return errors.Errorf("lease range end ip %s not in subnet %s", s.LeaseRange.EndIP, &s.Subnet)
 			}
 			util.NormalizeIP(&s.LeaseRange.EndIP)
 		}
@@ -108,7 +107,7 @@ func ValidateSetupOptions(n NetUtil, namespacePath string, options types.SetupOp
 // validatePerNetworkOpts checks that all given static ips are in a subnet on this network
 func validatePerNetworkOpts(network *types.Network, netOpts *types.PerNetworkOptions) error {
 	if netOpts.InterfaceName == "" {
-		return fmt.Errorf("interface name on network %s is empty", network.Name)
+		return errors.Errorf("interface name on network %s is empty", network.Name)
 	}
 	if network.IPAMOptions[types.Driver] == types.HostLocalIPAMDriver {
 	outer:
@@ -118,7 +117,7 @@ func validatePerNetworkOpts(network *types.Network, netOpts *types.PerNetworkOpt
 					continue outer
 				}
 			}
-			return fmt.Errorf("requested static ip %s not in any subnet on network %s", ip.String(), network.Name)
+			return errors.Errorf("requested static ip %s not in any subnet on network %s", ip.String(), network.Name)
 		}
 	}
 	return nil

@@ -14,10 +14,6 @@ const (
 	oldMaxSize = uint64(1048576)
 )
 
-func getDefaultCgroupsMode() string {
-	return "enabled"
-}
-
 // getDefaultMachineImage returns the default machine image stream
 // On Linux/Mac, this returns the FCOS stream
 func getDefaultMachineImage() string {
@@ -61,12 +57,4 @@ func getDefaultTmpDir() string {
 		return path
 	}
 	return "/var/tmp"
-}
-
-func getDefaultLockType() string {
-	return "shm"
-}
-
-func getLibpodTmpDir() string {
-	return "/run/libpod"
 }

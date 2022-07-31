@@ -1,12 +1,12 @@
 package util
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/filters"
 	"github.com/containers/common/pkg/util"
+	"github.com/pkg/errors"
 )
 
 func GenerateNetworkFilters(f map[string][]string) ([]types.FilterFunc, error) {
@@ -65,10 +65,7 @@ func createPruneFilterFuncs(key string, filterValues []string) (types.FilterFunc
 		return func(net types.Network) bool {
 			return filters.MatchLabelFilters(filterValues, net.Labels)
 		}, nil
-	case "label!":
-		return func(net types.Network) bool {
-			return !filters.MatchLabelFilters(filterValues, net.Labels)
-		}, nil
+
 	case "until":
 		until, err := filters.ComputeUntilTimestamp(filterValues)
 		if err != nil {
@@ -78,6 +75,6 @@ func createPruneFilterFuncs(key string, filterValues []string) (types.FilterFunc
 			return net.Created.Before(until)
 		}, nil
 	default:
-		return nil, fmt.Errorf("invalid filter %q", key)
+		return nil, errors.Errorf("invalid filter %q", key)
 	}
 }

@@ -1,5 +1,4 @@
-//go:build !linux && !darwin
-// +build !linux,!darwin
+// +build !linux
 
 package unshare
 
@@ -43,9 +42,4 @@ func GetHostIDMappings(pid string) ([]specs.LinuxIDMapping, []specs.LinuxIDMappi
 // ParseIDMappings parses mapping triples.
 func ParseIDMappings(uidmap, gidmap []string) ([]idtools.IDMap, []idtools.IDMap, error) {
 	return nil, nil, nil
-}
-
-// HasCapSysAdmin returns whether the current process has CAP_SYS_ADMIN.
-func HasCapSysAdmin() (bool, error) {
-	return os.Geteuid() == 0, nil
 }

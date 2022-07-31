@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,9 +20,6 @@ const shortLen = 12
 var (
 	validShortID = regexp.MustCompile("^[a-f0-9]{12}$")
 	validHex     = regexp.MustCompile(`^[a-f0-9]{64}$`)
-
-	rngLock sync.Mutex
-	rng     *rand.Rand // A RNG with seeding properties we control. It can only be accessed with randLock held.
 )
 
 // IsShortID determines if an arbitrary string *looks like* a short ID.
@@ -71,9 +67,7 @@ func GenerateRandomID() string {
 // secure sources of random.
 // It helps you to save entropy.
 func GenerateNonCryptoID() string {
-	rngLock.Lock()
-	defer rngLock.Unlock()
-	return generateID(readerFunc(rng.Read))
+	return generateID(readerFunc(rand.Read))
 }
 
 // ValidateID checks whether an ID string is a valid image ID.
@@ -85,7 +79,7 @@ func ValidateID(id string) error {
 }
 
 func init() {
-	// Initialize a private RNG so we generate random ids. Tries to use a
+	// safely set the seed globally so we generate random ids. Tries to use a
 	// crypto seed before falling back to time.
 	var seed int64
 	if cryptoseed, err := cryptorand.Int(cryptorand.Reader, big.NewInt(math.MaxInt64)); err != nil {
@@ -95,7 +89,7 @@ func init() {
 		seed = cryptoseed.Int64()
 	}
 
-	rng = rand.New(rand.NewSource(seed))
+	rand.Seed(seed)
 }
 
 type readerFunc func(p []byte) (int, error)
