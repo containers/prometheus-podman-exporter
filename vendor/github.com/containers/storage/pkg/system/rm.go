@@ -1,12 +1,12 @@
 package system
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/containers/storage/pkg/mount"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -67,7 +67,7 @@ func EnsureRemoveAll(dir string) error {
 		}
 
 		if e := mount.Unmount(pe.Path); e != nil {
-			return fmt.Errorf("while removing %s: %w", dir, e)
+			return errors.Wrapf(e, "error while removing %s", dir)
 		}
 
 		if exitOnErr[pe.Path] == maxRetry {

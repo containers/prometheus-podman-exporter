@@ -9,8 +9,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TODO: change name to MachineMarker since package is already called machine
-//nolint:revive
 type MachineMarker struct {
 	Enabled bool
 	Type    string
@@ -56,8 +54,6 @@ func IsPodmanMachine() bool {
 	return GetMachineMarker().Enabled
 }
 
-// TODO: change name to HostType since package is already called machine
-//nolint:revive
 func MachineHostType() string {
 	return GetMachineMarker().Type
 }

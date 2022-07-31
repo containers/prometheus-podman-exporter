@@ -6,12 +6,11 @@ package capabilities
 //       changed significantly to fit the needs of libpod.
 
 import (
-	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/syndtr/gocapability/capability"
 )
 
@@ -105,8 +104,8 @@ func AllCapabilities() []string {
 // NormalizeCapabilities normalizes caps by adding a "CAP_" prefix (if not yet
 // present).
 func NormalizeCapabilities(caps []string) ([]string, error) {
-	normalized := make([]string, 0, len(caps))
-	for _, c := range caps {
+	normalized := make([]string, len(caps))
+	for i, c := range caps {
 		c = strings.ToUpper(c)
 		if c == All {
 			normalized = append(normalized, c)
@@ -116,9 +115,9 @@ func NormalizeCapabilities(caps []string) ([]string, error) {
 			c = "CAP_" + c
 		}
 		if !stringInSlice(c, capabilityList) {
-			return nil, fmt.Errorf("%q: %w", c, ErrUnknownCapability)
+			return nil, errors.Wrapf(ErrUnknownCapability, "%q", c)
 		}
-		normalized = append(normalized, c)
+		normalized[i] = c
 	}
 	sort.Strings(normalized)
 	return normalized, nil
@@ -128,7 +127,7 @@ func NormalizeCapabilities(caps []string) ([]string, error) {
 func ValidateCapabilities(caps []string) error {
 	for _, c := range caps {
 		if !stringInSlice(c, capabilityList) {
-			return fmt.Errorf("%q: %w", c, ErrUnknownCapability)
+			return errors.Wrapf(ErrUnknownCapability, "%q", c)
 		}
 	}
 	return nil
@@ -141,6 +140,8 @@ func ValidateCapabilities(caps []string) error {
 // "ALL" in capAdd adds returns known capabilities
 // "All" in capDrop returns only the capabilities specified in capAdd
 func MergeCapabilities(base, adds, drops []string) ([]string, error) {
+	var caps []string
+
 	// Normalize the base capabilities
 	base, err := NormalizeCapabilities(base)
 	if err != nil {
@@ -177,18 +178,17 @@ func MergeCapabilities(base, adds, drops []string) ([]string, error) {
 	} else {
 		for _, add := range capAdd {
 			if stringInSlice(add, capDrop) {
-				return nil, fmt.Errorf("capability %q cannot be dropped and added", add)
+				return nil, errors.Errorf("capability %q cannot be dropped and added", add)
 			}
 		}
 	}
 
 	for _, drop := range capDrop {
 		if stringInSlice(drop, capAdd) {
-			return nil, fmt.Errorf("capability %q cannot be dropped and added", drop)
+			return nil, errors.Errorf("capability %q cannot be dropped and added", drop)
 		}
 	}
 
-	caps := make([]string, 0, len(base)+len(capAdd))
 	// Drop any capabilities in capDrop that are in base
 	for _, cap := range base {
 		if stringInSlice(cap, capDrop) {

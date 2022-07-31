@@ -1,5 +1,5 @@
-//go:build linux || freebsd
-// +build linux freebsd
+//go:build linux
+// +build linux
 
 package network
 
@@ -25,8 +25,14 @@ import (
 const (
 	// defaultNetworkBackendFileName is the file name for sentinel file to store the backend
 	defaultNetworkBackendFileName = "defaultNetworkBackend"
+	// cniConfigDir is the directory where cni configuration is found
+	cniConfigDir = "/etc/cni/net.d/"
 	// cniConfigDirRootless is the directory in XDG_CONFIG_HOME for cni plugins
 	cniConfigDirRootless = "cni/net.d/"
+	// netavarkConfigDir is the config directory for the rootful network files
+	netavarkConfigDir = "/etc/containers/networks"
+	// netavarkRunDir is the run directory for the rootful temporary network files such as the ipam db
+	netavarkRunDir = "/run/containers/networks"
 
 	// netavarkBinary is the name of the netavark binary
 	netavarkBinary = "netavark"
@@ -40,9 +46,6 @@ const (
 //   1. read ${graphroot}/defaultNetworkBackend
 //   2. find netavark binary (if not installed use CNI)
 //   3. check containers, images and CNI networks and if there are some we have an existing install and should continue to use CNI
-//
-// revive does not like the name because the package is already called network
-//nolint:revive
 func NetworkBackend(store storage.Store, conf *config.Config, syslog bool) (types.NetworkBackend, types.ContainerNetwork, error) {
 	backend := types.NetworkBackend(conf.Network.NetworkBackend)
 	if backend == "" {
@@ -84,7 +87,6 @@ func NetworkBackend(store storage.Store, conf *config.Config, syslog bool) (type
 			DefaultNetwork:     conf.Network.DefaultNetwork,
 			DefaultSubnet:      conf.Network.DefaultSubnet,
 			DefaultsubnetPools: conf.Network.DefaultSubnetPools,
-			DNSBindPort:        conf.Network.DNSBindPort,
 			Syslog:             syslog,
 		})
 		return types.Netavark, netInt, err
@@ -161,7 +163,7 @@ func getCniInterface(conf *config.Config) (types.ContainerNetwork, error) {
 	confDir := conf.Network.NetworkConfigDir
 	if confDir == "" {
 		var err error
-		confDir, err = getDefaultCNIConfigDir()
+		confDir, err = getDefultCNIConfigDir()
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +178,7 @@ func getCniInterface(conf *config.Config) (types.ContainerNetwork, error) {
 	})
 }
 
-func getDefaultCNIConfigDir() (string, error) {
+func getDefultCNIConfigDir() (string, error) {
 	if !unshare.IsRootless() {
 		return cniConfigDir, nil
 	}

@@ -1,4 +1,4 @@
-#if !defined(UNSHARE_NO_CODE_AT_ALL) && defined(__linux__)
+#ifndef UNSHARE_NO_CODE_AT_ALL
 
 #define _GNU_SOURCE
 #include <sys/types.h>

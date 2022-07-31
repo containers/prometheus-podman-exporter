@@ -1,4 +1,3 @@
-//go:build darwin
 // +build darwin
 
 // Package kernel provides helper function to get, parse and compare kernel
@@ -38,16 +37,16 @@ func getRelease() (string, error) {
 			// It has the format like '      Kernel Version: Darwin 14.5.0'
 			content := strings.SplitN(line, ":", 2)
 			if len(content) != 2 {
-				return "", fmt.Errorf("kernel version is invalid")
+				return "", fmt.Errorf("Kernel Version is invalid")
 			}
 
 			prettyNames, err := shellwords.Parse(content[1])
 			if err != nil {
-				return "", fmt.Errorf("kernel version is invalid: %s", err.Error())
+				return "", fmt.Errorf("Kernel Version is invalid: %s", err.Error())
 			}
 
 			if len(prettyNames) != 2 {
-				return "", fmt.Errorf("kernel version needs to be 'Darwin x.x.x' ")
+				return "", fmt.Errorf("Kernel Version needs to be 'Darwin x.x.x' ")
 			}
 			release = prettyNames[1]
 		}

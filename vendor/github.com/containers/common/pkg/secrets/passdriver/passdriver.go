@@ -3,8 +3,6 @@ package passdriver
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -12,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -108,7 +108,7 @@ func NewDriver(opts map[string]string) (*Driver, error) {
 func (d *Driver) List() (secrets []string, err error) {
 	files, err := ioutil.ReadDir(d.Root)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read secret directory: %w", err)
+		return nil, errors.Wrap(err, "failed to read secret directory")
 	}
 	for _, f := range files {
 		fileName := f.Name()
@@ -127,10 +127,10 @@ func (d *Driver) Lookup(id string) ([]byte, error) {
 		return nil, err
 	}
 	if err := d.gpg(context.TODO(), nil, out, "--decrypt", key); err != nil {
-		return nil, fmt.Errorf("%s: %w", id, errNoSecretData)
+		return nil, errors.Wrapf(errNoSecretData, id)
 	}
 	if out.Len() == 0 {
-		return nil, fmt.Errorf("%s: %w", id, errNoSecretData)
+		return nil, errors.Wrapf(errNoSecretData, id)
 	}
 	return out.Bytes(), nil
 }
@@ -138,7 +138,7 @@ func (d *Driver) Lookup(id string) ([]byte, error) {
 // Store saves the bytes associated with an ID. An error is returned if the ID already exists
 func (d *Driver) Store(id string, data []byte) error {
 	if _, err := d.Lookup(id); err == nil {
-		return fmt.Errorf("%s: %w", id, errSecretIDExists)
+		return errors.Wrap(errSecretIDExists, id)
 	}
 	in := bytes.NewReader(data)
 	key, err := d.getPath(id)
@@ -155,7 +155,7 @@ func (d *Driver) Delete(id string) error {
 		return err
 	}
 	if err := os.Remove(key); err != nil {
-		return fmt.Errorf("%s: %w", id, errNoSecretData)
+		return errors.Wrap(errNoSecretData, id)
 	}
 	return nil
 }

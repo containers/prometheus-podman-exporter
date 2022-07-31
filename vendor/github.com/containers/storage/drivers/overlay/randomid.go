@@ -1,4 +1,3 @@
-//go:build linux
 // +build linux
 
 package overlay
@@ -54,7 +53,7 @@ func generateID(l int) string {
 
 			// Any other errors represent a system problem. What did someone
 			// do to /dev/urandom?
-			panic(fmt.Errorf("reading random number generator, retried for %v: %w", totalBackoff.String(), err))
+			panic(fmt.Errorf("error reading random number generator, retried for %v: %v", totalBackoff.String(), err))
 		}
 
 		break

@@ -1,12 +1,9 @@
-//go:build !linux
-// +build !linux
-
 package cgroups
 
 import (
 	"bufio"
+	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -19,6 +16,7 @@ import (
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -145,7 +143,7 @@ func getAvailableControllers(exclude map[string]controllerHandler, cgroup2 bool)
 		}
 		controllersFileBytes, err := ioutil.ReadFile(controllersFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed while reading controllers for cgroup v2 from %q: %w", controllersFile, err)
+			return nil, errors.Wrapf(err, "failed while reading controllers for cgroup v2 from %q", controllersFile)
 		}
 		for _, controllerName := range strings.Fields(string(controllersFileBytes)) {
 			c := controller{
@@ -250,6 +248,47 @@ func (c *CgroupControl) getCgroupv1Path(name string) string {
 	return filepath.Join(cgroupRoot, name, c.path)
 }
 
+// createCgroupv2Path creates the cgroupv2 path and enables all the available controllers
+func createCgroupv2Path(path string) (deferredError error) {
+	if !strings.HasPrefix(path, cgroupRoot+"/") {
+		return fmt.Errorf("invalid cgroup path %s", path)
+	}
+	content, err := ioutil.ReadFile(cgroupRoot + "/cgroup.controllers")
+	if err != nil {
+		return err
+	}
+	ctrs := bytes.Fields(content)
+	res := append([]byte("+"), bytes.Join(ctrs, []byte(" +"))...)
+
+	current := "/sys/fs"
+	elements := strings.Split(path, "/")
+	for i, e := range elements[3:] {
+		current = filepath.Join(current, e)
+		if i > 0 {
+			if err := os.Mkdir(current, 0o755); err != nil {
+				if !os.IsExist(err) {
+					return err
+				}
+			} else {
+				// If the directory was created, be sure it is not left around on errors.
+				defer func() {
+					if deferredError != nil {
+						os.Remove(current)
+					}
+				}()
+			}
+		}
+		// We enable the controllers for all the path components except the last one.  It is not allowed to add
+		// PIDs if there are already enabled controllers.
+		if i < len(elements[3:])-1 {
+			if err := ioutil.WriteFile(filepath.Join(current, "cgroup.subtree_control"), res, 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // initialize initializes the specified hierarchy
 func (c *CgroupControl) initialize() (err error) {
 	createdSoFar := map[string]controllerHandler{}
@@ -264,7 +303,7 @@ func (c *CgroupControl) initialize() (err error) {
 	}()
 	if c.cgroup2 {
 		if err := createCgroupv2Path(filepath.Join(cgroupRoot, c.path)); err != nil {
-			return fmt.Errorf("error creating cgroup path %s: %w", c.path, err)
+			return errors.Wrapf(err, "error creating cgroup path %s", c.path)
 		}
 	}
 	for name, handler := range handlers {
@@ -285,12 +324,29 @@ func (c *CgroupControl) initialize() (err error) {
 			}
 			path := c.getCgroupv1Path(ctr.name)
 			if err := os.MkdirAll(path, 0o755); err != nil {
-				return fmt.Errorf("error creating cgroup path for %s: %w", ctr.name, err)
+				return errors.Wrapf(err, "error creating cgroup path for %s", ctr.name)
 			}
 		}
 	}
 
 	return nil
+}
+
+func (c *CgroupControl) createCgroupDirectory(controller string) (bool, error) {
+	cPath := c.getCgroupv1Path(controller)
+	_, err := os.Stat(cPath)
+	if err == nil {
+		return false, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	if err := os.MkdirAll(cPath, 0o755); err != nil {
+		return false, errors.Wrapf(err, "error creating cgroup for %s", controller)
+	}
+	return true, nil
 }
 
 func readFileAsUint64(path string) (uint64, error) {
@@ -304,7 +360,7 @@ func readFileAsUint64(path string) (uint64, error) {
 	}
 	ret, err := strconv.ParseUint(v, 10, 64)
 	if err != nil {
-		return ret, fmt.Errorf("parse %s from %s: %w", v, path, err)
+		return ret, errors.Wrapf(err, "parse %s from %s", v, path)
 	}
 	return ret, nil
 }
@@ -323,7 +379,7 @@ func readFileByKeyAsUint64(path, key string) (uint64, error) {
 			}
 			ret, err := strconv.ParseUint(v, 10, 64)
 			if err != nil {
-				return ret, fmt.Errorf("parse %s from %s: %w", v, path, err)
+				return ret, errors.Wrapf(err, "parse %s from %s", v, path)
 			}
 			return ret, nil
 		}
@@ -498,7 +554,7 @@ func (c *CgroupControl) DeleteByPathConn(path string, conn *systemdDbus.Conn) er
 		}
 		p := c.getCgroupv1Path(ctr.name)
 		if err := rmDirRecursively(p); err != nil {
-			lastError = fmt.Errorf("remove %s: %w", p, err)
+			lastError = errors.Wrapf(err, "remove %s", p)
 		}
 	}
 	return lastError
@@ -534,7 +590,7 @@ func (c *CgroupControl) AddPid(pid int) error {
 	if c.cgroup2 {
 		p := filepath.Join(cgroupRoot, c.path, "cgroup.procs")
 		if err := ioutil.WriteFile(p, pidString, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", p, err)
+			return errors.Wrapf(err, "write %s", p)
 		}
 		return nil
 	}
@@ -557,7 +613,7 @@ func (c *CgroupControl) AddPid(pid int) error {
 		}
 		p := filepath.Join(c.getCgroupv1Path(n), "tasks")
 		if err := ioutil.WriteFile(p, pidString, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", p, err)
+			return errors.Wrapf(err, "write %s", p)
 		}
 	}
 	return nil
@@ -569,7 +625,7 @@ func (c *CgroupControl) Stat() (*Metrics, error) {
 	found := false
 	for _, h := range handlers {
 		if err := h.Stat(c, &m); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+			if !os.IsNotExist(errors.Cause(err)) {
 				return nil, err
 			}
 			logrus.Warningf("Failed to retrieve cgroup stats: %v", err)
@@ -587,10 +643,10 @@ func readCgroup2MapPath(path string) (map[string][]string, error) {
 	ret := map[string][]string{}
 	f, err := os.Open(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if os.IsNotExist(err) {
 			return ret, nil
 		}
-		return nil, fmt.Errorf("open file %s: %w", path, err)
+		return nil, errors.Wrapf(err, "open file %s", path)
 	}
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
@@ -603,7 +659,7 @@ func readCgroup2MapPath(path string) (map[string][]string, error) {
 		ret[parts[0]] = parts[1:]
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("parsing file %s: %w", path, err)
+		return nil, errors.Wrapf(err, "parsing file %s", path)
 	}
 	return ret, nil
 }

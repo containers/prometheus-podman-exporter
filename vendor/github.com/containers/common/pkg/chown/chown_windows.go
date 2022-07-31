@@ -1,7 +1,7 @@
 package chown
 
 import (
-	"errors"
+	"github.com/pkg/errors"
 )
 
 // ChangeHostPathOwnership changes the uid and gid ownership of a directory or file within the host.

@@ -5,14 +5,24 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sync"
 
 	"github.com/containers/storage/pkg/archive"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/opencontainers/runc/libcontainer/userns"
+	"github.com/pkg/errors"
 )
+
+func init() {
+	// initialize nss libraries in Glibc so that the dynamic libraries are loaded in the host
+	// environment not in the chroot from untrusted files.
+	_, _ = user.Lookup("storage")
+	_, _ = net.LookupHost("localhost")
+}
 
 // NewArchiver returns a new Archiver which uses chrootarchive.Untar
 func NewArchiver(idMappings *idtools.IDMappings) *archive.Archiver {
@@ -62,7 +72,7 @@ func UntarUncompressed(tarArchive io.Reader, dest string, options *archive.TarOp
 // Handler for teasing out the automatic decompression
 func untarHandler(tarArchive io.Reader, dest string, options *archive.TarOptions, decompress bool, root string) error {
 	if tarArchive == nil {
-		return fmt.Errorf("empty archive")
+		return fmt.Errorf("Empty archive")
 	}
 	if options == nil {
 		options = &archive.TarOptions{}
@@ -114,7 +124,7 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 		archiver.Untar = func(tarArchive io.Reader, dest string, options *archive.TarOptions) error {
 			contentReader, contentWriter, err := os.Pipe()
 			if err != nil {
-				return fmt.Errorf("creating pipe extract data to %q: %w", dest, err)
+				return errors.Wrapf(err, "error creating pipe extract data to %q", dest)
 			}
 			defer contentReader.Close()
 			defer contentWriter.Close()
@@ -133,11 +143,11 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 				hashWorker.Done()
 			}()
 			if err = originalUntar(io.TeeReader(tarArchive, contentWriter), dest, options); err != nil {
-				err = fmt.Errorf("extracting data to %q while copying: %w", dest, err)
+				err = errors.Wrapf(err, "error extracting data to %q while copying", dest)
 			}
 			hashWorker.Wait()
 			if err == nil {
-				err = fmt.Errorf("calculating digest of data for %q while copying: %w", dest, hashError)
+				err = errors.Wrapf(hashError, "error calculating digest of data for %q while copying", dest)
 			}
 			return err
 		}

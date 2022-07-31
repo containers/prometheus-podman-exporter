@@ -1,7 +1,6 @@
 package fileutils
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"text/scanner"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -340,13 +340,13 @@ func ReadSymlinkedDirectory(path string) (string, error) {
 // The target of the symbolic link can be a file and a directory.
 func ReadSymlinkedPath(path string) (realPath string, err error) {
 	if realPath, err = filepath.Abs(path); err != nil {
-		return "", fmt.Errorf("unable to get absolute path for %q: %w", path, err)
+		return "", errors.Wrapf(err, "unable to get absolute path for %q", path)
 	}
 	if realPath, err = filepath.EvalSymlinks(realPath); err != nil {
-		return "", fmt.Errorf("failed to canonicalise path for %q: %w", path, err)
+		return "", errors.Wrapf(err, "failed to canonicalise path for %q", path)
 	}
 	if _, err := os.Stat(realPath); err != nil {
-		return "", fmt.Errorf("failed to stat target %q of %q: %w", realPath, path, err)
+		return "", errors.Wrapf(err, "failed to stat target %q of %q", realPath, path)
 	}
 	return realPath, nil
 }

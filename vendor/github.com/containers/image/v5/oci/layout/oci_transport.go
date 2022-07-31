@@ -3,7 +3,6 @@ package layout
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +10,13 @@ import (
 
 	"github.com/containers/image/v5/directory/explicitfilepath"
 	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/internal/image"
+	"github.com/containers/image/v5/image"
 	"github.com/containers/image/v5/oci/internal"
 	"github.com/containers/image/v5/transports"
 	"github.com/containers/image/v5/types"
 	"github.com/opencontainers/go-digest"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/pkg/errors"
 )
 
 func init() {
@@ -154,7 +154,11 @@ func (ref ociReference) PolicyConfigurationNamespaces() []string {
 // verify that UnparsedImage, and convert it into a real Image via image.FromUnparsedImage.
 // WARNING: This may not do the right thing for a manifest list, see image.FromSource for details.
 func (ref ociReference) NewImage(ctx context.Context, sys *types.SystemContext) (types.ImageCloser, error) {
-	return image.FromReference(ctx, sys, ref)
+	src, err := newImageSource(sys, ref)
+	if err != nil {
+		return nil, err
+	}
+	return image.FromSource(ctx, sys, src)
 }
 
 // getIndex returns a pointer to the index references by this ociReference. If an error occurs opening an index nil is returned together
@@ -215,7 +219,7 @@ func (ref ociReference) getManifestDescriptor() (imgspecv1.Descriptor, error) {
 func LoadManifestDescriptor(imgRef types.ImageReference) (imgspecv1.Descriptor, error) {
 	ociRef, ok := imgRef.(ociReference)
 	if !ok {
-		return imgspecv1.Descriptor{}, errors.New("error typecasting, need type ociRef")
+		return imgspecv1.Descriptor{}, errors.Errorf("error typecasting, need type ociRef")
 	}
 	return ociRef.getManifestDescriptor()
 }
@@ -234,7 +238,7 @@ func (ref ociReference) NewImageDestination(ctx context.Context, sys *types.Syst
 
 // DeleteImage deletes the named image from the registry, if supported.
 func (ref ociReference) DeleteImage(ctx context.Context, sys *types.SystemContext) error {
-	return errors.New("Deleting images not implemented for oci: images")
+	return errors.Errorf("Deleting images not implemented for oci: images")
 }
 
 // ociLayoutPath returns a path for the oci-layout within a directory using OCI conventions.
@@ -250,7 +254,7 @@ func (ref ociReference) indexPath() string {
 // blobPath returns a path for a blob within a directory using OCI image-layout conventions.
 func (ref ociReference) blobPath(digest digest.Digest, sharedBlobDir string) (string, error) {
 	if err := digest.Validate(); err != nil {
-		return "", fmt.Errorf("unexpected digest reference %s: %w", digest, err)
+		return "", errors.Wrapf(err, "unexpected digest reference %s", digest)
 	}
 	blobDir := filepath.Join(ref.dir, "blobs")
 	if sharedBlobDir != "" {

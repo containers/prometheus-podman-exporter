@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/containers/storage/pkg/idtools"
+	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -94,7 +95,7 @@ func createIDMappedMount(source, target string, pid int) error {
 	path := fmt.Sprintf("/proc/%d/ns/user", pid)
 	userNsFile, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("unable to get user ns file descriptor for %q: %w", path, err)
+		return errors.Wrapf(err, "unable to get user ns file descriptor for %q", path)
 	}
 
 	var attr attr

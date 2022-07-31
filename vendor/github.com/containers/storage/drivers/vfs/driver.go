@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -171,10 +170,6 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts, ro bool
 	}()
 
 	rootPerms := defaultPerms
-	if runtime.GOOS == "darwin" {
-		rootPerms = os.FileMode(0700)
-	}
-
 	if parent != "" {
 		st, err := system.Stat(d.dir(parent))
 		if err != nil {

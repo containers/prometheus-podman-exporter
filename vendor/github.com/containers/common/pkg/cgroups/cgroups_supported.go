@@ -5,17 +5,16 @@ package cgroups
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -88,7 +87,7 @@ func UserOwnsCurrentSystemdCgroup() (bool, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return false, fmt.Errorf("parsing file /proc/self/cgroup: %w", err)
+		return false, errors.Wrapf(err, "parsing file /proc/self/cgroup")
 	}
 	return true, nil
 }
@@ -97,23 +96,7 @@ func UserOwnsCurrentSystemdCgroup() (bool, error) {
 // It differs from os.RemoveAll as it doesn't attempt to unlink files.
 // On cgroupfs we are allowed only to rmdir empty directories.
 func rmDirRecursively(path string) error {
-	killProcesses := func(signal syscall.Signal) {
-		if signal == unix.SIGKILL {
-			if err := ioutil.WriteFile(filepath.Join(path, "cgroup.kill"), []byte("1"), 0o600); err == nil {
-				return
-			}
-		}
-		// kill all the processes that are still part of the cgroup
-		if procs, err := ioutil.ReadFile(filepath.Join(path, "cgroup.procs")); err == nil {
-			for _, pidS := range strings.Split(string(procs), "\n") {
-				if pid, err := strconv.Atoi(pidS); err == nil {
-					_ = unix.Kill(pid, signal)
-				}
-			}
-		}
-	}
-
-	if err := os.Remove(path); err == nil || errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(path); err == nil || os.IsNotExist(err) {
 		return nil
 	}
 	entries, err := ioutil.ReadDir(path)
@@ -131,25 +114,17 @@ func rmDirRecursively(path string) error {
 	attempts := 0
 	for {
 		err := os.Remove(path)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
+		if err == nil || os.IsNotExist(err) {
 			return nil
 		}
 		if errors.Is(err, unix.EBUSY) {
-			// send a SIGTERM after 3 second
-			if attempts == 300 {
-				killProcesses(unix.SIGTERM)
-			}
-			// send SIGKILL after 8 seconds
-			if attempts == 800 {
-				killProcesses(unix.SIGKILL)
-			}
-			// give up after 10 seconds
-			if attempts < 1000 {
+			// attempt up to 5 seconds if the cgroup is busy
+			if attempts < 500 {
 				time.Sleep(time.Millisecond * 10)
 				attempts++
 				continue
 			}
 		}
-		return fmt.Errorf("remove %s: %w", path, err)
+		return errors.Wrapf(err, "remove %s", path)
 	}
 }
