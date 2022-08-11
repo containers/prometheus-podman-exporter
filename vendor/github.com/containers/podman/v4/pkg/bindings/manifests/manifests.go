@@ -2,6 +2,8 @@ package manifests
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -15,7 +17,6 @@ import (
 	"github.com/containers/podman/v4/pkg/domain/entities"
 	"github.com/containers/podman/v4/pkg/errorhandling"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/pkg/errors"
 )
 
 // Create creates a manifest for the given name.  Optional images to be associated with
@@ -117,6 +118,26 @@ func Remove(ctx context.Context, name, digest string, _ *RemoveOptions) (string,
 	return Modify(ctx, name, []string{digest}, optionsv4)
 }
 
+// Delete removes specified manifest from local storage.
+func Delete(ctx context.Context, name string) (*entities.ManifestRemoveReport, error) {
+	var report entities.ManifestRemoveReport
+	conn, err := bindings.GetClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response, err := conn.DoRequest(ctx, nil, http.MethodDelete, "/manifests/%s", nil, nil, name)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	if err := response.Process(&report); err != nil {
+		return nil, err
+	}
+
+	return &report, errorhandling.JoinErrors(errorhandling.StringsToErrors(report.Errors))
+}
+
 // Push takes a manifest list and pushes to a destination.  If the destination is not specified,
 // the name will be used instead.  If the optional all boolean is specified, all images specified
 // in the list will be pushed as well.
@@ -199,19 +220,19 @@ func Modify(ctx context.Context, name string, images []string, options *ModifyOp
 
 	data, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return "", errors.Wrap(err, "unable to process API response")
+		return "", fmt.Errorf("unable to process API response: %w", err)
 	}
 
 	if response.IsSuccess() || response.IsRedirection() {
 		var report entities.ManifestModifyReport
 		if err = jsoniter.Unmarshal(data, &report); err != nil {
-			return "", errors.Wrap(err, "unable to decode API response")
+			return "", fmt.Errorf("unable to decode API response: %w", err)
 		}
 
 		err = errorhandling.JoinErrors(report.Errors)
 		if err != nil {
 			errModel := errorhandling.ErrorModel{
-				Because:      (errors.Cause(err)).Error(),
+				Because:      errorhandling.Cause(err).Error(),
 				Message:      err.Error(),
 				ResponseCode: response.StatusCode,
 			}
@@ -224,7 +245,7 @@ func Modify(ctx context.Context, name string, images []string, options *ModifyOp
 		ResponseCode: response.StatusCode,
 	}
 	if err = jsoniter.Unmarshal(data, &errModel); err != nil {
-		return "", errors.Wrap(err, "unable to decode API response")
+		return "", fmt.Errorf("unable to decode API response: %w", err)
 	}
 	return "", &errModel
 }

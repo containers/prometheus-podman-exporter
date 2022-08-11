@@ -2,6 +2,7 @@ package abi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -19,7 +20,6 @@ import (
 	"github.com/containers/podman/v4/utils"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/unshare"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 )
@@ -67,6 +67,22 @@ func (ic *ContainerEngine) Info(ctx context.Context) (*define.Info, error) {
 }
 
 func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) error {
+	runsUnderSystemd := utils.RunsOnSystemd()
+	if !runsUnderSystemd {
+		isPid1 := os.Getpid() == 1
+		if _, found := os.LookupEnv("container"); isPid1 || found {
+			if err := utils.MaybeMoveToSubCgroup(); err != nil {
+				// it is a best effort operation, so just print the
+				// error for debugging purposes.
+				logrus.Debugf("Could not move to subcgroup: %v", err)
+			}
+		}
+	}
+
+	if !rootless.IsRootless() {
+		return nil
+	}
+
 	// do it only after podman has already re-execed and running with uid==0.
 	hasCapSysAdmin, err := unshare.HasCapSysAdmin()
 	if err != nil {
@@ -82,7 +98,6 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 			if err != nil {
 				return err
 			}
-			runsUnderSystemd := utils.RunsOnSystemd()
 			unitName := fmt.Sprintf("podman-%d.scope", os.Getpid())
 			if runsUnderSystemd || conf.Engine.CgroupManager == config.SystemdCgroupsManager {
 				if err := utils.RunUnderSystemdScope(os.Getpid(), "user.slice", unitName); err != nil {
@@ -99,7 +114,7 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 	}
 	pausePidPath, err := util.GetRootlessPauseProcessPidPathGivenDir(tmpDir)
 	if err != nil {
-		return errors.Wrapf(err, "could not get pause process pid file path")
+		return fmt.Errorf("could not get pause process pid file path: %w", err)
 	}
 
 	became, ret, err := rootless.TryJoinPauseProcess(pausePidPath)
@@ -125,10 +140,16 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 		paths = append(paths, ctr.Config().ConmonPidFile)
 	}
 
-	became, ret, err = rootless.TryJoinFromFilePaths(pausePidPath, true, paths)
-	utils.MovePauseProcessToScope(pausePidPath)
+	if len(paths) > 0 {
+		became, ret, err = rootless.TryJoinFromFilePaths(pausePidPath, true, paths)
+	} else {
+		became, ret, err = rootless.BecomeRootInUserNS(pausePidPath)
+		if err == nil {
+			utils.MovePauseProcessToScope(pausePidPath)
+		}
+	}
 	if err != nil {
-		logrus.Error(errors.Wrapf(err, "invalid internal status, try resetting the pause process with %q", os.Args[0]+" system migrate"))
+		logrus.Error(fmt.Errorf("invalid internal status, try resetting the pause process with %q: %w", os.Args[0]+" system migrate", err))
 		os.Exit(1)
 	}
 	if became {
@@ -137,7 +158,7 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 	return nil
 }
 
-// SystemPrune removes unused data from the system. Pruning pods, containers, volumes and images.
+// SystemPrune removes unused data from the system. Pruning pods, containers, networks, volumes and images.
 func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.SystemPruneOptions) (*entities.SystemPruneReport, error) {
 	var systemPruneReport = new(entities.SystemPruneReport)
 	filters := []string{}
@@ -148,16 +169,20 @@ func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.Sys
 	found := true
 	for found {
 		found = false
-		podPruneReport, err := ic.prunePodHelper(ctx)
+
+		// TODO: Figure out cleaner way to handle all of the different PruneOptions
+		// Remove all unused pods.
+		podPruneReports, err := ic.prunePodHelper(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if len(podPruneReport) > 0 {
+		if len(podPruneReports) > 0 {
 			found = true
 		}
-		systemPruneReport.PodPruneReport = append(systemPruneReport.PodPruneReport, podPruneReport...)
 
-		// TODO: Figure out cleaner way to handle all of the different PruneOptions
+		systemPruneReport.PodPruneReport = append(systemPruneReport.PodPruneReport, podPruneReports...)
+
+		// Remove all unused containers.
 		containerPruneOptions := entities.ContainerPruneOptions{}
 		containerPruneOptions.Filters = (url.Values)(options.Filters)
 
@@ -165,16 +190,18 @@ func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.Sys
 		if err != nil {
 			return nil, err
 		}
+
 		reclaimedSpace += reports.PruneReportsSize(containerPruneReports)
 		systemPruneReport.ContainerPruneReports = append(systemPruneReport.ContainerPruneReports, containerPruneReports...)
+
+		// Remove all unused images.
 		imagePruneOptions := entities.ImagePruneOptions{
 			All:    options.All,
 			Filter: filters,
 		}
+
 		imageEngine := ImageEngine{Libpod: ic.Libpod}
 		imagePruneReports, err := imageEngine.Prune(ctx, imagePruneOptions)
-		reclaimedSpace += reports.PruneReportsSize(imagePruneReports)
-
 		if err != nil {
 			return nil, err
 		}
@@ -182,21 +209,42 @@ func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.Sys
 			found = true
 		}
 
+		reclaimedSpace += reports.PruneReportsSize(imagePruneReports)
 		systemPruneReport.ImagePruneReports = append(systemPruneReport.ImagePruneReports, imagePruneReports...)
+
+		// Remove all unused networks.
+		networkPruneOptions := entities.NetworkPruneOptions{}
+		networkPruneOptions.Filters = options.Filters
+
+		networkPruneReports, err := ic.NetworkPrune(ctx, networkPruneOptions)
+		if err != nil {
+			return nil, err
+		}
+		if len(networkPruneReports) > 0 {
+			found = true
+		}
+
+		// Networks reclaimedSpace are always '0'.
+		systemPruneReport.NetworkPruneReports = append(systemPruneReport.NetworkPruneReports, networkPruneReports...)
+
+		// Remove unused volume data.
 		if options.Volume {
 			volumePruneOptions := entities.VolumePruneOptions{}
 			volumePruneOptions.Filters = (url.Values)(options.Filters)
-			volumePruneReport, err := ic.VolumePrune(ctx, volumePruneOptions)
+
+			volumePruneReports, err := ic.VolumePrune(ctx, volumePruneOptions)
 			if err != nil {
 				return nil, err
 			}
-			if len(volumePruneReport) > 0 {
+			if len(volumePruneReports) > 0 {
 				found = true
 			}
-			reclaimedSpace += reports.PruneReportsSize(volumePruneReport)
-			systemPruneReport.VolumePruneReports = append(systemPruneReport.VolumePruneReports, volumePruneReport...)
+
+			reclaimedSpace += reports.PruneReportsSize(volumePruneReports)
+			systemPruneReport.VolumePruneReports = append(systemPruneReport.VolumePruneReports, volumePruneReports...)
 		}
 	}
+
 	systemPruneReport.ReclaimedSpace = reclaimedSpace
 	return systemPruneReport, nil
 }
@@ -235,22 +283,22 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 		iid, _ := c.Image()
 		state, err := c.State()
 		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to get state of container %s", c.ID())
+			return nil, fmt.Errorf("failed to get state of container %s: %w", c.ID(), err)
 		}
 		conSize, err := c.RootFsSize()
 		if err != nil {
-			if errors.Cause(err) == storage.ErrContainerUnknown {
-				logrus.Error(errors.Wrapf(err, "Failed to get root file system size of container %s", c.ID()))
+			if errors.Is(err, storage.ErrContainerUnknown) {
+				logrus.Error(fmt.Errorf("failed to get root file system size of container %s: %w", c.ID(), err))
 			} else {
-				return nil, errors.Wrapf(err, "Failed to get root file system size of container %s", c.ID())
+				return nil, fmt.Errorf("failed to get root file system size of container %s: %w", c.ID(), err)
 			}
 		}
 		rwsize, err := c.RWSize()
 		if err != nil {
-			if errors.Cause(err) == storage.ErrContainerUnknown {
-				logrus.Error(errors.Wrapf(err, "Failed to get read/write size of container %s", c.ID()))
+			if errors.Is(err, storage.ErrContainerUnknown) {
+				logrus.Error(fmt.Errorf("failed to get read/write size of container %s: %w", c.ID(), err))
 			} else {
-				return nil, errors.Wrapf(err, "Failed to get read/write size of container %s", c.ID())
+				return nil, fmt.Errorf("failed to get read/write size of container %s: %w", c.ID(), err)
 			}
 		}
 		report := entities.SystemDfContainerReport{
@@ -283,8 +331,8 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 	}
 
 	dfVolumes := make([]*entities.SystemDfVolumeReport, 0, len(vols))
-	var reclaimableSize uint64
 	for _, v := range vols {
+		var reclaimableSize uint64
 		var consInUse int
 		mountPoint, err := v.MountPoint()
 		if err != nil {
@@ -305,7 +353,7 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 			return nil, err
 		}
 		if len(inUse) == 0 {
-			reclaimableSize += volSize
+			reclaimableSize = volSize
 		}
 		for _, viu := range inUse {
 			if cutil.StringInSlice(viu, runningContainers) {
@@ -328,7 +376,7 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 }
 
 func (se *SystemEngine) Reset(ctx context.Context) error {
-	return se.Libpod.Reset(ctx)
+	return nil
 }
 
 func (se *SystemEngine) Renumber(ctx context.Context, flags *pflag.FlagSet, config *entities.PodmanConfig) error {
@@ -368,9 +416,9 @@ func (ic *ContainerEngine) Unshare(ctx context.Context, args []string, options e
 		}
 		// Make sure to unlock, unshare can run for a long time.
 		rootlessNetNS.Lock.Unlock()
-		// We do not want to cleanup the netns after unshare.
-		// The problem is that we cannot know if we need to cleanup and
-		// secondly unshare should allow user to setup the namespace with
+		// We do not want to clean up the netns after unshare.
+		// The problem is that we cannot know if we need to clean up and
+		// secondly unshare should allow user to set up the namespace with
 		// special things, e.g. potentially macvlan or something like that.
 		return rootlessNetNS.Do(unshare)
 	}
