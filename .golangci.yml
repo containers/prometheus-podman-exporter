@@ -16,6 +16,7 @@ linters:
     - maligned
     - interfacer
     - scopelint
+    - gomoddirectives
 linters-settings:
   errcheck:
     check-blank: false

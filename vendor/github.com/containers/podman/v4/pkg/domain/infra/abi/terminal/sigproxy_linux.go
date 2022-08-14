@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"errors"
 	"os"
 	"syscall"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/libpod/shutdown"
 	"github.com/containers/podman/v4/pkg/signal"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,7 +20,7 @@ const signalBufferSize = 2048
 func ProxySignals(ctr *libpod.Container) {
 	// Stop catching the shutdown signals (SIGINT, SIGTERM) - they're going
 	// to the container now.
-	shutdown.Stop() // nolint: errcheck
+	shutdown.Stop() //nolint: errcheck
 
 	sigBuffer := make(chan os.Signal, signalBufferSize)
 	signal.CatchAll(sigBuffer)
@@ -39,7 +39,7 @@ func ProxySignals(ctr *libpod.Container) {
 			}
 
 			if err := ctr.Kill(uint(s.(syscall.Signal))); err != nil {
-				if errors.Cause(err) == define.ErrCtrStateInvalid {
+				if errors.Is(err, define.ErrCtrStateInvalid) {
 					logrus.Infof("Ceasing signal forwarding to container %s as it has stopped", ctr.ID())
 				} else {
 					logrus.Errorf("forwarding signal %d to container %s: %v", s, ctr.ID(), err)

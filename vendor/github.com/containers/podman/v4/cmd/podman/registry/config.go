@@ -11,7 +11,6 @@ import (
 	"github.com/containers/podman/v4/pkg/domain/entities"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/util"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -92,14 +91,14 @@ func setXdgDirs() error {
 		return nil
 	}
 
-	// Setup XDG_RUNTIME_DIR
+	// Set up XDG_RUNTIME_DIR
 	if _, found := os.LookupEnv("XDG_RUNTIME_DIR"); !found {
 		dir, err := util.GetRuntimeDir()
 		if err != nil {
 			return err
 		}
 		if err := os.Setenv("XDG_RUNTIME_DIR", dir); err != nil {
-			return errors.Wrapf(err, "cannot set XDG_RUNTIME_DIR="+dir)
+			return fmt.Errorf("cannot set XDG_RUNTIME_DIR=%s: %w", dir, err)
 		}
 	}
 
@@ -110,14 +109,14 @@ func setXdgDirs() error {
 		}
 	}
 
-	// Setup XDG_CONFIG_HOME
+	// Set up XDG_CONFIG_HOME
 	if _, found := os.LookupEnv("XDG_CONFIG_HOME"); !found {
 		cfgHomeDir, err := util.GetRootlessConfigHomeDir()
 		if err != nil {
 			return err
 		}
 		if err := os.Setenv("XDG_CONFIG_HOME", cfgHomeDir); err != nil {
-			return errors.Wrapf(err, "cannot set XDG_CONFIG_HOME="+cfgHomeDir)
+			return fmt.Errorf("cannot set XDG_CONFIG_HOME=%s: %w", cfgHomeDir, err)
 		}
 	}
 	return nil
