@@ -2,6 +2,8 @@ package tunnel
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -12,14 +14,12 @@ import (
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/types"
-	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/bindings/images"
 	"github.com/containers/podman/v4/pkg/domain/entities"
 	"github.com/containers/podman/v4/pkg/domain/entities/reports"
 	"github.com/containers/podman/v4/pkg/domain/utils"
 	"github.com/containers/podman/v4/pkg/errorhandling"
 	utils2 "github.com/containers/podman/v4/utils"
-	"github.com/pkg/errors"
 )
 
 func (ir *ImageEngine) Exists(_ context.Context, nameOrID string) (*entities.BoolReport, error) {
@@ -28,7 +28,7 @@ func (ir *ImageEngine) Exists(_ context.Context, nameOrID string) (*entities.Boo
 }
 
 func (ir *ImageEngine) Remove(ctx context.Context, imagesArg []string, opts entities.ImageRemoveOptions) (*entities.ImageRemoveReport, []error) {
-	options := new(images.RemoveOptions).WithForce(opts.Force).WithIgnore(opts.Ignore).WithAll(opts.All)
+	options := new(images.RemoveOptions).WithForce(opts.Force).WithIgnore(opts.Ignore).WithAll(opts.All).WithLookupManifest(opts.LookupManifest)
 	return images.Remove(ir.ClientCtx, imagesArg, options)
 }
 
@@ -123,10 +123,6 @@ func (ir *ImageEngine) Pull(ctx context.Context, rawImage string, opts entities.
 	return &entities.ImagePullReport{Images: pulledImages}, nil
 }
 
-func (ir *ImageEngine) Transfer(ctx context.Context, source entities.ImageScpOptions, dest entities.ImageScpOptions, parentFlags []string) error {
-	return errors.Wrapf(define.ErrNotImplemented, "cannot use the remote client to transfer images between root and rootless storage")
-}
-
 func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, opt entities.ImageTagOptions) error {
 	options := new(images.TagOptions)
 	for _, newTag := range tags {
@@ -135,7 +131,7 @@ func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, 
 		)
 		ref, err := reference.Parse(newTag)
 		if err != nil {
-			return errors.Wrapf(err, "error parsing reference %q", newTag)
+			return fmt.Errorf("error parsing reference %q: %w", newTag, err)
 		}
 		if t, ok := ref.(reference.Tagged); ok {
 			tag = t.Tag()
@@ -144,7 +140,7 @@ func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, 
 			repo = r.Name()
 		}
 		if len(repo) < 1 {
-			return errors.Errorf("invalid image name %q", nameOrID)
+			return fmt.Errorf("invalid image name %q", nameOrID)
 		}
 		if err := images.Tag(ir.ClientCtx, nameOrID, tag, repo, options); err != nil {
 			return err
@@ -165,7 +161,7 @@ func (ir *ImageEngine) Untag(ctx context.Context, nameOrID string, tags []string
 		)
 		ref, err := reference.Parse(newTag)
 		if err != nil {
-			return errors.Wrapf(err, "error parsing reference %q", newTag)
+			return fmt.Errorf("error parsing reference %q: %w", newTag, err)
 		}
 		if t, ok := ref.(reference.Tagged); ok {
 			tag = t.Tag()
@@ -177,7 +173,7 @@ func (ir *ImageEngine) Untag(ctx context.Context, nameOrID string, tags []string
 			repo = r.Name()
 		}
 		if len(repo) < 1 {
-			return errors.Errorf("invalid image name %q", nameOrID)
+			return fmt.Errorf("invalid image name %q", nameOrID)
 		}
 		if err := images.Untag(ir.ClientCtx, nameOrID, tag, repo, options); err != nil {
 			return err
@@ -198,7 +194,7 @@ func (ir *ImageEngine) Inspect(ctx context.Context, namesOrIDs []string, opts en
 				return nil, nil, err
 			}
 			if errModel.ResponseCode == 404 {
-				errs = append(errs, errors.Wrapf(err, "unable to inspect %q", i))
+				errs = append(errs, fmt.Errorf("unable to inspect %q: %w", i, err))
 				continue
 			}
 			return nil, nil, err
@@ -219,7 +215,7 @@ func (ir *ImageEngine) Load(ctx context.Context, opts entities.ImageLoadOptions)
 		return nil, err
 	}
 	if fInfo.IsDir() {
-		return nil, errors.Errorf("remote client supports archives only but %q is a directory", opts.Input)
+		return nil, fmt.Errorf("remote client supports archives only but %q is a directory", opts.Input)
 	}
 	return images.Load(ir.ClientCtx, f)
 }
@@ -244,7 +240,7 @@ func (ir *ImageEngine) Import(ctx context.Context, opts entities.ImageImportOpti
 
 func (ir *ImageEngine) Push(ctx context.Context, source string, destination string, opts entities.ImagePushOptions) error {
 	options := new(images.PushOptions)
-	options.WithAll(opts.All).WithCompress(opts.Compress).WithUsername(opts.Username).WithPassword(opts.Password).WithAuthfile(opts.Authfile).WithFormat(opts.Format)
+	options.WithAll(opts.All).WithCompress(opts.Compress).WithUsername(opts.Username).WithPassword(opts.Password).WithAuthfile(opts.Authfile).WithFormat(opts.Format).WithRemoveSignatures(opts.RemoveSignatures).WithQuiet(opts.Quiet)
 
 	if s := opts.SkipTLSVerify; s != types.OptionalBoolUndefined {
 		if s == types.OptionalBoolTrue {
@@ -300,7 +296,7 @@ func (ir *ImageEngine) Save(ctx context.Context, nameOrID string, tags []string,
 	switch {
 	case err == nil:
 		if info.Mode().IsRegular() {
-			return errors.Errorf("%q already exists as a regular file", opts.Output)
+			return fmt.Errorf("%q already exists as a regular file", opts.Output)
 		}
 	case os.IsNotExist(err):
 		if err := os.Mkdir(opts.Output, 0755); err != nil {
@@ -366,4 +362,24 @@ func (ir *ImageEngine) Shutdown(_ context.Context) {
 
 func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entities.SignOptions) (*entities.SignReport, error) {
 	return nil, errors.New("not implemented yet")
+}
+
+func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool) error {
+	options := new(images.ScpOptions)
+
+	var destination *string
+	if len(dst) > 1 {
+		destination = &dst
+	}
+	options.Quiet = &quiet
+	options.Destination = destination
+
+	rep, err := images.Scp(ir.ClientCtx, &src, destination, *options)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Loaded Image(s):", rep.Id)
+
+	return nil
 }

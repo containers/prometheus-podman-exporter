@@ -5,6 +5,7 @@ package infra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,7 +19,6 @@ import (
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/types"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 )
@@ -37,6 +37,7 @@ type engineOpts struct {
 	migrate  bool
 	noStore  bool
 	withFDS  bool
+	reset    bool
 	config   *entities.PodmanConfig
 }
 
@@ -48,6 +49,7 @@ func GetRuntimeMigrate(ctx context.Context, fs *flag.FlagSet, cfg *entities.Podm
 		migrate:  true,
 		noStore:  false,
 		withFDS:  true,
+		reset:    false,
 		config:   cfg,
 	})
 }
@@ -59,6 +61,7 @@ func GetRuntimeDisableFDs(ctx context.Context, fs *flag.FlagSet, cfg *entities.P
 		migrate:  false,
 		noStore:  false,
 		withFDS:  false,
+		reset:    false,
 		config:   cfg,
 	})
 }
@@ -70,6 +73,7 @@ func GetRuntimeRenumber(ctx context.Context, fs *flag.FlagSet, cfg *entities.Pod
 		migrate:  false,
 		noStore:  false,
 		withFDS:  true,
+		reset:    false,
 		config:   cfg,
 	})
 }
@@ -82,6 +86,7 @@ func GetRuntime(ctx context.Context, flags *flag.FlagSet, cfg *entities.PodmanCo
 			migrate:  false,
 			noStore:  false,
 			withFDS:  true,
+			reset:    false,
 			config:   cfg,
 		})
 	})
@@ -95,6 +100,18 @@ func GetRuntimeNoStore(ctx context.Context, fs *flag.FlagSet, cfg *entities.Podm
 		migrate:  false,
 		noStore:  true,
 		withFDS:  true,
+		reset:    false,
+		config:   cfg,
+	})
+}
+
+func GetRuntimeReset(ctx context.Context, fs *flag.FlagSet, cfg *entities.PodmanConfig) (*libpod.Runtime, error) {
+	return getRuntime(ctx, fs, &engineOpts{
+		renumber: false,
+		migrate:  false,
+		noStore:  false,
+		withFDS:  true,
+		reset:    true,
 		config:   cfg,
 	})
 }
@@ -159,6 +176,10 @@ func getRuntime(ctx context.Context, fs *flag.FlagSet, opts *engineOpts) (*libpo
 		if opts.name != "" {
 			options = append(options, libpod.WithMigrateRuntime(opts.name))
 		}
+	}
+
+	if opts.reset {
+		options = append(options, libpod.WithReset())
 	}
 
 	if opts.renumber {
@@ -295,7 +316,7 @@ func ParseIDMapping(mode namespaces.UsernsMode, uidMapSlice, gidMapSlice []strin
 
 		uids, gids, err := rootless.GetConfiguredMappings()
 		if err != nil {
-			return nil, errors.Wrapf(err, "cannot read mappings")
+			return nil, fmt.Errorf("cannot read mappings: %w", err)
 		}
 		maxUID, maxGID := 0, 0
 		for _, u := range uids {
@@ -321,7 +342,7 @@ func ParseIDMapping(mode namespaces.UsernsMode, uidMapSlice, gidMapSlice []strin
 
 		options.HostUIDMapping = false
 		options.HostGIDMapping = false
-		// Simply ignore the setting and do not setup an inner namespace for root as it is a no-op
+		// Simply ignore the setting and do not set up an inner namespace for root as it is a no-op
 		return &options, nil
 	}
 
@@ -373,7 +394,7 @@ func ParseIDMapping(mode namespaces.UsernsMode, uidMapSlice, gidMapSlice []strin
 
 // StartWatcher starts a new SIGHUP go routine for the current config.
 func StartWatcher(rt *libpod.Runtime) {
-	// Setup the signal notifier
+	// Set up the signal notifier
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP)
 
