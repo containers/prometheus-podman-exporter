@@ -135,6 +135,26 @@ podman_container_created_seconds{id="642490688d9c"} 1.655859511e+09
 podman_container_created_seconds{id="ad36e85960a1"} 1.655859858e+09
 podman_container_created_seconds{id="dda983cc3ecf"} 1.655859839e+09
 
+# HELP podman_container_started_seconds Container started time in unixtime.
+# TYPE podman_container_started_seconds gauge
+podman_container_started_seconds{id="19286a13dc23"} 1.659253804e+09
+podman_container_started_seconds{id="22e3d69be889"} -6.21355968e+10
+podman_container_started_seconds{id="390ac740fa80"} 1.66064284e+09
+podman_container_started_seconds{id="482113b805f7"} 1.659253804e+09
+podman_container_started_seconds{id="642490688d9c"} 1.660642996e+09
+podman_container_started_seconds{id="ad36e85960a1"} 1.66064284e+09
+podman_container_started_seconds{id="dda983cc3ecf"} 1.66064284e+09
+
+# HELP podman_container_exited_seconds Container exited time in unixtime.
+# TYPE podman_container_exited_seconds gauge
+podman_container_exited_seconds{id="19286a13dc23"} 1.659253805e+09
+podman_container_exited_seconds{id="22e3d69be889"} -6.21355968e+10
+podman_container_exited_seconds{id="390ac740fa80"} 1.660643511e+09
+podman_container_exited_seconds{id="482113b805f7"} 1.659253805e+09
+podman_container_exited_seconds{id="642490688d9c"} 1.659253804e+09
+podman_container_exited_seconds{id="ad36e85960a1"} 1.660643511e+09
+podman_container_exited_seconds{id="dda983cc3ecf"} 1.660643511e+09
+
 # HELP podman_container_mem_limit_bytes Container memory limit.
 # TYPE podman_container_mem_limit_bytes gauge
 podman_container_mem_limit_bytes{id="19286a13dc23"} 9.713655808e+09

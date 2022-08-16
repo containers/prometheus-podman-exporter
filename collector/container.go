@@ -10,6 +10,8 @@ type containerCollector struct {
 	info        typedDesc
 	state       typedDesc
 	created     typedDesc
+	started     typedDesc
+	exited      typedDesc
 	pids        typedDesc
 	cpu         typedDesc
 	cpuSystem   typedDesc
@@ -48,6 +50,20 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "created_seconds"),
 				"Container creation time in unixtime.",
+				[]string{"id"}, nil,
+			), prometheus.GaugeValue,
+		},
+		started: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "started_seconds"),
+				"Container started time in unixtime.",
+				[]string{"id"}, nil,
+			), prometheus.GaugeValue,
+		},
+		exited: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "exited_seconds"),
+				"Container exited time in unixtime.",
 				[]string{"id"}, nil,
 			), prometheus.GaugeValue,
 		},
@@ -129,6 +145,8 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 		ch <- c.info.mustNewConstMetric(1, rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID)
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
+		ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID)
+		ch <- c.exited.mustNewConstMetric(float64(rep.Exited), rep.ID)
 	}
 
 	statReports, err := pdcs.ContainersStats()

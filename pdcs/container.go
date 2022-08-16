@@ -20,6 +20,8 @@ type Container struct {
 	Name    string
 	Image   string
 	Created int64
+	Started int64
+	Exited  int64
 	Ports   string
 	State   int
 }
@@ -60,6 +62,8 @@ func Containers() ([]Container, error) {
 			Name:    rep.Names[0],
 			Image:   rep.Image,
 			Created: rep.Created.Unix(),
+			Started: rep.StartedAt,
+			Exited:  rep.ExitedAt,
 			State:   conReporter{rep}.state(),
 			Ports:   conReporter{rep}.ports(),
 		})
