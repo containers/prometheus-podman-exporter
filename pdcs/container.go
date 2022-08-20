@@ -15,15 +15,16 @@ const (
 
 // Container implements container's basic information and its state.
 type Container struct {
-	ID      string
-	PodID   string // if container is part of pod
-	Name    string
-	Image   string
-	Created int64
-	Started int64
-	Exited  int64
-	Ports   string
-	State   int
+	ID       string
+	PodID    string // if container is part of pod
+	Name     string
+	Image    string
+	Created  int64
+	Started  int64
+	Exited   int64
+	ExitCode int32
+	Ports    string
+	State    int
 }
 
 // ContainerStat implements container's stat.
@@ -57,15 +58,16 @@ func Containers() ([]Container, error) {
 		}
 
 		containers = append(containers, Container{
-			ID:      rep.ID[0:12],
-			PodID:   podID,
-			Name:    rep.Names[0],
-			Image:   rep.Image,
-			Created: rep.Created.Unix(),
-			Started: rep.StartedAt,
-			Exited:  rep.ExitedAt,
-			State:   conReporter{rep}.state(),
-			Ports:   conReporter{rep}.ports(),
+			ID:       rep.ID[0:12],
+			PodID:    podID,
+			Name:     rep.Names[0],
+			Image:    rep.Image,
+			Created:  rep.Created.Unix(),
+			Started:  rep.StartedAt,
+			Exited:   rep.ExitedAt,
+			ExitCode: rep.ExitCode,
+			State:    conReporter{rep}.state(),
+			Ports:    conReporter{rep}.ports(),
 		})
 	}
 

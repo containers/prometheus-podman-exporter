@@ -145,6 +145,16 @@ podman_container_started_seconds{id="642490688d9c"} 1.660642996e+09
 podman_container_started_seconds{id="ad36e85960a1"} 1.66064284e+09
 podman_container_started_seconds{id="dda983cc3ecf"} 1.66064284e+09
 
+# HELP podman_container_exit_code Container exit code, if the container has not exited or restarted then the exit code will be 0.
+# TYPE podman_container_exit_code gauge
+podman_container_exit_code{id="19286a13dc23"} 0
+podman_container_exit_code{id="22e3d69be889"} 0
+podman_container_exit_code{id="390ac740fa80"} 1
+podman_container_exit_code{id="482113b805f7"} 0
+podman_container_exit_code{id="642490688d9c"} 0
+podman_container_exit_code{id="ad36e85960a1"} 130
+podman_container_exit_code{id="dda983cc3ecf"} 0
+
 # HELP podman_container_exited_seconds Container exited time in unixtime.
 # TYPE podman_container_exited_seconds gauge
 podman_container_exited_seconds{id="19286a13dc23"} 1.659253805e+09
