@@ -32,7 +32,8 @@ const (
 )
 
 const (
-	stateUnknown = -1
+	stateUnknown  = -1
+	noneReference = "<none>"
 )
 
 // ErrDeadline deadline exceeded error.

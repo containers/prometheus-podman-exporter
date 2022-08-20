@@ -1,8 +1,9 @@
 package pdcs
 
 import (
-	"strings"
+	"fmt"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/podman/v4/cmd/podman/registry"
 	"github.com/containers/podman/v4/pkg/domain/entities"
 )
@@ -53,13 +54,35 @@ func Images() ([]Image, error) {
 }
 
 func repoTagDecompose(repoTags string) (string, string) {
-	tag := ""
-	sp := strings.Split(repoTags, ":")
-	repository := sp[0]
-
-	if len(sp) > 1 {
-		tag = sp[1]
+	noneName := fmt.Sprintf("%s:%s", noneReference, noneReference)
+	if repoTags == noneName {
+		return noneReference, noneReference
 	}
 
-	return repository, tag
+	repo, err := reference.Parse(repoTags)
+	if err != nil {
+		return noneReference, noneReference
+	}
+
+	named, ok := repo.(reference.Named)
+	if !ok {
+		return repoTags, noneReference
+	}
+
+	name := named.Name()
+	if name == "" {
+		name = noneReference
+	}
+
+	tagged, ok := repo.(reference.Tagged)
+	if !ok {
+		return name, noneReference
+	}
+
+	tag := tagged.Tag()
+	if tag == "" {
+		tag = noneReference
+	}
+
+	return name, tag
 }
