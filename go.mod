@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/containers/common v0.49.1
+	github.com/containers/image/v5 v5.22.0
 	github.com/containers/podman/v4 v4.2.0
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
@@ -36,7 +37,6 @@ require (
 	github.com/containernetworking/plugins v1.1.1 // indirect
 	github.com/containers/buildah v1.27.0 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
-	github.com/containers/image/v5 v5.22.0 // indirect
 	github.com/containers/libtrust v0.0.0-20200511145503-9c3a6c22cd9a // indirect
 	github.com/containers/ocicrypt v1.1.5 // indirect
 	github.com/containers/psgo v1.7.2 // indirect
