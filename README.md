@@ -249,30 +249,30 @@ podman_pod_created_seconds{id="d05cda23085a"} 1.655489348e+09
 ```shell
 # HELP podman_image_info Image information.
 # TYPE podman_image_info gauge
-podman_image_info{id="48565a8e6250",repository="docker.io/bitnami/prometheus",tag="latest"} 1
-podman_image_info{id="62aedd01bd85",repository="docker.io/library/busybox",tag="latest"} 1
-podman_image_info{id="75c013514322",repository="docker.io/library/sonarqube",tag="latest"} 1
-podman_image_info{id="a45fa0117c2b",repository="localhost/podman-pause",tag="4.1.0-1651853754"} 1
-podman_image_info{id="b260a49eebf9",repository="docker.io/library/httpd",tag="latest"} 1
-podman_image_info{id="c4b778290339",repository="docker.io/grafana/grafana",tag="latest"} 1
+podman_image_info{id="48565a8e6250",parent_id="",repository="docker.io/bitnami/prometheus",tag="latest"} 1
+podman_image_info{id="62aedd01bd85",parent_id="",repository="docker.io/library/busybox",tag="latest"} 1
+podman_image_info{id="75c013514322",parent_id="",repository="docker.io/library/sonarqube",tag="latest"} 1
+podman_image_info{id="a45fa0117c2b",parent_id="",repository="localhost/podman-pause",tag="4.1.0-1651853754"} 1
+podman_image_info{id="b260a49eebf9",parent_id="",repository="docker.io/library/httpd",tag="latest"} 1
+podman_image_info{id="c4b778290339",parent_id="b260a49eebf9",repository="docker.io/grafana/grafana",tag="latest"} 1
 
 # HELP podman_image_created_seconds Image creation time in unixtime.
 # TYPE podman_image_created_seconds gauge
-podman_image_created_seconds{id="48565a8e6250"} 1.655436988e+09
-podman_image_created_seconds{id="62aedd01bd85"} 1.654651161e+09
-podman_image_created_seconds{id="75c013514322"} 1.654883091e+09
-podman_image_created_seconds{id="a45fa0117c2b"} 1.655484887e+09
-podman_image_created_seconds{id="b260a49eebf9"} 1.655163309e+09
-podman_image_created_seconds{id="c4b778290339"} 1.655132996e+09
+podman_image_created_seconds{id="48565a8e6250",repository="docker.io/bitnami/prometheus",tag="latest"} 1.655436988e+09
+podman_image_created_seconds{id="62aedd01bd85",repository="docker.io/library/busybox",tag="latest"} 1.654651161e+09
+podman_image_created_seconds{id="75c013514322",repository="docker.io/library/sonarqube",tag="latest"} 1.654883091e+09
+podman_image_created_seconds{id="a45fa0117c2b",repository="localhost/podman-pause",tag="4.1.0-1651853754"} 1.655484887e+09
+podman_image_created_seconds{id="b260a49eebf9",repository="docker.io/library/httpd",tag="latest"} 1.655163309e+09
+podman_image_created_seconds{id="c4b778290339",repository="docker.io/grafana/grafana",tag="latest"} 1.655132996e+09
 
 # HELP podman_image_size Image size
 # TYPE podman_image_size gauge
-podman_image_size{id="48565a8e6250"} 5.11822059e+08
-podman_image_size{id="62aedd01bd85"} 1.468102e+06
-podman_image_size{id="75c013514322"} 5.35070053e+08
-podman_image_size{id="a45fa0117c2b"} 815742
-podman_image_size{id="b260a49eebf9"} 1.49464899e+08
-podman_image_size{id="c4b778290339"} 2.98969093e+08
+podman_image_size{id="48565a8e6250",repository="docker.io/bitnami/prometheus",tag="latest"} 5.11822059e+08
+podman_image_size{id="62aedd01bd85",repository="docker.io/library/busybox",tag="latest"} 1.468102e+06
+podman_image_size{id="75c013514322",repository="docker.io/library/sonarqube",tag="latest"} 5.35070053e+08
+podman_image_size{id="a45fa0117c2b",repository="localhost/podman-pause",tag="4.1.0-1651853754"} 815742
+podman_image_size{id="b260a49eebf9",repository="docker.io/library/httpd",tag="latest"} 1.49464899e+08
+podman_image_size{id="c4b778290339",repository="docker.io/grafana/grafana",tag="latest"} 2.98969093e+08
 ```
 
 #### `network`
