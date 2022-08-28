@@ -12,6 +12,7 @@ type containerCollector struct {
 	created     typedDesc
 	started     typedDesc
 	exited      typedDesc
+	exitCode    typedDesc
 	pids        typedDesc
 	cpu         typedDesc
 	cpuSystem   typedDesc
@@ -64,6 +65,13 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "exited_seconds"),
 				"Container exited time in unixtime.",
+				[]string{"id"}, nil,
+			), prometheus.GaugeValue,
+		},
+		exitCode: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "exit_code"),
+				"Container exit code, if the container has not exited or restarted then the exit code will be 0.",
 				[]string{"id"}, nil,
 			), prometheus.GaugeValue,
 		},
@@ -147,6 +155,7 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
 		ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID)
 		ch <- c.exited.mustNewConstMetric(float64(rep.Exited), rep.ID)
+		ch <- c.exitCode.mustNewConstMetric(float64(rep.ExitCode), rep.ID)
 	}
 
 	statReports, err := pdcs.ContainersStats()
