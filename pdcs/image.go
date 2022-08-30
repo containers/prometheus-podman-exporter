@@ -11,6 +11,7 @@ import (
 // Image implements image's basic information.
 type Image struct {
 	ID         string
+	ParentID   string
 	Repository string
 	Tag        string
 	Created    int64
@@ -32,7 +33,8 @@ func Images() ([]Image, error) {
 				repository, tag := repoTagDecompose(rep.RepoTags[i])
 
 				images = append(images, Image{
-					ID:         rep.ID[0:12],
+					ID:         getID(rep.ID),
+					ParentID:   getID(rep.ParentId),
 					Repository: repository,
 					Tag:        tag,
 					Size:       rep.Size,
@@ -41,7 +43,8 @@ func Images() ([]Image, error) {
 			}
 		} else {
 			images = append(images, Image{
-				ID:         rep.ID[0:12],
+				ID:         getID(rep.ID),
+				ParentID:   getID(rep.ParentId),
 				Repository: "<none>",
 				Tag:        "<none>",
 				Created:    rep.Created,
@@ -85,4 +88,12 @@ func repoTagDecompose(repoTags string) (string, string) {
 	}
 
 	return name, tag
+}
+
+func getID(id string) string {
+	if len(id) > 0 {
+		return id[:12]
+	}
+
+	return ""
 }

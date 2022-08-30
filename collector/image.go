@@ -24,21 +24,21 @@ func NewImageStatsCollector(logger log.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "image", "info"),
 				"Image information.",
-				[]string{"id", "repository", "tag"}, nil,
+				[]string{"id", "parent_id", "repository", "tag"}, nil,
 			), prometheus.GaugeValue,
 		},
 		size: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "image", "size"),
 				"Image size",
-				[]string{"id"}, nil,
+				[]string{"id", "repository", "tag"}, nil,
 			), prometheus.GaugeValue,
 		},
 		created: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "image", "created_seconds"),
 				"Image creation time in unixtime.",
-				[]string{"id"}, nil,
+				[]string{"id", "repository", "tag"}, nil,
 			), prometheus.GaugeValue,
 		},
 		logger: logger,
@@ -53,9 +53,9 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	for _, rep := range reports {
-		ch <- c.info.mustNewConstMetric(1, rep.ID, rep.Repository, rep.Tag)
-		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID)
-		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
+		ch <- c.info.mustNewConstMetric(1, rep.ID, rep.ParentID, rep.Repository, rep.Tag)
+		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag)
+		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag)
 	}
 
 	return nil
