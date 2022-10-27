@@ -3,7 +3,6 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -67,12 +66,12 @@ type Container struct {
 	Flags map[string]interface{} `json:"flags,omitempty"`
 }
 
-// ContainerStore provides bookkeeping for information about Containers.
-type ContainerStore interface {
-	FileBasedStore
-	MetadataStore
-	ContainerBigDataStore
-	FlaggableStore
+// rwContainerStore provides bookkeeping for information about Containers.
+type rwContainerStore interface {
+	fileBasedStore
+	metadataStore
+	containerBigDataStore
+	flaggableStore
 
 	// Create creates a container that has a specified ID (or generates a
 	// random one if an empty value is supplied) and optional names,
@@ -82,18 +81,8 @@ type ContainerStore interface {
 	// convenience of the caller, nothing more.
 	Create(id string, names []string, image, layer, metadata string, options *ContainerOptions) (*Container, error)
 
-	// SetNames updates the list of names associated with the container
-	// with the specified ID.
-	// Deprecated: Prone to race conditions, suggested alternatives are `AddNames` and `RemoveNames`.
-	SetNames(id string, names []string) error
-
-	// AddNames adds the supplied values to the list of names associated with the container with
-	// the specified id.
-	AddNames(id string, names []string) error
-
-	// RemoveNames removes the supplied values from the list of names associated with the container with
-	// the specified id.
-	RemoveNames(id string, names []string) error
+	// updateNames modifies names associated with a  container based on (op, names).
+	updateNames(id string, names []string, op updateNameOperation) error
 
 	// Get retrieves information about a container given an ID or name.
 	Get(id string) (*Container, error)
@@ -144,26 +133,26 @@ func copyContainer(c *Container) *Container {
 }
 
 func (c *Container) MountLabel() string {
-	if label, ok := c.Flags["MountLabel"].(string); ok {
+	if label, ok := c.Flags[mountLabelFlag].(string); ok {
 		return label
 	}
 	return ""
 }
 
 func (c *Container) ProcessLabel() string {
-	if label, ok := c.Flags["ProcessLabel"].(string); ok {
+	if label, ok := c.Flags[processLabelFlag].(string); ok {
 		return label
 	}
 	return ""
 }
 
 func (c *Container) MountOpts() []string {
-	switch c.Flags["MountOpts"].(type) {
+	switch c.Flags[mountOptsFlag].(type) {
 	case []string:
-		return c.Flags["MountOpts"].([]string)
+		return c.Flags[mountOptsFlag].([]string)
 	case []interface{}:
 		var mountOpts []string
-		for _, v := range c.Flags["MountOpts"].([]interface{}) {
+		for _, v := range c.Flags[mountOptsFlag].([]interface{}) {
 			if flag, ok := v.(string); ok {
 				mountOpts = append(mountOpts, flag)
 			}
@@ -197,7 +186,7 @@ func (r *containerStore) datapath(id, key string) string {
 func (r *containerStore) Load() error {
 	needSave := false
 	rpath := r.containerspath()
-	data, err := ioutil.ReadFile(rpath)
+	data, err := os.ReadFile(rpath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -222,7 +211,7 @@ func (r *containerStore) Load() error {
 		}
 	}
 	r.containers = containers
-	r.idindex = truncindex.NewTruncIndex(idlist)
+	r.idindex = truncindex.NewTruncIndex(idlist) // Invalid values in idlist are ignored: they are not a reason to refuse processing the whole store.
 	r.byid = ids
 	r.bylayer = layers
 	r.byname = names
@@ -244,11 +233,13 @@ func (r *containerStore) Save() error {
 	if err != nil {
 		return err
 	}
-	defer r.Touch()
-	return ioutils.AtomicWriteFile(rpath, jdata, 0600)
+	if err := ioutils.AtomicWriteFile(rpath, jdata, 0600); err != nil {
+		return err
+	}
+	return r.Touch()
 }
 
-func newContainerStore(dir string) (ContainerStore, error) {
+func newContainerStore(dir string) (rwContainerStore, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -256,8 +247,6 @@ func newContainerStore(dir string) (ContainerStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	lockfile.Lock()
-	defer lockfile.Unlock()
 	cstore := containerStore{
 		lockfile:   lockfile,
 		dir:        dir,
@@ -266,6 +255,8 @@ func newContainerStore(dir string) (ContainerStore, error) {
 		bylayer:    make(map[string]*Container),
 		byname:     make(map[string]*Container),
 	}
+	cstore.Lock()
+	defer cstore.Unlock()
 	if err := cstore.Load(); err != nil {
 		return nil, err
 	}
@@ -321,10 +312,10 @@ func (r *containerStore) Create(id string, names []string, image, layer, metadat
 		return nil, ErrDuplicateID
 	}
 	if options.MountOpts != nil {
-		options.Flags["MountOpts"] = append([]string{}, options.MountOpts...)
+		options.Flags[mountOptsFlag] = append([]string{}, options.MountOpts...)
 	}
 	if options.Volatile {
-		options.Flags["Volatile"] = true
+		options.Flags[volatileFlag] = true
 	}
 	names = dedupeNames(names)
 	for _, name := range names {
@@ -355,7 +346,9 @@ func (r *containerStore) Create(id string, names []string, image, layer, metadat
 		}
 		r.containers = append(r.containers, container)
 		r.byid[id] = container
-		r.idindex.Add(id)
+		// This can only fail on duplicate IDs, which shouldn’t happen — and in that case the index is already in the desired state anyway.
+		// Implementing recovery from an unlikely and unimportant failure here would be too risky.
+		_ = r.idindex.Add(id)
 		r.bylayer[layer] = container
 		for _, name := range names {
 			r.byname[name] = container
@@ -383,19 +376,6 @@ func (r *containerStore) SetMetadata(id, metadata string) error {
 
 func (r *containerStore) removeName(container *Container, name string) {
 	container.Names = stringSliceWithoutValue(container.Names, name)
-}
-
-// Deprecated: Prone to race conditions, suggested alternatives are `AddNames` and `RemoveNames`.
-func (r *containerStore) SetNames(id string, names []string) error {
-	return r.updateNames(id, names, setNames)
-}
-
-func (r *containerStore) AddNames(id string, names []string) error {
-	return r.updateNames(id, names, addNames)
-}
-
-func (r *containerStore) RemoveNames(id string, names []string) error {
-	return r.updateNames(id, names, removeNames)
 }
 
 func (r *containerStore) updateNames(id string, names []string, op updateNameOperation) error {
@@ -435,7 +415,9 @@ func (r *containerStore) Delete(id string) error {
 		}
 	}
 	delete(r.byid, id)
-	r.idindex.Delete(id)
+	// This can only fail if the ID is already missing, which shouldn’t happen — and in that case the index is already in the desired state anyway.
+	// The store’s Delete method is used on various paths to recover from failures, so this should be robust against partially missing data.
+	_ = r.idindex.Delete(id)
 	delete(r.bylayer, container.LayerID)
 	for _, name := range container.Names {
 		delete(r.byname, name)
@@ -484,7 +466,7 @@ func (r *containerStore) BigData(id, key string) ([]byte, error) {
 	if !ok {
 		return nil, ErrContainerUnknown
 	}
-	return ioutil.ReadFile(r.datapath(c.ID, key))
+	return os.ReadFile(r.datapath(c.ID, key))
 }
 
 func (r *containerStore) BigDataSize(id, key string) (int64, error) {
@@ -616,10 +598,6 @@ func (r *containerStore) Wipe() error {
 
 func (r *containerStore) Lock() {
 	r.lockfile.Lock()
-}
-
-func (r *containerStore) RecursiveLock() {
-	r.lockfile.RecursiveLock()
 }
 
 func (r *containerStore) RLock() {

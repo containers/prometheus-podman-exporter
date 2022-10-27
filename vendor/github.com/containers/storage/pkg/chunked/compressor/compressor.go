@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"io"
-	"io/ioutil"
 
 	"github.com/containers/storage/pkg/chunked/internal"
 	"github.com/containers/storage/pkg/ioutils"
@@ -21,9 +20,7 @@ const holesThreshold = int64(1 << 10)
 
 type holesFinder struct {
 	reader    *bufio.Reader
-	fileOff   int64
 	zeros     int64
-	from      int64
 	threshold int64
 
 	state int
@@ -81,7 +78,7 @@ func (f *holesFinder) ReadByte() (int64, byte, error) {
 					f.state = holesFinderStateFound
 				}
 			} else {
-				if f.reader.UnreadByte(); err != nil {
+				if err := f.reader.UnreadByte(); err != nil {
 					return 0, 0, err
 				}
 				f.state = holesFinderStateRead
@@ -98,7 +95,7 @@ func (f *holesFinder) ReadByte() (int64, byte, error) {
 				return holeLen, 0, nil
 			}
 			if b != 0 {
-				if f.reader.UnreadByte(); err != nil {
+				if err := f.reader.UnreadByte(); err != nil {
 					return 0, 0, err
 				}
 				f.state = holesFinderStateRead
@@ -432,7 +429,7 @@ func zstdChunkedWriterWithLevel(out io.Writer, metadata map[string]string, level
 
 	go func() {
 		ch <- writeZstdChunkedStream(out, metadata, r, level)
-		io.Copy(ioutil.Discard, r)
+		_, _ = io.Copy(io.Discard, r) // Ordinarily writeZstdChunkedStream consumes all of r. If it fails, ensure the write end never blocks and eventually terminates.
 		r.Close()
 		close(ch)
 	}()

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,7 +101,7 @@ func UnpackLayer(dest string, layer io.Reader, options *TarOptions) (size int64,
 				basename := filepath.Base(hdr.Name)
 				aufsHardlinks[basename] = hdr
 				if aufsTempdir == "" {
-					if aufsTempdir, err = ioutil.TempDir("", "storageplnk"); err != nil {
+					if aufsTempdir, err = os.MkdirTemp("", "storageplnk"); err != nil {
 						return 0, err
 					}
 					defer os.RemoveAll(aufsTempdir)
@@ -246,7 +245,9 @@ func applyLayerHandler(dest string, layer io.Reader, options *TarOptions, decomp
 	if err != nil {
 		return 0, err
 	}
-	defer system.Umask(oldmask) // ignore err, ErrNotSupportedPlatform
+	defer func() {
+		_, _ = system.Umask(oldmask) // Ignore err. This can only fail with ErrNotSupportedPlatform, in which case we would have failed above.
+	}()
 
 	if decompress {
 		layer, err = DecompressStream(layer)

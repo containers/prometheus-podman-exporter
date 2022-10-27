@@ -3,7 +3,6 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,21 +94,17 @@ type Image struct {
 	Flags map[string]interface{} `json:"flags,omitempty"`
 }
 
-// ROImageStore provides bookkeeping for information about Images.
-type ROImageStore interface {
-	ROFileBasedStore
-	ROMetadataStore
-	ROBigDataStore
+// roImageStore provides bookkeeping for information about Images.
+type roImageStore interface {
+	roFileBasedStore
+	roMetadataStore
+	roBigDataStore
 
 	// Exists checks if there is an image with the given ID or name.
 	Exists(id string) bool
 
 	// Get retrieves information about an image given an ID or name.
 	Get(id string) (*Image, error)
-
-	// Lookup attempts to translate a name to an ID.  Most methods do this
-	// implicitly.
-	Lookup(name string) (string, error)
 
 	// Images returns a slice enumerating the known images.
 	Images() ([]Image, error)
@@ -121,34 +116,23 @@ type ROImageStore interface {
 	ByDigest(d digest.Digest) ([]*Image, error)
 }
 
-// ImageStore provides bookkeeping for information about Images.
-type ImageStore interface {
-	ROImageStore
-	RWFileBasedStore
-	RWMetadataStore
-	RWImageBigDataStore
-	FlaggableStore
+// rwImageStore provides bookkeeping for information about Images.
+type rwImageStore interface {
+	roImageStore
+	rwFileBasedStore
+	rwMetadataStore
+	rwImageBigDataStore
+	flaggableStore
 
 	// Create creates an image that has a specified ID (or a random one) and
 	// optional names, using the specified layer as its topmost (hopefully
 	// read-only) layer.  That layer can be referenced by multiple images.
 	Create(id string, names []string, layer, metadata string, created time.Time, searchableDigest digest.Digest) (*Image, error)
 
-	// SetNames replaces the list of names associated with an image with the
-	// supplied values.  The values are expected to be valid normalized
+	// updateNames modifies names associated with an image based on (op, names).
+	// The values are expected to be valid normalized
 	// named image references.
-	// Deprecated: Prone to race conditions, suggested alternatives are `AddNames` and `RemoveNames`.
-	SetNames(id string, names []string) error
-
-	// AddNames adds the supplied values to the list of names associated with the image with
-	// the specified id. The values are expected to be valid normalized
-	// named image references.
-	AddNames(id string, names []string) error
-
-	// RemoveNames removes the supplied values from the list of names associated with the image with
-	// the specified id.  The values are expected to be valid normalized
-	// named image references.
-	RemoveNames(id string, names []string) error
+	updateNames(id string, names []string, op updateNameOperation) error
 
 	// Delete removes the record of the image.
 	Delete(id string) error
@@ -242,8 +226,8 @@ func (i *Image) recomputeDigests() error {
 		if !bigDataNameIsManifest(name) {
 			continue
 		}
-		if digest.Validate() != nil {
-			return fmt.Errorf("validating digest %q for big data item %q: %w", string(digest), name, digest.Validate())
+		if err := digest.Validate(); err != nil {
+			return fmt.Errorf("validating digest %q for big data item %q: %w", string(digest), name, err)
 		}
 		// Deduplicate the digest values.
 		if _, known := digests[digest]; !known {
@@ -261,7 +245,7 @@ func (i *Image) recomputeDigests() error {
 func (r *imageStore) Load() error {
 	shouldSave := false
 	rpath := r.imagespath()
-	data, err := ioutil.ReadFile(rpath)
+	data, err := os.ReadFile(rpath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -300,7 +284,7 @@ func (r *imageStore) Load() error {
 		return ErrDuplicateImageNames
 	}
 	r.images = images
-	r.idindex = truncindex.NewTruncIndex(idlist)
+	r.idindex = truncindex.NewTruncIndex(idlist) // Invalid values in idlist are ignored: they are not a reason to refuse processing the whole store.
 	r.byid = ids
 	r.byname = names
 	r.bydigest = digests
@@ -325,11 +309,13 @@ func (r *imageStore) Save() error {
 	if err != nil {
 		return err
 	}
-	defer r.Touch()
-	return ioutils.AtomicWriteFile(rpath, jdata, 0600)
+	if err := ioutils.AtomicWriteFile(rpath, jdata, 0600); err != nil {
+		return err
+	}
+	return r.Touch()
 }
 
-func newImageStore(dir string) (ImageStore, error) {
+func newImageStore(dir string) (rwImageStore, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -337,8 +323,6 @@ func newImageStore(dir string) (ImageStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	lockfile.Lock()
-	defer lockfile.Unlock()
 	istore := imageStore{
 		lockfile: lockfile,
 		dir:      dir,
@@ -347,19 +331,19 @@ func newImageStore(dir string) (ImageStore, error) {
 		byname:   make(map[string]*Image),
 		bydigest: make(map[digest.Digest][]*Image),
 	}
+	istore.Lock()
+	defer istore.Unlock()
 	if err := istore.Load(); err != nil {
 		return nil, err
 	}
 	return &istore, nil
 }
 
-func newROImageStore(dir string) (ROImageStore, error) {
+func newROImageStore(dir string) (roImageStore, error) {
 	lockfile, err := GetROLockfile(filepath.Join(dir, "images.lock"))
 	if err != nil {
 		return nil, err
 	}
-	lockfile.RLock()
-	defer lockfile.Unlock()
 	istore := imageStore{
 		lockfile: lockfile,
 		dir:      dir,
@@ -368,6 +352,8 @@ func newROImageStore(dir string) (ROImageStore, error) {
 		byname:   make(map[string]*Image),
 		bydigest: make(map[digest.Digest][]*Image),
 	}
+	istore.RLock()
+	defer istore.Unlock()
 	if err := istore.Load(); err != nil {
 		return nil, err
 	}
@@ -456,7 +442,9 @@ func (r *imageStore) Create(id string, names []string, layer, metadata string, c
 		return nil, fmt.Errorf("validating digests for new image: %w", err)
 	}
 	r.images = append(r.images, image)
-	r.idindex.Add(id)
+	// This can only fail on duplicate IDs, which shouldn’t happen — and in that case the index is already in the desired state anyway.
+	// Implementing recovery from an unlikely and unimportant failure here would be too risky.
+	_ = r.idindex.Add(id)
 	r.byid[id] = image
 	for _, name := range names {
 		r.byname[name] = image
@@ -517,19 +505,6 @@ func (i *Image) addNameToHistory(name string) {
 	i.NamesHistory = dedupeNames(append([]string{name}, i.NamesHistory...))
 }
 
-// Deprecated: Prone to race conditions, suggested alternatives are `AddNames` and `RemoveNames`.
-func (r *imageStore) SetNames(id string, names []string) error {
-	return r.updateNames(id, names, setNames)
-}
-
-func (r *imageStore) AddNames(id string, names []string) error {
-	return r.updateNames(id, names, addNames)
-}
-
-func (r *imageStore) RemoveNames(id string, names []string) error {
-	return r.updateNames(id, names, removeNames)
-}
-
 func (r *imageStore) updateNames(id string, names []string, op updateNameOperation) error {
 	if !r.IsReadWrite() {
 		return fmt.Errorf("not allowed to change image name assignments at %q: %w", r.imagespath(), ErrStoreIsReadOnly)
@@ -573,7 +548,9 @@ func (r *imageStore) Delete(id string) error {
 		}
 	}
 	delete(r.byid, id)
-	r.idindex.Delete(id)
+	// This can only fail if the ID is already missing, which shouldn’t happen — and in that case the index is already in the desired state anyway.
+	// The store’s Delete method is used on various paths to recover from failures, so this should be robust against partially missing data.
+	_ = r.idindex.Delete(id)
 	for _, name := range image.Names {
 		delete(r.byname, name)
 	}
@@ -609,13 +586,6 @@ func (r *imageStore) Get(id string) (*Image, error) {
 	return nil, fmt.Errorf("locating image with ID %q: %w", id, ErrImageUnknown)
 }
 
-func (r *imageStore) Lookup(name string) (id string, err error) {
-	if image, ok := r.lookup(name); ok {
-		return image.ID, nil
-	}
-	return "", fmt.Errorf("locating image with ID %q: %w", id, ErrImageUnknown)
-}
-
 func (r *imageStore) Exists(id string) bool {
 	_, ok := r.lookup(id)
 	return ok
@@ -636,7 +606,7 @@ func (r *imageStore) BigData(id, key string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("locating image with ID %q: %w", id, ErrImageUnknown)
 	}
-	return ioutil.ReadFile(r.datapath(image.ID, key))
+	return os.ReadFile(r.datapath(image.ID, key))
 }
 
 func (r *imageStore) BigDataSize(id, key string) (int64, error) {
@@ -797,10 +767,6 @@ func (r *imageStore) Wipe() error {
 
 func (r *imageStore) Lock() {
 	r.lockfile.Lock()
-}
-
-func (r *imageStore) RecursiveLock() {
-	r.lockfile.RecursiveLock()
 }
 
 func (r *imageStore) RLock() {

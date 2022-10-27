@@ -3,7 +3,6 @@ package system
 import (
 	"fmt"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/containers/storage/pkg/mount"
@@ -35,6 +34,9 @@ func EnsureRemoveAll(dir string) error {
 	}
 
 	for {
+		if err := resetFileFlags(dir); err != nil {
+			return fmt.Errorf("resetting file flags: %w", err)
+		}
 		err := os.RemoveAll(dir)
 		if err == nil {
 			return nil
@@ -62,7 +64,7 @@ func EnsureRemoveAll(dir string) error {
 			continue
 		}
 
-		if pe.Err != syscall.EBUSY {
+		if !IsEBUSY(pe.Err) {
 			return err
 		}
 
