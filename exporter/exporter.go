@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/containers/prometheus-podman-exporter/collector"
+	"github.com/containers/prometheus-podman-exporter/pdcs"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/common/version"
@@ -13,6 +14,10 @@ import (
 
 // Start starts prometheus exporter.
 func Start(cmd *cobra.Command, args []string) error {
+	// setup podman resgistry
+	pdcs.SetupRegistry()
+
+	// setup exporter
 	promlogConfig := &promlog.Config{Level: &promlog.AllowedLevel{}}
 
 	logLevel := "info"

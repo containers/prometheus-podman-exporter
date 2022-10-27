@@ -100,7 +100,7 @@ popd
 
 * Sun Sep 11 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.1.0-1
 - Fix image metrics gathering error (collected before)
-- Added container exit code to list of exproted metrics
+- Added container exit code to list of exported metrics
 - Image repo and name parse issue fix
 - Added container started and exited time metrics
 - Docs (install.md) update - exporter container and unix socket file

@@ -9,7 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
+// SetupRegistry will initialize podman registry.
+func SetupRegistry() {
 	// disable logrus output
 	logrus.SetOutput(ioutil.Discard)
 
