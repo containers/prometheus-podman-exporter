@@ -33,7 +33,7 @@ func Networks() ([]Network, error) {
 	for _, rep := range reports {
 		networks = append(networks, Network{
 			Name:             rep.Name,
-			ID:               rep.ID[0:12],
+			ID:               getID(rep.ID),
 			Driver:           rep.Driver,
 			NetworkInterface: rep.NetworkInterface,
 			Labels:           listPrintReports{rep}.labels(),

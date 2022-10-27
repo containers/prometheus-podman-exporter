@@ -34,6 +34,7 @@ const (
 const (
 	stateUnknown  = -1
 	noneReference = "<none>"
+	idLimit       = 12
 )
 
 // ErrDeadline deadline exceeded error.
@@ -166,4 +167,14 @@ func portsToString(ports []types.PortMapping) string {
 
 	// make sure to trim the last ", " of the string
 	return display[:len(display)-2]
+}
+
+func getID(id string) string {
+	if len(id) > 0 {
+		if len(id) >= idLimit {
+			return id[:idLimit]
+		}
+	}
+
+	return id
 }

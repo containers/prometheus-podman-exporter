@@ -52,14 +52,9 @@ func Containers() ([]Container, error) {
 	}
 
 	for _, rep := range reports {
-		podID := rep.Pod
-		if podID != "" {
-			podID = podID[0:12]
-		}
-
 		containers = append(containers, Container{
-			ID:       rep.ID[0:12],
-			PodID:    podID,
+			ID:       getID(rep.ID),
+			PodID:    getID(rep.Pod),
 			Name:     rep.Names[0],
 			Image:    rep.Image,
 			Created:  rep.Created.Unix(),
@@ -108,7 +103,7 @@ func ContainersStats() ([]ContainerStat, error) {
 
 	for _, rep := range statReport {
 		stat = append(stat, ContainerStat{
-			ID:          rep.ContainerID[0:12],
+			ID:          getID(rep.ContainerID),
 			Name:        rep.Name,
 			PIDs:        rep.PIDs,
 			CPU:         float64(rep.CPUNano) / nano,
