@@ -67,9 +67,17 @@ func Start(cmd *cobra.Command, args []string) error {
 	})
 	level.Info(logger).Log("msg", "Listening on", "address", webListen)
 
-	server := &http.Server{Addr: webListen}
+	server := &http.Server{}
+	serverSystemd := false
+	serverConfigFile := ""
+	serverWebListen := []string{webListen}
 
-	if err := web.ListenAndServe(server, "", logger); err != nil {
+	toolkitFlag := new(web.FlagConfig)
+	toolkitFlag.WebSystemdSocket = &serverSystemd
+	toolkitFlag.WebListenAddresses = &serverWebListen
+	toolkitFlag.WebConfigFile = &serverConfigFile
+
+	if err := web.ListenAndServe(server, toolkitFlag, logger); err != nil {
 		return err
 	}
 
