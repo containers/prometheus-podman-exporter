@@ -68,8 +68,9 @@ func Start(cmd *cobra.Command, args []string) error {
 	level.Info(logger).Log("msg", "Listening on", "address", webListen)
 
 	server := &http.Server{Addr: webListen}
+	tlsConfigPath := ""
 
-	if err := web.ListenAndServe(server, "", logger); err != nil {
+	if err := web.ListenAndServe(server, tlsConfigPath, logger); err != nil {
 		return err
 	}
 
