@@ -13,6 +13,7 @@ import (
 	"github.com/containers/common/libimage"
 	cp "github.com/containers/image/v5/copy"
 	"github.com/containers/image/v5/manifest"
+	"github.com/containers/image/v5/pkg/compression"
 	"github.com/containers/image/v5/pkg/shortnames"
 	"github.com/containers/image/v5/transports"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -31,7 +32,15 @@ func (ir *ImageEngine) ManifestCreate(ctx context.Context, name string, images [
 
 	manifestList, err := ir.Libpod.LibimageRuntime().CreateManifestList(name)
 	if err != nil {
-		return "", err
+		if errors.Is(err, storage.ErrDuplicateName) && opts.Amend {
+			amendList, amendErr := ir.Libpod.LibimageRuntime().LookupManifestList(name)
+			if amendErr != nil {
+				return "", err
+			}
+			manifestList = amendList
+		} else {
+			return "", err
+		}
 	}
 
 	addOptions := &libimage.ManifestListAddOptions{All: opts.All}
@@ -86,7 +95,7 @@ func (ir *ImageEngine) ManifestInspect(ctx context.Context, name string) ([]byte
 
 	var b bytes.Buffer
 	if err := json.Indent(&b, rawSchema2List, "", "    "); err != nil {
-		return nil, fmt.Errorf("error rendering manifest %s for display: %w", name, err)
+		return nil, fmt.Errorf("rendering manifest %s for display: %w", name, err)
 	}
 	return b.Bytes(), nil
 }
@@ -149,7 +158,7 @@ func (ir *ImageEngine) remoteManifestInspect(ctx context.Context, name string) (
 		logrus.Warnf("The manifest type %s is not a manifest list but a single image.", manType)
 		schema2Manifest, err := manifest.Schema2FromManifest(result)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing manifest blob %q as a %q: %w", string(result), manType, err)
+			return nil, fmt.Errorf("parsing manifest blob %q as a %q: %w", string(result), manType, err)
 		}
 		if result, err = schema2Manifest.Serialize(); err != nil {
 			return nil, err
@@ -157,7 +166,7 @@ func (ir *ImageEngine) remoteManifestInspect(ctx context.Context, name string) (
 	default:
 		listBlob, err := manifest.ListFromBlob(result, manType)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing manifest blob %q as a %q: %w", string(result), manType, err)
+			return nil, fmt.Errorf("parsing manifest blob %q as a %q: %w", string(result), manType, err)
 		}
 		list, err := listBlob.ConvertToMIMEType(manifest.DockerV2ListMediaType)
 		if err != nil {
@@ -169,7 +178,7 @@ func (ir *ImageEngine) remoteManifestInspect(ctx context.Context, name string) (
 	}
 
 	if err = json.Indent(&b, result, "", "    "); err != nil {
-		return nil, fmt.Errorf("error rendering manifest %s for display: %w", name, err)
+		return nil, fmt.Errorf("rendering manifest %s for display: %w", name, err)
 	}
 	return b.Bytes(), nil
 }
@@ -292,7 +301,7 @@ func (ir *ImageEngine) ManifestRm(ctx context.Context, names []string) (report *
 func (ir *ImageEngine) ManifestPush(ctx context.Context, name, destination string, opts entities.ImagePushOptions) (string, error) {
 	manifestList, err := ir.Libpod.LibimageRuntime().LookupManifestList(name)
 	if err != nil {
-		return "", fmt.Errorf("error retrieving local image from image name %s: %w", name, err)
+		return "", fmt.Errorf("retrieving local image from image name %s: %w", name, err)
 	}
 
 	var manifestType string
@@ -320,11 +329,28 @@ func (ir *ImageEngine) ManifestPush(ctx context.Context, name, destination strin
 	pushOptions.SignBySigstorePrivateKeyFile = opts.SignBySigstorePrivateKeyFile
 	pushOptions.SignSigstorePrivateKeyPassphrase = opts.SignSigstorePrivateKeyPassphrase
 	pushOptions.InsecureSkipTLSVerify = opts.SkipTLSVerify
+	pushOptions.Writer = opts.Writer
+
+	compressionFormat := opts.CompressionFormat
+	if compressionFormat == "" {
+		config, err := ir.Libpod.GetConfigNoCopy()
+		if err != nil {
+			return "", err
+		}
+		compressionFormat = config.Engine.CompressionFormat
+	}
+	if compressionFormat != "" {
+		algo, err := compression.AlgorithmByName(compressionFormat)
+		if err != nil {
+			return "", err
+		}
+		pushOptions.CompressionFormat = &algo
+	}
 
 	if opts.All {
 		pushOptions.ImageListSelection = cp.CopyAllImages
 	}
-	if !opts.Quiet {
+	if !opts.Quiet && pushOptions.Writer == nil {
 		pushOptions.Writer = os.Stderr
 	}
 
@@ -336,7 +362,7 @@ func (ir *ImageEngine) ManifestPush(ctx context.Context, name, destination strin
 	if opts.Rm {
 		rmOpts := &libimage.RemoveImagesOptions{LookupManifest: true}
 		if _, rmErrors := ir.Libpod.LibimageRuntime().RemoveImages(ctx, []string{manifestList.ID()}, rmOpts); len(rmErrors) > 0 {
-			return "", fmt.Errorf("error removing manifest after push: %w", rmErrors[0])
+			return "", fmt.Errorf("removing manifest after push: %w", rmErrors[0])
 		}
 	}
 

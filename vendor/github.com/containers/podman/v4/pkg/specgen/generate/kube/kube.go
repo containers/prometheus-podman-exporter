@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"github.com/containers/podman/v4/pkg/k8s.io/apimachinery/pkg/api/resource"
 	"github.com/containers/podman/v4/pkg/specgen"
 	"github.com/containers/podman/v4/pkg/specgen/generate"
+	systemdDefine "github.com/containers/podman/v4/pkg/systemd/define"
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/go-units"
@@ -205,12 +207,9 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	s.SeccompProfilePath = opts.SeccompPaths.FindForContainer(opts.Container.Name)
 
 	s.ResourceLimits = &spec.LinuxResources{}
-	milliCPU, err := quantityToInt64(opts.Container.Resources.Limits.Cpu())
-	if err != nil {
-		return nil, fmt.Errorf("failed to set CPU quota: %w", err)
-	}
+	milliCPU := opts.Container.Resources.Limits.Cpu().MilliValue()
 	if milliCPU > 0 {
-		period, quota := util.CoresToPeriodAndQuota(float64(milliCPU))
+		period, quota := util.CoresToPeriodAndQuota(float64(milliCPU) / 1000)
 		s.ResourceLimits.CPU = &spec.LinuxCPU{
 			Quota:  &quota,
 			Period: &period,
@@ -401,6 +400,23 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 				Type: "b",
 			}
 			s.Devices = append(s.Devices, device)
+		case KubeVolumeTypeSecret:
+			// in podman play kube we need to add these secrets as volumes rather than as
+			// specgen.Secrets. Adding them as volumes allows for all key: value pairs to be mounted
+			secretVolume := specgen.NamedVolume{
+				Dest:    volume.MountPath,
+				Name:    volumeSource.Source,
+				Options: options,
+			}
+			s.Volumes = append(s.Volumes, &secretVolume)
+		case KubeVolumeTypeEmptyDir:
+			emptyDirVolume := specgen.NamedVolume{
+				Dest:        volume.MountPath,
+				Name:        volumeSource.Source,
+				Options:     options,
+				IsAnonymous: true,
+			}
+			s.Volumes = append(s.Volumes, &emptyDirVolume)
 		default:
 			return nil, errors.New("unsupported volume source type")
 		}
@@ -426,6 +442,12 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 		for k, v := range opts.Labels {
 			s.Labels[k] = v
 		}
+	}
+
+	// Make sure the container runs in a systemd unit which is
+	// stored as a label at container creation.
+	if unit := os.Getenv(systemdDefine.EnvVariable); unit != "" {
+		s.Labels[systemdDefine.EnvVariable] = unit
 	}
 
 	return s, nil
@@ -478,26 +500,36 @@ func setupLivenessProbe(s *specgen.SpecGenerator, containerYAML v1.Container, re
 		probe := containerYAML.LivenessProbe
 		probeHandler := probe.Handler
 
-		// append `exit 1` to `cmd` so healthcheck can be marked as `unhealthy`.
-		// append `kill 1` to `cmd` if appropriate restart policy is configured.
-		if restartPolicy == "always" || restartPolicy == "onfailure" {
-			// container will be restarted so we can kill init.
-			failureCmd = "kill 1"
-		}
-
 		// configure healthcheck on the basis of Handler Actions.
 		switch {
 		case probeHandler.Exec != nil:
 			execString := strings.Join(probeHandler.Exec.Command, " ")
 			commandString = fmt.Sprintf("%s || %s", execString, failureCmd)
 		case probeHandler.HTTPGet != nil:
-			commandString = fmt.Sprintf("curl %s://%s:%d/%s  || %s", probeHandler.HTTPGet.Scheme, probeHandler.HTTPGet.Host, probeHandler.HTTPGet.Port.IntValue(), probeHandler.HTTPGet.Path, failureCmd)
+			// set defaults as in https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#http-probes
+			uriScheme := v1.URISchemeHTTP
+			if probeHandler.HTTPGet.Scheme != "" {
+				uriScheme = probeHandler.HTTPGet.Scheme
+			}
+			host := "localhost" // Kubernetes default is host IP, but with Podman there is only one node
+			if probeHandler.HTTPGet.Host != "" {
+				host = probeHandler.HTTPGet.Host
+			}
+			path := "/"
+			if probeHandler.HTTPGet.Path != "" {
+				path = probeHandler.HTTPGet.Path
+			}
+			commandString = fmt.Sprintf("curl -f %s://%s:%d%s || %s", uriScheme, host, probeHandler.HTTPGet.Port.IntValue(), path, failureCmd)
 		case probeHandler.TCPSocket != nil:
 			commandString = fmt.Sprintf("nc -z -v %s %d || %s", probeHandler.TCPSocket.Host, probeHandler.TCPSocket.Port.IntValue(), failureCmd)
 		}
 		s.HealthConfig, err = makeHealthCheck(commandString, probe.PeriodSeconds, probe.FailureThreshold, probe.TimeoutSeconds, probe.InitialDelaySeconds)
 		if err != nil {
 			return err
+		}
+		// if restart policy is in place, ensure the health check enforces it
+		if restartPolicy == "always" || restartPolicy == "onfailure" {
+			s.HealthCheckOnFailureAction = define.HealthCheckOnFailureActionRestart
 		}
 		return nil
 	}
@@ -885,6 +917,9 @@ func getPodPorts(containers []v1.Container) []types.PortMapping {
 		for _, p := range container.Ports {
 			if p.HostPort != 0 && p.ContainerPort == 0 {
 				p.ContainerPort = p.HostPort
+			}
+			if p.HostPort == 0 && p.ContainerPort != 0 {
+				p.HostPort = p.ContainerPort
 			}
 			if p.Protocol == "" {
 				p.Protocol = "tcp"

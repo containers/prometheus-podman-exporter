@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/containers/common/libimage"
 	"github.com/containers/common/pkg/config"
+	"github.com/containers/common/pkg/ssh"
 	"github.com/containers/image/v5/docker"
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/manifest"
@@ -236,8 +236,9 @@ func (ir *ImageEngine) Pull(ctx context.Context, rawImage string, options entiti
 	pullOptions.Variant = options.Variant
 	pullOptions.SignaturePolicyPath = options.SignaturePolicy
 	pullOptions.InsecureSkipTLSVerify = options.SkipTLSVerify
+	pullOptions.Writer = options.Writer
 
-	if !options.Quiet {
+	if !options.Quiet && pullOptions.Writer == nil {
 		pullOptions.Writer = os.Stderr
 	}
 
@@ -338,7 +339,7 @@ func (ir *ImageEngine) Push(ctx context.Context, source string, destination stri
 				return err
 			}
 
-			if err := ioutil.WriteFile(options.DigestFile, []byte(manifestDigest.String()), 0644); err != nil {
+			if err := os.WriteFile(options.DigestFile, []byte(manifestDigest.String()), 0644); err != nil {
 				return err
 			}
 		}
@@ -404,6 +405,7 @@ func (ir *ImageEngine) Save(ctx context.Context, nameOrID string, tags []string,
 	saveOptions := &libimage.SaveOptions{}
 	saveOptions.DirForceCompress = options.Compress
 	saveOptions.OciAcceptUncompressedLayers = options.OciAcceptUncompressedLayers
+	saveOptions.SignaturePolicyPath = options.SignaturePolicy
 
 	// Force signature removal to preserve backwards compat.
 	// See https://github.com/containers/podman/pull/11669#issuecomment-925250264
@@ -565,6 +567,7 @@ func (ir *ImageEngine) Remove(ctx context.Context, images []string, opts entitie
 	libimageOptions.Force = opts.Force
 	libimageOptions.Ignore = opts.Ignore
 	libimageOptions.LookupManifest = opts.LookupManifest
+	libimageOptions.NoPrune = opts.NoPrune
 	if !opts.All {
 		libimageOptions.Filters = append(libimageOptions.Filters, "intermediate=false")
 	}
@@ -581,7 +584,7 @@ func (ir *ImageEngine) Remove(ctx context.Context, images []string, opts entitie
 
 	rmErrors = libimageErrors
 
-	return
+	return report, rmErrors
 }
 
 // Shutdown Libpod engine
@@ -594,7 +597,7 @@ func (ir *ImageEngine) Shutdown(_ context.Context) {
 func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entities.SignOptions) (*entities.SignReport, error) {
 	mech, err := signature.NewGPGSigningMechanism()
 	if err != nil {
-		return nil, fmt.Errorf("error initializing GPG: %w", err)
+		return nil, fmt.Errorf("initializing GPG: %w", err)
 	}
 	defer mech.Close()
 	if err := mech.SupportsSigning(); err != nil {
@@ -608,11 +611,11 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 		err = func() error {
 			srcRef, err := alltransports.ParseImageName(signimage)
 			if err != nil {
-				return fmt.Errorf("error parsing image name: %w", err)
+				return fmt.Errorf("parsing image name: %w", err)
 			}
 			rawSource, err := srcRef.NewImageSource(ctx, sc)
 			if err != nil {
-				return fmt.Errorf("error getting image source: %w", err)
+				return fmt.Errorf("getting image source: %w", err)
 			}
 			defer func() {
 				if err = rawSource.Close(); err != nil {
@@ -621,7 +624,7 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 			}()
 			topManifestBlob, manifestType, err := rawSource.GetManifest(ctx, nil)
 			if err != nil {
-				return fmt.Errorf("error getting manifest blob: %w", err)
+				return fmt.Errorf("getting manifest blob: %w", err)
 			}
 			dockerReference := rawSource.Reference().DockerReference()
 			if dockerReference == nil {
@@ -655,7 +658,7 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 				}
 				list, err := manifest.ListFromBlob(topManifestBlob, manifestType)
 				if err != nil {
-					return fmt.Errorf("error parsing manifest list %q: %w", string(topManifestBlob), err)
+					return fmt.Errorf("parsing manifest list %q: %w", string(topManifestBlob), err)
 				}
 				instanceDigests := list.Instances()
 				for _, instanceDigest := range instanceDigests {
@@ -665,13 +668,13 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 						return err
 					}
 					if err = putSignature(man, mech, sigStoreDir, instanceDigest, dockerReference, options); err != nil {
-						return fmt.Errorf("error storing signature for %s, %v: %w", dockerReference.String(), instanceDigest, err)
+						return fmt.Errorf("storing signature for %s, %v: %w", dockerReference.String(), instanceDigest, err)
 					}
 				}
 				return nil
 			}
 			if err = putSignature(topManifestBlob, mech, sigStoreDir, manifestDigest, dockerReference, options); err != nil {
-				return fmt.Errorf("error storing signature for %s, %v: %w", dockerReference.String(), manifestDigest, err)
+				return fmt.Errorf("storing signature for %s, %v: %w", dockerReference.String(), manifestDigest, err)
 			}
 			return nil
 		}()
@@ -682,8 +685,8 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 	return nil, nil
 }
 
-func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool) error {
-	rep, source, dest, flags, err := domainUtils.ExecuteTransfer(src, dst, parentFlags, quiet)
+func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool, sshMode ssh.EngineMode) error {
+	rep, source, dest, flags, err := domainUtils.ExecuteTransfer(src, dst, parentFlags, quiet, sshMode)
 	if err != nil {
 		return err
 	}
@@ -866,7 +869,7 @@ func execTransferPodman(execUser *user.User, command []string, needToTag bool) (
 
 func getSigFilename(sigStoreDirPath string) (string, error) {
 	sigFileSuffix := 1
-	sigFiles, err := ioutil.ReadDir(sigStoreDirPath)
+	sigFiles, err := os.ReadDir(sigStoreDirPath)
 	if err != nil {
 		return "", err
 	}
@@ -907,5 +910,5 @@ func putSignature(manifestBlob []byte, mech signature.SigningMechanism, sigStore
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filepath.Join(signatureDir, sigFilename), newSig, 0644)
+	return os.WriteFile(filepath.Join(signatureDir, sigFilename), newSig, 0644)
 }

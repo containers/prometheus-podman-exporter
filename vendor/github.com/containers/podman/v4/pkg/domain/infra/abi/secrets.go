@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"path/filepath"
 	"strings"
 
+	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/podman/v4/pkg/domain/entities"
 	"github.com/containers/podman/v4/pkg/domain/utils"
 )
 
 func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader io.Reader, options entities.SecretCreateOptions) (*entities.SecretCreateReport, error) {
-	data, _ := ioutil.ReadAll(reader)
+	data, _ := io.ReadAll(reader)
 	secretsPath := ic.Libpod.GetSecretsStorageDir()
 	manager, err := ic.Libpod.SecretsManager()
 	if err != nil {
@@ -42,10 +42,16 @@ func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader
 		}
 	}
 
-	secretID, err := manager.Store(name, data, options.Driver, options.DriverOpts, nil)
+	storeOpts := secrets.StoreOptions{
+		DriverOpts: options.DriverOpts,
+		Labels:     options.Labels,
+	}
+
+	secretID, err := manager.Store(name, data, options.Driver, storeOpts)
 	if err != nil {
 		return nil, err
 	}
+
 	return &entities.SecretCreateReport{
 		ID: secretID,
 	}, nil
@@ -65,8 +71,11 @@ func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string
 				errs = append(errs, err)
 				continue
 			} else {
-				return nil, nil, fmt.Errorf("error inspecting secret %s: %w", nameOrID, err)
+				return nil, nil, fmt.Errorf("inspecting secret %s: %w", nameOrID, err)
 			}
+		}
+		if secret.Labels == nil {
+			secret.Labels = make(map[string]string)
 		}
 		report := &entities.SecretInfoReport{
 			ID:        secret.ID,
@@ -78,6 +87,7 @@ func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string
 					Name:    secret.Driver,
 					Options: secret.DriverOptions,
 				},
+				Labels: secret.Labels,
 			},
 		}
 		reports = append(reports, report)
