@@ -89,11 +89,3 @@ func repoTagDecompose(repoTags string) (string, string) {
 
 	return name, tag
 }
-
-func getID(id string) string {
-	if len(id) > 0 {
-		return id[:12]
-	}
-
-	return ""
-}

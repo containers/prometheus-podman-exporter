@@ -26,8 +26,8 @@ func Pods() ([]Pod, error) {
 
 	for _, rep := range reports {
 		pods = append(pods, Pod{
-			ID:              rep.Id[0:12],
-			InfraID:         rep.InfraId[0:12],
+			ID:              getID(rep.Id),
+			InfraID:         getID(rep.InfraId),
 			Name:            rep.Name,
 			Created:         rep.Created.Unix(),
 			NumOfContainers: len(rep.Containers),

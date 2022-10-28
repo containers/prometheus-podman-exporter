@@ -112,7 +112,6 @@ popd
 - Bump github.com/sirupsen/logrus from 1.8.1 to 1.9.0
 - Bump github.com/prometheus/common from 0.36.0 to 0.37.0
 - Bump github.com/prometheus/common from 0.35.0 to 0.36.0
--
 
 * Sun Jul 03 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.0.0-1
 - initial release
