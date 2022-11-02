@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/containers/common/libimage"
 	"github.com/containers/common/pkg/config"
+	"github.com/containers/common/pkg/ssh"
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v4/pkg/bindings/images"
@@ -28,7 +28,7 @@ func (ir *ImageEngine) Exists(_ context.Context, nameOrID string) (*entities.Boo
 }
 
 func (ir *ImageEngine) Remove(ctx context.Context, imagesArg []string, opts entities.ImageRemoveOptions) (*entities.ImageRemoveReport, []error) {
-	options := new(images.RemoveOptions).WithForce(opts.Force).WithIgnore(opts.Ignore).WithAll(opts.All).WithLookupManifest(opts.LookupManifest)
+	options := new(images.RemoveOptions).WithForce(opts.Force).WithIgnore(opts.Ignore).WithAll(opts.All).WithLookupManifest(opts.LookupManifest).WithNoPrune(opts.NoPrune)
 	return images.Remove(ir.ClientCtx, imagesArg, options)
 }
 
@@ -109,6 +109,7 @@ func (ir *ImageEngine) Pull(ctx context.Context, rawImage string, opts entities.
 	options.WithAllTags(opts.AllTags).WithAuthfile(opts.Authfile).WithArch(opts.Arch).WithOS(opts.OS)
 	options.WithVariant(opts.Variant).WithPassword(opts.Password)
 	options.WithQuiet(opts.Quiet).WithUsername(opts.Username).WithPolicy(opts.PullPolicy.String())
+	options.WithProgressWriter(opts.Writer)
 	if s := opts.SkipTLSVerify; s != types.OptionalBoolUndefined {
 		if s == types.OptionalBoolTrue {
 			options.WithSkipTLSVerify(true)
@@ -131,7 +132,7 @@ func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, 
 		)
 		ref, err := reference.Parse(newTag)
 		if err != nil {
-			return fmt.Errorf("error parsing reference %q: %w", newTag, err)
+			return fmt.Errorf("parsing reference %q: %w", newTag, err)
 		}
 		if t, ok := ref.(reference.Tagged); ok {
 			tag = t.Tag()
@@ -161,7 +162,7 @@ func (ir *ImageEngine) Untag(ctx context.Context, nameOrID string, tags []string
 		)
 		ref, err := reference.Parse(newTag)
 		if err != nil {
-			return fmt.Errorf("error parsing reference %q: %w", newTag, err)
+			return fmt.Errorf("parsing reference %q: %w", newTag, err)
 		}
 		if t, ok := ref.(reference.Tagged); ok {
 			tag = t.Tag()
@@ -240,7 +241,7 @@ func (ir *ImageEngine) Import(ctx context.Context, opts entities.ImageImportOpti
 
 func (ir *ImageEngine) Push(ctx context.Context, source string, destination string, opts entities.ImagePushOptions) error {
 	options := new(images.PushOptions)
-	options.WithAll(opts.All).WithCompress(opts.Compress).WithUsername(opts.Username).WithPassword(opts.Password).WithAuthfile(opts.Authfile).WithFormat(opts.Format).WithRemoveSignatures(opts.RemoveSignatures).WithQuiet(opts.Quiet)
+	options.WithAll(opts.All).WithCompress(opts.Compress).WithUsername(opts.Username).WithPassword(opts.Password).WithAuthfile(opts.Authfile).WithFormat(opts.Format).WithRemoveSignatures(opts.RemoveSignatures).WithQuiet(opts.Quiet).WithCompressionFormat(opts.CompressionFormat).WithProgressWriter(opts.Writer)
 
 	if s := opts.SkipTLSVerify; s != types.OptionalBoolUndefined {
 		if s == types.OptionalBoolTrue {
@@ -262,7 +263,7 @@ func (ir *ImageEngine) Save(ctx context.Context, nameOrID string, tags []string,
 
 	switch opts.Format {
 	case "oci-dir", "docker-dir":
-		f, err = ioutil.TempFile("", "podman_save")
+		f, err = os.CreateTemp("", "podman_save")
 		if err == nil {
 			defer func() { _ = os.Remove(f.Name()) }()
 		}
@@ -364,7 +365,7 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 	return nil, errors.New("not implemented yet")
 }
 
-func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool) error {
+func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool, sshMode ssh.EngineMode) error {
 	options := new(images.ScpOptions)
 
 	var destination *string
