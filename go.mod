@@ -8,7 +8,7 @@ require (
 	github.com/containers/podman/v4 v4.3.0
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.13.0
+	github.com/prometheus/client_golang v1.13.1
 	github.com/prometheus/common v0.37.0
 	github.com/prometheus/exporter-toolkit v0.8.1
 	github.com/sirupsen/logrus v1.9.0
