@@ -64,9 +64,9 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().BoolP("debug", "d", false,
-		"set log level to debug")
+		"Set log level to debug.")
 	rootCmd.Flags().BoolP("version", "", false,
-		"print version and exit")
+		"Print version and exit.")
 	rootCmd.Flags().StringP("web.listen-address", "l", ":9882",
 		"Address on which to expose metrics and web interface.")
 	rootCmd.Flags().StringP("web.telemetry-path", "p", "/metrics",
