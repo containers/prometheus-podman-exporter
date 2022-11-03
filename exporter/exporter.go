@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/containers/prometheus-podman-exporter/collector"
 	"github.com/containers/prometheus-podman-exporter/pdcs"
@@ -72,7 +73,9 @@ func Start(cmd *cobra.Command, args []string) error {
 	})
 	level.Info(logger).Log("msg", "Listening on", "address", webListen)
 
-	server := &http.Server{}
+	server := &http.Server{
+		ReadHeaderTimeout: 3 * time.Second,
+	}
 	serverSystemd := false
 	serverConfigFile := ""
 	serverWebListen := []string{webListen}
