@@ -1,7 +1,7 @@
 package pdcs
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 
 	"github.com/containers/podman/v4/cmd/podman/registry"
@@ -12,7 +12,7 @@ import (
 // SetupRegistry will initialize podman registry.
 func SetupRegistry() {
 	// disable logrus output
-	logrus.SetOutput(ioutil.Discard)
+	logrus.SetOutput(io.Discard)
 
 	registry.PodmanConfig()
 

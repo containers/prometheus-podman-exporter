@@ -30,9 +30,9 @@ Flags:
   -o, --collector.pod                  Enable pod collector.
   -s, --collector.system               Enable system collector.
   -v, --collector.volume               Enable volume collector.
-  -d, --debug                          set log level to debug
+  -d, --debug                          Set log level to debug.
   -h, --help                           help for podman_exporter
-      --version                        print version and exit
+      --version                        Print version and exit.
   -e, --web.disable-exporter-metrics   Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
   -l, --web.listen-address string      Address on which to expose metrics and web interface. (default ":9882")
   -m, --web.max-requests int           Maximum number of parallel scrape requests. Use 0 to disable (default 40)

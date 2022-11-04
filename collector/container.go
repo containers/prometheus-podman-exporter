@@ -42,7 +42,7 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 		state: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "state"),
-				// nolint:lll
+				//nolint:lll
 				"Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).",
 				[]string{"id"}, nil,
 			), prometheus.GaugeValue,
