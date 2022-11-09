@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/containers/common v0.50.1
-	github.com/containers/image/v5 v5.23.0
+	github.com/containers/image/v5 v5.23.1
 	github.com/containers/podman/v4 v4.3.0
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
