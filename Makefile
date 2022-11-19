@@ -72,7 +72,14 @@ install.tools: .install.pre-commit .install.codespell .install.golangci-lint ## 
 #=================================================
 
 .PHONY: validate
-validate: gofmt lint govet pre-commit codespell ## Validate prometheus-podman-exporter code (fmt, lint, ...)
+validate: gofmt lint govet pre-commit codespell vendor ## Validate prometheus-podman-exporter code (fmt, lint, ...)
+
+.PHONY: vendor
+vendor: ## Check vendor
+	$(GO) mod tidy
+	$(GO) mod vendor
+	$(GO) mod verify
+	@bash ./hack/tree_status.sh
 
 .PHONY: lint
 lint: ## Run golangci-lint
