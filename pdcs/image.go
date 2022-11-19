@@ -16,6 +16,7 @@ type Image struct {
 	Tag        string
 	Created    int64
 	Size       int64
+	Labels     map[string]string
 }
 
 // Images returns list of images (Image).
@@ -39,6 +40,7 @@ func Images() ([]Image, error) {
 					Tag:        tag,
 					Size:       rep.Size,
 					Created:    rep.Created,
+					Labels:     rep.Labels,
 				})
 			}
 		} else {
@@ -49,6 +51,7 @@ func Images() ([]Image, error) {
 				Tag:        "<none>",
 				Created:    rep.Created,
 				Size:       rep.Size,
+				Labels:     rep.Labels,
 			})
 		}
 	}

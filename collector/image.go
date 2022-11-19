@@ -21,11 +21,7 @@ func init() {
 func NewImageStatsCollector(logger log.Logger) (Collector, error) {
 	return &imageCollector{
 		info: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "image", "info"),
-				"Image information.",
-				[]string{"id", "parent_id", "repository", "tag"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		size: typedDesc{
 			prometheus.NewDesc(
@@ -53,10 +49,49 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	for _, rep := range reports {
-		ch <- c.info.mustNewConstMetric(1, rep.ID, rep.ParentID, rep.Repository, rep.Tag)
+		infoMetric, infoValues := c.getImageInfoDesc(rep)
+		c.info.desc = infoMetric
+		ch <- c.info.mustNewConstMetric(1, infoValues...)
+
 		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag)
 	}
 
 	return nil
+}
+
+func (c *imageCollector) getImageInfoDesc(rep pdcs.Image) (*prometheus.Desc, []string) {
+	imageLabels := []string{"id", "parent_id", "repository", "tag"}
+	imageLabelsValue := []string{rep.ID, rep.ParentID, rep.Repository, rep.Tag}
+
+	extraLabels, extraValues := c.getExtraLabelsAndValues(rep)
+
+	imageLabels = append(imageLabels, extraLabels...)
+	imageLabelsValue = append(imageLabelsValue, extraValues...)
+
+	infoDesc := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, "image", "info"),
+		"Image information.",
+		imageLabels, nil,
+	)
+
+	return infoDesc, imageLabelsValue
+}
+
+func (c *imageCollector) getExtraLabelsAndValues(rep pdcs.Image) ([]string, []string) {
+	extraLabels := make([]string, 0)
+	extraValues := make([]string, 0)
+
+	for label, value := range rep.Labels {
+		validLabel := sanitizeLabelName(label)
+		if storeLabels {
+			extraLabels = append(extraLabels, validLabel)
+			extraValues = append(extraValues, value)
+		} else if whitelistContains(label) {
+			extraLabels = append(extraLabels, validLabel)
+			extraValues = append(extraValues, value)
+		}
+	}
+
+	return extraLabels, extraValues
 }

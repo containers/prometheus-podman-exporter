@@ -24,20 +24,23 @@ Usage:
   prometheus-podman-exporter [flags]
 
 Flags:
-  -a, --collector.enable-all           Enable all collectors by default.
-  -i, --collector.image                Enable image collector.
-  -n, --collector.network              Enable network collector.
-  -o, --collector.pod                  Enable pod collector.
-  -s, --collector.system               Enable system collector.
-  -v, --collector.volume               Enable volume collector.
-  -d, --debug                          Set log level to debug.
-  -h, --help                           help for podman_exporter
-      --version                        Print version and exit.
-  -e, --web.disable-exporter-metrics   Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
-  -l, --web.listen-address string      Address on which to expose metrics and web interface. (default ":9882")
-  -m, --web.max-requests int           Maximum number of parallel scrape requests. Use 0 to disable (default 40)
-  -p, --web.telemetry-path string      Path under which to expose metrics. (default "/metrics")
-
+  -a, --collector.enable-all                  Enable all collectors by default.
+  -i, --collector.image                       Enable image collector.
+  -n, --collector.network                     Enable network collector.
+  -o, --collector.pod                         Enable pod collector.
+  -b, --collector.store_labels                Convert pod/container/image labels on prometheus metrics for each pod/container/image.
+  -s, --collector.system                      Enable system collector.
+  -v, --collector.volume                      Enable volume collector.
+  -w, --collector.whitelisted_labels string   Comma separated list of pod/container/image labels to be converted
+                                              to labels on prometheus metrics for each pod/container/image.
+                                              collector.store_labels must be set to false for this to take effect.
+  -d, --debug                                 Set log level to debug.
+  -h, --help                                  help for prometheus-podman-exporter
+      --version                               Print version and exit.
+  -e, --web.disable-exporter-metrics          Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
+  -l, --web.listen-address string             Address on which to expose metrics and web interface. (default ":9882")
+  -m, --web.max-requests int                  Maximum number of parallel scrape requests. Use 0 to disable (default 40)
+  -p, --web.telemetry-path string             Path under which to expose metrics. (default "/metrics")
 ```
 
 By default only container collector is enabled, in order to enable all collectors use `--collector.enable-all` or use `--collector.enable-<name>` flag to enable other collector.

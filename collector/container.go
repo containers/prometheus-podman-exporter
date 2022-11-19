@@ -33,11 +33,7 @@ func init() {
 func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 	return &containerCollector{
 		info: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "info"),
-				"Container information.",
-				[]string{"id", "name", "image", "ports", "pod_id"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		state: typedDesc{
 			prometheus.NewDesc(
@@ -150,7 +146,10 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	for _, rep := range reports {
-		ch <- c.info.mustNewConstMetric(1, rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID)
+		infoMetric, infoValues := c.getContainerInfoDesc(rep)
+		c.info.desc = infoMetric
+
+		ch <- c.info.mustNewConstMetric(1, infoValues...)
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
 		ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID)
@@ -176,4 +175,40 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	return nil
+}
+
+func (c *containerCollector) getContainerInfoDesc(rep pdcs.Container) (*prometheus.Desc, []string) {
+	containerLabels := []string{"id", "name", "image", "ports", "pod_id"}
+	containerLabelsValue := []string{rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID}
+
+	extraLabels, extraValues := c.getExtraLabelsAndValues(rep)
+
+	containerLabels = append(containerLabels, extraLabels...)
+	containerLabelsValue = append(containerLabelsValue, extraValues...)
+
+	infoDesc := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, "container", "info"),
+		"Container information.",
+		containerLabels, nil,
+	)
+
+	return infoDesc, containerLabelsValue
+}
+
+func (c *containerCollector) getExtraLabelsAndValues(rep pdcs.Container) ([]string, []string) {
+	extraLabels := make([]string, 0)
+	extraValues := make([]string, 0)
+
+	for label, value := range rep.Labels {
+		validLabel := sanitizeLabelName(label)
+		if storeLabels {
+			extraLabels = append(extraLabels, validLabel)
+			extraValues = append(extraValues, value)
+		} else if whitelistContains(label) {
+			extraLabels = append(extraLabels, validLabel)
+			extraValues = append(extraValues, value)
+		}
+	}
+
+	return extraLabels, extraValues
 }
