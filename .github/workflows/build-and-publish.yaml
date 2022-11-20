@@ -28,8 +28,7 @@ jobs:
 
       - name: Build binary
         run: |
-          go build
-          ./test_image
+          make binary-remote
 
       - name: Get image tags
         id: image_tag
