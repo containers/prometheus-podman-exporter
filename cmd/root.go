@@ -87,4 +87,10 @@ func init() {
 		"Enable network collector.")
 	rootCmd.Flags().BoolP("collector.system", "s", false,
 		"Enable system collector.")
+	rootCmd.Flags().BoolP("collector.store_labels", "b", false,
+		"Convert pod/container/image labels on prometheus metrics for each pod/container/image.")
+	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "",
+		"Comma separated list of pod/container/image labels to be converted\n"+
+			"to labels on prometheus metrics for each pod/container/image.\n"+
+			"collector.store_labels must be set to false for this to take effect.")
 }

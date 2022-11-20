@@ -10,6 +10,7 @@ type Pod struct {
 	ID              string
 	InfraID         string
 	Name            string
+	Labels          map[string]string
 	Created         int64
 	State           int
 	NumOfContainers int
@@ -29,6 +30,7 @@ func Pods() ([]Pod, error) {
 			ID:              getID(rep.Id),
 			InfraID:         getID(rep.InfraId),
 			Name:            rep.Name,
+			Labels:          rep.Labels,
 			Created:         rep.Created.Unix(),
 			NumOfContainers: len(rep.Containers),
 			State:           podReporter{rep}.status(),

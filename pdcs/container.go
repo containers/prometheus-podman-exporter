@@ -18,6 +18,7 @@ type Container struct {
 	ID       string
 	PodID    string // if container is part of pod
 	Name     string
+	Labels   map[string]string
 	Image    string
 	Created  int64
 	Started  int64
@@ -63,6 +64,7 @@ func Containers() ([]Container, error) {
 			ExitCode: rep.ExitCode,
 			State:    conReporter{rep}.state(),
 			Ports:    conReporter{rep}.ports(),
+			Labels:   rep.Labels,
 		})
 	}
 

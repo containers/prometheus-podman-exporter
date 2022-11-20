@@ -74,7 +74,7 @@ func Start(cmd *cobra.Command, args []string) error {
 	level.Info(logger).Log("msg", "Listening on", "address", webListen)
 
 	server := &http.Server{
-		ReadHeaderTimeout: 3 * time.Second,
+		ReadHeaderTimeout: 3 * time.Second, // nolint:gomnd
 	}
 	serverSystemd := false
 	serverConfigFile := ""
@@ -99,6 +99,18 @@ func setEnabledCollectors(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+
+	storeLabels, err := cmd.Flags().GetBool("collector.store_labels")
+	if err != nil {
+		return err
+	}
+
+	whiteListedLabels, err := cmd.Flags().GetString("collector.whitelisted_labels")
+	if err != nil {
+		return err
+	}
+
+	collector.RegisterVariableLabels(storeLabels, whiteListedLabels)
 
 	if enableAll {
 		enList = append(enList, "pod")
