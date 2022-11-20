@@ -16,7 +16,7 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.2.0
+Version: 1.3.0
 Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
@@ -96,7 +96,25 @@ popd
 
 
 %changelog
-* Sun Sep 11 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.2.0-dev-1
+* Sun Nov 20 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.3.0-dev-1
+
+* Sun Nov 20 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.2.0-1
+- Convert pod/container/image labels on prometheus metrics
+- Github workflow - build container image
+- Makefile update - add vendor check target
+- Vagrant box update to fc37
+- Do not init podman registry if --version flag is enabled
+- Running codespell
+- Fix trivial golangci-lint issues
+- Fix golangci failure in cirrus
+- Fix export crash when pod is created without infra container
+- Bump github.com/containers/podman/v4 from 4.3.0 to 4.3.1
+- Bump containers/podman (v4.3.0), common (v0.51.1) and image/v5 (v5.23.0)
+- Bump github.com/prometheus/client_golang from 1.13.1 to 1.14.0
+- Bump github.com/prometheus/client_golang from 1.13.0 to 1.13.1
+- Bump prometheus/exporter-toolkit from 0.7.1 to 0.8.1
+- Bump github.com/spf13/cobra from 1.6.0 to 1.6.1
+- Bump github.com/spf13/cobra from 1.5.0 to 1.6.0
 
 * Sun Sep 11 2022 Navid Yaghoobi <navidys@fedoraproject.org> 1.1.0-1
 - Fix image metrics gathering error (collected before)
