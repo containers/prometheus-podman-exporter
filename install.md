@@ -42,9 +42,9 @@ prometheus-podman-exporter is using go v1.17 or above.
 
 * Using unix socket (root):
 
-    ```shell
-    $ systemctl start podman.socket
-    $ podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v $XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock --userns=keep-id --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
+    ```
+    # systemctl start podman.socket
+    # podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v /run/podman/podman.sock:/run/podman/podman.sock -u root --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
     ```
 
 * Using TCP:
