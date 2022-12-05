@@ -32,7 +32,14 @@ const (
 )
 
 const (
+	containerHealthHealthy = 0 + iota
+	containerHealthUnhealthy = 0 + iota
+	containerHealthStarting = 0 + iota
+)
+
+const (
 	stateUnknown  = -1
+	healthUnknown  = -1
 	noneReference = "<none>"
 	idLimit       = 12
 )
@@ -104,6 +111,22 @@ func (con conReporter) state() int {
 	}
 
 	return stateUnknown
+}
+
+func (con conReporter) health() int {
+	// nolint:typecheck,nolintlint
+	health := strings.ToLower(con.Status)
+
+	switch health {
+	case "healthy":
+		return containerHealthHealthy
+	case "unhealthy":
+		return containerHealthUnhealthy
+	case "starting":
+		return containerHealthStarting
+	}
+
+	return healthUnknown
 }
 
 // Following code are from https://github.com/containers/podman/

@@ -26,6 +26,7 @@ type Container struct {
 	ExitCode int32
 	Ports    string
 	State    int
+	Health   int
 }
 
 // ContainerStat implements container's stat.
@@ -63,6 +64,7 @@ func Containers() ([]Container, error) {
 			Exited:   rep.ExitedAt,
 			ExitCode: rep.ExitCode,
 			State:    conReporter{rep}.state(),
+			Health:   conReporter{rep}.health(),
 			Ports:    conReporter{rep}.ports(),
 			Labels:   rep.Labels,
 		})
