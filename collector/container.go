@@ -9,6 +9,7 @@ import (
 type containerCollector struct {
 	info        typedDesc
 	state       typedDesc
+	health      typedDesc
 	created     typedDesc
 	started     typedDesc
 	exited      typedDesc
@@ -40,6 +41,14 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 				prometheus.BuildFQName(namespace, "container", "state"),
 				//nolint:lll
 				"Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).",
+				[]string{"id"}, nil,
+			), prometheus.GaugeValue,
+		},
+		health: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "health"),
+				//nolint:lll
+				"Container current health (-1=unknown,0=healthy,1=unhealthy,2=starting).",
 				[]string{"id"}, nil,
 			), prometheus.GaugeValue,
 		},
@@ -151,6 +160,7 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 
 		ch <- c.info.mustNewConstMetric(1, infoValues...)
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID)
+		ch <- c.health.mustNewConstMetric(float64(rep.Health), rep.ID)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
 		ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID)
 		ch <- c.exited.mustNewConstMetric(float64(rep.Exited), rep.ID)
