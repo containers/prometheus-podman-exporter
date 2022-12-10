@@ -118,28 +118,28 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 		netInput: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "net_input_total"),
-				"Container network input.",
+				"Container network input in bytes.",
 				[]string{"id"}, nil,
 			), prometheus.CounterValue,
 		},
 		netOutput: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "net_output_total"),
-				"Container network output.",
+				"Container network output in bytes.",
 				[]string{"id"}, nil,
 			), prometheus.CounterValue,
 		},
 		blockInput: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "block_input_total"),
-				"Container block input.",
+				"Container block input in bytes.",
 				[]string{"id"}, nil,
 			), prometheus.CounterValue,
 		},
 		blockOutput: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "block_output_total"),
-				"Container block output.",
+				"Container block output in bytes.",
 				[]string{"id"}, nil,
 			), prometheus.CounterValue,
 		},
