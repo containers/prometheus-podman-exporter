@@ -37,9 +37,9 @@ jobs:
           VERSION=$(grep 'VERSION=' VERSION | awk -F= '{print $2'})
           REVISION=$(grep 'REVISION=' VERSION | awk -F= '{print $2'})
           if [[ "${REVISION}" =~ "dev." ]] ; then
-            echo "latest"
+            echo "develop"
           else
-            echo "v${VERSION}"
+            echo "v${VERSION} latest"
           fi
 
       - name: Build container image
