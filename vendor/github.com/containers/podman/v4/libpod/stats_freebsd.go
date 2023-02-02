@@ -82,8 +82,8 @@ func (c *Container) getPlatformContainerStats(stats *define.ContainerStats, prev
 
 	// Handle case where the container is not in a network namespace
 	if netStats != nil {
-		stats.NetInput = netStats.TxBytes
-		stats.NetOutput = netStats.RxBytes
+		stats.NetInput = netStats.RxBytes
+		stats.NetOutput = netStats.TxBytes
 	} else {
 		stats.NetInput = 0
 		stats.NetOutput = 0
@@ -96,9 +96,9 @@ func (c *Container) getPlatformContainerStats(stats *define.ContainerStats, prev
 func (c *Container) getMemLimit() uint64 {
 	memLimit := uint64(math.MaxUint64)
 
-	if c.config.Spec.Linux != nil && c.config.Spec.Linux.Resources != nil &&
-		c.config.Spec.Linux.Resources.Memory != nil && c.config.Spec.Linux.Resources.Memory.Limit != nil {
-		memLimit = uint64(*c.config.Spec.Linux.Resources.Memory.Limit)
+	resources := c.LinuxResources()
+	if resources != nil && resources.Memory != nil && resources.Memory.Limit != nil {
+		memLimit = uint64(*resources.Memory.Limit)
 	}
 
 	mi, err := system.ReadMemInfo()

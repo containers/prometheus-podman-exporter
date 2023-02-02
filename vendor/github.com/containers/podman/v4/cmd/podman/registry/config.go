@@ -34,7 +34,7 @@ var (
 
 	// ABIMode used in cobra.Annotations registry.EngineMode when command only supports ABIMode
 	ABIMode = entities.ABIMode.String()
-	// TunnelMode used in in cobra.Annotations registry.EngineMode when command only supports TunnelMode
+	// TunnelMode used in cobra.Annotations registry.EngineMode when command only supports TunnelMode
 	TunnelMode = entities.TunnelMode.String()
 )
 
@@ -51,7 +51,7 @@ func newPodmanConfig() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.NewConfig("")
+	defaultConfig, err := config.Default()
 	if err != nil {
 		fmt.Fprint(os.Stderr, "Failed to obtain podman configuration: "+err.Error())
 		os.Exit(1)
@@ -76,11 +76,11 @@ func newPodmanConfig() {
 
 	// If EngineMode==Tunnel has not been set on the command line or environment
 	// but has been set in containers.conf...
-	if mode == entities.ABIMode && cfg.Engine.Remote {
+	if mode == entities.ABIMode && defaultConfig.Engine.Remote {
 		mode = entities.TunnelMode
 	}
 
-	podmanOptions = entities.PodmanConfig{Config: cfg, EngineMode: mode}
+	podmanOptions = entities.PodmanConfig{ContainersConf: &config.Config{}, ContainersConfDefaultsRO: defaultConfig, EngineMode: mode}
 }
 
 // setXdgDirs ensures the XDG_RUNTIME_DIR env and XDG_CONFIG_HOME variables are set.
@@ -105,6 +105,10 @@ func setXdgDirs() error {
 	if _, found := os.LookupEnv("DBUS_SESSION_BUS_ADDRESS"); !found {
 		sessionAddr := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "bus")
 		if _, err := os.Stat(sessionAddr); err == nil {
+			sessionAddr, err = filepath.EvalSymlinks(sessionAddr)
+			if err != nil {
+				return err
+			}
 			os.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+sessionAddr)
 		}
 	}

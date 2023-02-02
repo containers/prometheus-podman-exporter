@@ -136,7 +136,7 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 
 	paths := []string{}
 	for _, ctr := range ctrs {
-		paths = append(paths, ctr.Config().ConmonPidFile)
+		paths = append(paths, ctr.ConfigNoCopy().ConmonPidFile)
 	}
 
 	if len(paths) > 0 {
@@ -160,6 +160,18 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 // SystemPrune removes unused data from the system. Pruning pods, containers, networks, volumes and images.
 func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.SystemPruneOptions) (*entities.SystemPruneReport, error) {
 	var systemPruneReport = new(entities.SystemPruneReport)
+
+	if options.External {
+		if options.All || options.Volume || len(options.Filters) > 0 {
+			return nil, fmt.Errorf("system prune --external cannot be combined with other options")
+		}
+		err := ic.Libpod.GarbageCollect()
+		if err != nil {
+			return nil, err
+		}
+		return systemPruneReport, nil
+	}
+
 	filters := []string{}
 	for k, v := range options.Filters {
 		filters = append(filters, fmt.Sprintf("%s=%s", k, v[0]))
@@ -253,7 +265,7 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 		dfImages = []*entities.SystemDfImageReport{}
 	)
 
-	imageStats, err := ic.Libpod.LibimageRuntime().DiskUsage(ctx)
+	imageStats, totalImageSize, err := ic.Libpod.LibimageRuntime().DiskUsage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +364,9 @@ func (ic *ContainerEngine) SystemDf(ctx context.Context, options entities.System
 		}
 		dfVolumes = append(dfVolumes, &report)
 	}
+
 	return &entities.SystemDfReport{
+		ImagesSize: totalImageSize,
 		Images:     dfImages,
 		Containers: dfContainers,
 		Volumes:    dfVolumes,
