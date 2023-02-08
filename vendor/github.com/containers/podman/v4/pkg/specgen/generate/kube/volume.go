@@ -9,10 +9,9 @@ import (
 	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/podman/v4/libpod"
 	v1 "github.com/containers/podman/v4/pkg/k8s.io/api/core/v1"
-	metav1 "github.com/containers/podman/v4/pkg/k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/ghodss/yaml"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -131,44 +130,38 @@ func VolumeFromHostPath(hostPath *v1.HostPathVolumeSource) (*KubeVolume, error) 
 
 // VolumeFromSecret creates a new kube volume from a kube secret.
 func VolumeFromSecret(secretSource *v1.SecretVolumeSource, secretsManager *secrets.SecretsManager) (*KubeVolume, error) {
+	kv := &KubeVolume{
+		Type:   KubeVolumeTypeSecret,
+		Source: secretSource.SecretName,
+		Items:  map[string][]byte{},
+	}
+
 	// returns a byte array of a kube secret data, meaning this needs to go into a string map
 	_, secretByte, err := secretsManager.LookupSecretData(secretSource.SecretName)
 	if err != nil {
+		if errors.Is(err, secrets.ErrNoSuchSecret) && secretSource.Optional != nil && *secretSource.Optional {
+			kv.Optional = true
+			return kv, nil
+		}
 		return nil, err
 	}
 
-	// unmarshaling directly into a v1.secret creates type mismatch errors
-	// use a more friendly, string only secret struct.
-	type KubeSecret struct {
-		metav1.TypeMeta `json:",inline"`
-		// +optional
-		metav1.ObjectMeta `json:"metadata,omitempty"`
-		// +optional
-		Immutable *bool             `json:"immutable,omitempty"`
-		Data      map[string]string `json:"data,omitempty"`
-		// +optional
-		StringData map[string]string `json:"stringData,omitempty"`
-		// +optional
-		Type string `json:"type,omitempty"`
-	}
-
-	data := &KubeSecret{}
+	data := &v1.Secret{}
 
 	err = yaml.Unmarshal(secretByte, data)
 	if err != nil {
 		return nil, err
 	}
 
-	kv := &KubeVolume{}
-	kv.Type = KubeVolumeTypeSecret
-	kv.Source = secretSource.SecretName
-	kv.Optional = *secretSource.Optional
-	kv.Items = make(map[string][]byte)
-
 	// add key: value pairs to the items array
 	for key, entry := range data.Data {
+		kv.Items[key] = entry
+	}
+
+	for key, entry := range data.StringData {
 		kv.Items[key] = []byte(entry)
 	}
+
 	return kv, nil
 }
 
@@ -252,7 +245,7 @@ func VolumeFromSource(volumeSource v1.VolumeSource, configMaps []v1.ConfigMap, s
 	case volumeSource.EmptyDir != nil:
 		return VolumeFromEmptyDir(volumeSource.EmptyDir, volName)
 	default:
-		return nil, errors.New("HostPath, ConfigMap, EmptyDir, and PersistentVolumeClaim are currently the only supported VolumeSource")
+		return nil, errors.New("HostPath, ConfigMap, EmptyDir, Secret, and PersistentVolumeClaim are currently the only supported VolumeSource")
 	}
 }
 

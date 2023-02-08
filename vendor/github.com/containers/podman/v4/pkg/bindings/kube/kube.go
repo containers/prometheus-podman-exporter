@@ -67,7 +67,7 @@ func PlayWithBody(ctx context.Context, body io.Reader, options *PlayOptions) (*e
 	return &report, nil
 }
 
-func Down(ctx context.Context, path string) (*entities.KubePlayReport, error) {
+func Down(ctx context.Context, path string, options DownOptions) (*entities.KubePlayReport, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -78,17 +78,22 @@ func Down(ctx context.Context, path string) (*entities.KubePlayReport, error) {
 		}
 	}()
 
-	return DownWithBody(ctx, f)
+	return DownWithBody(ctx, f, options)
 }
 
-func DownWithBody(ctx context.Context, body io.Reader) (*entities.KubePlayReport, error) {
+func DownWithBody(ctx context.Context, body io.Reader, options DownOptions) (*entities.KubePlayReport, error) {
 	var report entities.KubePlayReport
 	conn, err := bindings.GetClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	response, err := conn.DoRequest(ctx, body, http.MethodDelete, "/play/kube", nil, nil)
+	params, err := options.ToParams()
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := conn.DoRequest(ctx, body, http.MethodDelete, "/play/kube", params, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -101,4 +106,42 @@ func DownWithBody(ctx context.Context, body io.Reader) (*entities.KubePlayReport
 // Kube generate Kubernetes YAML (v1 specification)
 func Generate(ctx context.Context, nameOrIDs []string, options generate.KubeOptions) (*entities.GenerateKubeReport, error) {
 	return generate.Kube(ctx, nameOrIDs, &options)
+}
+
+func Apply(ctx context.Context, path string, options *ApplyOptions) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			logrus.Warn(err)
+		}
+	}()
+
+	return ApplyWithBody(ctx, f, options)
+}
+
+func ApplyWithBody(ctx context.Context, body io.Reader, options *ApplyOptions) error {
+	if options == nil {
+		options = new(ApplyOptions)
+	}
+
+	conn, err := bindings.GetClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	params, err := options.ToParams()
+	if err != nil {
+		return err
+	}
+
+	response, err := conn.DoRequest(ctx, body, http.MethodPost, "/kube/apply", params, nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	return nil
 }
