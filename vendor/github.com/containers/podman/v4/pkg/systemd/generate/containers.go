@@ -28,6 +28,7 @@ type containerInfo struct {
 	NotifyAccess           string
 	StopTimeout            uint
 	RestartPolicy          string
+	RestartSec             uint
 	StartLimitBurst        string
 	PIDFile                string
 	ContainerIDFile        string
@@ -42,10 +43,10 @@ type containerInfo struct {
 	ExtraEnvs              []string
 	EnvVariable            string
 	AdditionalEnvVariables []string
-	ExecStartPre           string
 	ExecStart              string
 	TimeoutStartSec        uint
 	TimeoutStopSec         uint
+	ExecStartPre           string
 	ExecStop               string
 	ExecStopPost           string
 	GenerateNoHeader       bool
@@ -87,6 +88,9 @@ Environment={{{{- range $index, $value := .ExtraEnvs -}}}}{{{{if $index}}}} {{{{
 Environment={{{{ $value }}}}{{{{end}}}}
 {{{{- end}}}}
 Restart={{{{.RestartPolicy}}}}
+{{{{- if .RestartSec}}}}
+RestartSec={{{{.RestartSec}}}}
+{{{{- end}}}}
 {{{{- if .StartLimitBurst}}}}
 StartLimitBurst={{{{.StartLimitBurst}}}}
 {{{{- end}}}}
@@ -94,9 +98,6 @@ StartLimitBurst={{{{.StartLimitBurst}}}}
 TimeoutStartSec={{{{.TimeoutStartSec}}}}
 {{{{- end}}}}
 TimeoutStopSec={{{{.TimeoutStopSec}}}}
-{{{{- if .ExecStartPre}}}}
-ExecStartPre={{{{.ExecStartPre}}}}
-{{{{- end}}}}
 ExecStart={{{{.ExecStart}}}}
 {{{{- if .ExecStop}}}}
 ExecStop={{{{.ExecStop}}}}
@@ -285,6 +286,10 @@ func executeContainerTemplate(info *containerInfo, options entities.GenerateSyst
 		info.RestartPolicy = *options.RestartPolicy
 	}
 
+	if options.RestartSec != nil {
+		info.RestartSec = *options.RestartSec
+	}
+
 	// Make sure the executable is set.
 	if info.Executable == "" {
 		executable, err := os.Executable()
@@ -316,7 +321,6 @@ func executeContainerTemplate(info *containerInfo, options entities.GenerateSyst
 		info.NotifyAccess = "all"
 		info.PIDFile = ""
 		info.ContainerIDFile = "%t/%n.ctr-id"
-		info.ExecStartPre = formatOptionsString("/bin/rm -f {{{{.ContainerIDFile}}}}")
 		info.ExecStop = formatOptionsString("{{{{.Executable}}}} stop --ignore {{{{if (ge .StopTimeout 0)}}}}-t {{{{.StopTimeout}}}}{{{{end}}}} --cidfile={{{{.ContainerIDFile}}}}")
 		info.ExecStopPost = formatOptionsString("{{{{.Executable}}}} rm -f --ignore {{{{if (ge .StopTimeout 0)}}}}-t {{{{.StopTimeout}}}}{{{{end}}}} --cidfile={{{{.ContainerIDFile}}}}")
 		// The create command must at least have three arguments:
@@ -457,7 +461,7 @@ func executeContainerTemplate(info *containerInfo, options entities.GenerateSyst
 			return "", err
 		}
 		for _, env := range envs {
-			// if env arg does not contain a equal sign we have to add the envar to the unit
+			// if env arg does not contain an equal sign we have to add the envar to the unit
 			// because it does try to red the value from the environment
 			if !strings.Contains(env, "=") {
 				for _, containerEnv := range info.containerEnv {
