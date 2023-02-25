@@ -32,7 +32,6 @@ import (
 	"github.com/containers/podman/v4/pkg/errorhandling"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/storage"
-	dockerRef "github.com/docker/distribution/reference"
 	"github.com/opencontainers/go-digest"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
@@ -237,6 +236,7 @@ func (ir *ImageEngine) Pull(ctx context.Context, rawImage string, options entiti
 	pullOptions.SignaturePolicyPath = options.SignaturePolicy
 	pullOptions.InsecureSkipTLSVerify = options.SkipTLSVerify
 	pullOptions.Writer = options.Writer
+	pullOptions.OciDecryptConfig = options.OciDecryptConfig
 
 	if !options.Quiet && pullOptions.Writer == nil {
 		pullOptions.Writer = os.Stderr
@@ -304,12 +304,17 @@ func (ir *ImageEngine) Push(ctx context.Context, source string, destination stri
 	pushOptions.Password = options.Password
 	pushOptions.ManifestMIMEType = manifestType
 	pushOptions.RemoveSignatures = options.RemoveSignatures
+	pushOptions.PolicyAllowStorage = true
+	pushOptions.SignaturePolicyPath = options.SignaturePolicy
+	pushOptions.Signers = options.Signers
 	pushOptions.SignBy = options.SignBy
 	pushOptions.SignPassphrase = options.SignPassphrase
 	pushOptions.SignBySigstorePrivateKeyFile = options.SignBySigstorePrivateKeyFile
 	pushOptions.SignSigstorePrivateKeyPassphrase = options.SignSigstorePrivateKeyPassphrase
 	pushOptions.InsecureSkipTLSVerify = options.SkipTLSVerify
 	pushOptions.Writer = options.Writer
+	pushOptions.OciEncryptConfig = options.OciEncryptConfig
+	pushOptions.OciEncryptLayers = options.OciEncryptLayers
 
 	compressionFormat := options.CompressionFormat
 	if compressionFormat == "" {
@@ -355,6 +360,7 @@ func (ir *ImageEngine) Push(ctx context.Context, source string, destination stri
 	}
 	return pushError
 }
+
 func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, options entities.ImageTagOptions) error {
 	// Allow tagging manifest list instead of resolving instances from manifest
 	lookupOptions := &libimage.LookupImageOptions{ManifestList: true}
@@ -894,7 +900,7 @@ func localPathFromURI(url *url.URL) (string, error) {
 }
 
 // putSignature creates signature and saves it to the signstore file
-func putSignature(manifestBlob []byte, mech signature.SigningMechanism, sigStoreDir string, instanceDigest digest.Digest, dockerReference dockerRef.Reference, options entities.SignOptions) error {
+func putSignature(manifestBlob []byte, mech signature.SigningMechanism, sigStoreDir string, instanceDigest digest.Digest, dockerReference reference.Reference, options entities.SignOptions) error {
 	newSig, err := signature.SignDockerManifest(manifestBlob, dockerReference.String(), mech, options.SignBy)
 	if err != nil {
 		return err

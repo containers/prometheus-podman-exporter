@@ -287,3 +287,33 @@ func (o *PlayOptions) GetUserns() string {
 	}
 	return *o.Userns
 }
+
+// WithForce set field Force to given value
+func (o *PlayOptions) WithForce(value bool) *PlayOptions {
+	o.Force = &value
+	return o
+}
+
+// GetForce returns value of field Force
+func (o *PlayOptions) GetForce() bool {
+	if o.Force == nil {
+		var z bool
+		return z
+	}
+	return *o.Force
+}
+
+// WithPublishPorts set field PublishPorts to given value
+func (o *PlayOptions) WithPublishPorts(value []string) *PlayOptions {
+	o.PublishPorts = value
+	return o
+}
+
+// GetPublishPorts returns value of field PublishPorts
+func (o *PlayOptions) GetPublishPorts() []string {
+	if o.PublishPorts == nil {
+		var z []string
+		return z
+	}
+	return o.PublishPorts
+}
