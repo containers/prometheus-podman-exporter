@@ -16,8 +16,8 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.3.0
-Release: 1%{?dist}
+Version: 1.4.0
+Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
 URL: %{git0}
@@ -96,6 +96,8 @@ popd
 
 
 %changelog
+* Sat Feb 25 2023 Navid Yaghoobi <navidys@fedoraproject.org> 1.4.0-dev-1
+
 * Sat Feb 25 2023 Navid Yaghoobi <navidys@fedoraproject.org> 1.3.0
 - Add health status in container metrics
 - update net/block io metric help string to include the type (bytes)
