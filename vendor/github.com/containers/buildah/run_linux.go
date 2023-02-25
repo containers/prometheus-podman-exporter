@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +33,7 @@ import (
 	hooksExec "github.com/containers/common/pkg/hooks/exec"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/ioutils"
+	"github.com/containers/storage/pkg/lockfile"
 	"github.com/containers/storage/pkg/stringid"
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/docker/go-units"
@@ -69,7 +69,7 @@ func setChildProcess() error {
 
 // Run runs the specified command in the container's root filesystem.
 func (b *Builder) Run(command []string, options RunOptions) error {
-	p, err := ioutil.TempDir("", define.Package)
+	p, err := os.MkdirTemp("", define.Package)
 	if err != nil {
 		return err
 	}
@@ -114,8 +114,10 @@ func (b *Builder) Run(command []string, options RunOptions) error {
 		return err
 	}
 
+	workDir := b.WorkDir()
 	if options.WorkingDir != "" {
 		g.SetProcessCwd(options.WorkingDir)
+		workDir = options.WorkingDir
 	} else if b.WorkDir() != "" {
 		g.SetProcessCwd(b.WorkDir())
 	}
@@ -208,6 +210,8 @@ func (b *Builder) Run(command []string, options RunOptions) error {
 	if err != nil {
 		return err
 	}
+
+	g.SetProcessNoNewPrivileges(b.CommonBuildOpts.NoNewPrivileges)
 
 	g.SetProcessApparmorProfile(b.CommonBuildOpts.ApparmorProfile)
 
@@ -318,6 +322,7 @@ rootless=%d
 	}
 
 	runMountInfo := runMountInfo{
+		WorkDir:          workDir,
 		ContextDir:       options.ContextDir,
 		Secrets:          options.Secrets,
 		SSHSources:       options.SSHSources,
@@ -477,7 +482,7 @@ func setupRootlessNetwork(pid int) (teardown func(), err error) {
 	defer rootlessSlirpSyncR.Close()
 
 	// Be sure there are no fds inherited to slirp4netns except the sync pipe
-	files, err := ioutil.ReadDir("/proc/self/fd")
+	files, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
 		return nil, fmt.Errorf("cannot list open fds: %w", err)
 	}
@@ -1196,18 +1201,26 @@ func checkIdsGreaterThan5(ids []spec.LinuxIDMapping) bool {
 	return false
 }
 
-func (b *Builder) getCacheMount(tokens []string, stageMountPoints map[string]internal.StageMountDetails, idMaps IDMaps) (*spec.Mount, []string, error) {
+// If this function succeeds and returns a non-nil *lockfile.LockFile, the caller must unlock it (when??).
+func (b *Builder) getCacheMount(tokens []string, stageMountPoints map[string]internal.StageMountDetails, idMaps IDMaps, workDir string) (*spec.Mount, *lockfile.LockFile, error) {
 	var optionMounts []specs.Mount
-	mount, lockedTargets, err := internalParse.GetCacheMount(tokens, b.store, b.MountLabel, stageMountPoints)
+	mount, targetLock, err := internalParse.GetCacheMount(tokens, b.store, b.MountLabel, stageMountPoints, workDir)
 	if err != nil {
-		return nil, lockedTargets, err
+		return nil, nil, err
 	}
+	succeeded := false
+	defer func() {
+		if !succeeded && targetLock != nil {
+			targetLock.Unlock()
+		}
+	}()
 	optionMounts = append(optionMounts, mount)
 	volumes, err := b.runSetupVolumeMounts(b.MountLabel, nil, optionMounts, idMaps)
 	if err != nil {
-		return nil, lockedTargets, err
+		return nil, nil, err
 	}
-	return &volumes[0], lockedTargets, nil
+	succeeded = true
+	return &volumes[0], targetLock, nil
 }
 
 // setPdeathsig sets a parent-death signal for the process
