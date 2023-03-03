@@ -67,6 +67,8 @@ func init() {
 		"Set log level to debug.")
 	rootCmd.Flags().BoolP("version", "", false,
 		"Print version and exit.")
+	rootCmd.Flags().StringP("web.config.file", "", "",
+		"[EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.")
 	rootCmd.Flags().StringP("web.listen-address", "l", ":9882",
 		"Address on which to expose metrics and web interface.")
 	rootCmd.Flags().StringP("web.telemetry-path", "p", "/metrics",
