@@ -52,6 +52,11 @@ func Start(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	webConfigFile, err := cmd.Flags().GetString("web.config.file")
+	if err != nil {
+		return err
+	}
+
 	logger := promlog.New(promlogConfig)
 
 	if err := setEnabledCollectors(cmd); err != nil {
@@ -77,13 +82,12 @@ func Start(cmd *cobra.Command, args []string) error {
 		ReadHeaderTimeout: 3 * time.Second, // nolint:gomnd
 	}
 	serverSystemd := false
-	serverConfigFile := ""
 	serverWebListen := []string{webListen}
 
 	toolkitFlag := new(web.FlagConfig)
 	toolkitFlag.WebSystemdSocket = &serverSystemd
 	toolkitFlag.WebListenAddresses = &serverWebListen
-	toolkitFlag.WebConfigFile = &serverConfigFile
+	toolkitFlag.WebConfigFile = &webConfigFile
 
 	if err := web.ListenAndServe(server, toolkitFlag, logger); err != nil {
 		return err

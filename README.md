@@ -37,6 +37,7 @@ Flags:
   -d, --debug                                 Set log level to debug.
   -h, --help                                  help for prometheus-podman-exporter
       --version                               Print version and exit.
+      --web.config.file string                [EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.
   -e, --web.disable-exporter-metrics          Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
   -l, --web.listen-address string             Address on which to expose metrics and web interface. (default ":9882")
   -m, --web.max-requests int                  Maximum number of parallel scrape requests. Use 0 to disable (default 40)
@@ -50,6 +51,10 @@ By default only container collector is enabled, in order to enable all collector
 ```shell
 $ ./bin/prometheus-podman-exporter --collector.enable-all
 ```
+
+The exporter uses plain HTTP without any form of authentication to expose the metrics by default.
+Use `--web.config.file` with a configuration file to use TLS for confidentiality and/or to enable authentication.
+Visit [this page](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md) for more information about the syntax of the configuration file.
 
 ## Collectors
 The table below list all existing collector and their description.
