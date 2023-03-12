@@ -3,12 +3,19 @@ on:
   pull_request:
 
 jobs:
-  commit:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+      - uses: pre-commit/action@v3.0.0
+
+  DCO-check:
     runs-on: ubuntu-latest
     steps:
       - name: get pr commits
         id: 'get-pr-commits'
-        uses: tim-actions/get-pr-commits@v1.1.0
+        uses: tim-actions/get-pr-commits@v1.2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -25,14 +32,54 @@ jobs:
           error: 'Subject too long (max 72)'
 
   codespell:
-    name: codespell check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: codespell-project/actions-codespell@master
         with:
           check_filenames: true
           skip: ./.git,./vendor,*_test.go,go.sum,go.mod
+
+  vendoring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '1.18.8'
+      - uses: actions/checkout@v3
+      - run: |
+          go mod tidy
+          go mod vendor
+          go mod verify
+          bash ./hack/tree_status.sh
+
+  golangci-lint_fmt:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '1.18.8'
+      - uses: actions/checkout@v3
+      - run: |
+          bash hack/install_dep.sh
+          make .install.golangci-lint
+          make lint
+          make gofmt
+
+  build_binary:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '1.18.8'
+      - uses: actions/checkout@v3
+      - run: |
+          bash hack/install_dep.sh
+          make binary
 
   goreportcard:
     name: update reportcard

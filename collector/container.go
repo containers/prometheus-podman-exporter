@@ -47,7 +47,6 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 		health: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "container", "health"),
-				//nolint:lll
 				"Container current health (-1=unknown,0=healthy,1=unhealthy,2=starting).",
 				[]string{"id"}, nil,
 			), prometheus.GaugeValue,

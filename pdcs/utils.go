@@ -32,14 +32,14 @@ const (
 )
 
 const (
-	containerHealthHealthy = 0 + iota
+	containerHealthHealthy   = 0 + iota
 	containerHealthUnhealthy = 0 + iota
-	containerHealthStarting = 0 + iota
+	containerHealthStarting  = 0 + iota
 )
 
 const (
 	stateUnknown  = -1
-	healthUnknown  = -1
+	healthUnknown = -1
 	noneReference = "<none>"
 	idLimit       = 12
 )
