@@ -17,6 +17,15 @@ linters:
     - interfacer
     - scopelint
     - gomoddirectives
+    # deprecated
+    - varcheck
+    - deadcode
+    - ifshort
+    - nosnakecase
+    - structcheck
+    - rowserrcheck
+    - structcheck
+    - wastedassign
 linters-settings:
   errcheck:
     check-blank: false

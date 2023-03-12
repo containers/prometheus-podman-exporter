@@ -65,7 +65,7 @@ install.tools: .install.pre-commit .install.codespell .install.golangci-lint ## 
 
 .PHONY: .install.golangci-lint
 .install.golangci-lint:
-	VERSION=1.46.2 ./hack/install_golangci.sh
+	VERSION=1.51.1 ./hack/install_golangci.sh
 
 #=================================================
 # Linting/Formatting/Code Validation targets
@@ -84,6 +84,7 @@ vendor: ## Check vendor
 .PHONY: lint
 lint: ## Run golangci-lint
 	@echo "running golangci-lint"
+	$(BIN)/golangci-lint version
 	$(BIN)/golangci-lint run
 
 .PHONY: pre-commit
