@@ -217,7 +217,7 @@ func LoadToRemote(dest entities.ImageScpOptions, localFile string, tag string, u
 		return "", "", err
 	}
 
-	remoteFile, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.String(), Port: port, User: url.User, Args: []string{"mktemp"}}, sshEngine)
+	remoteFile, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.String(), Identity: iden, Port: port, User: url.User, Args: []string{"mktemp"}}, sshEngine)
 	if err != nil {
 		return "", "", err
 	}
@@ -227,7 +227,7 @@ func LoadToRemote(dest entities.ImageScpOptions, localFile string, tag string, u
 	if err != nil {
 		return "", "", err
 	}
-	out, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.String(), Port: port, User: url.User, Args: []string{"podman", "image", "load", "--input=" + scpRep + ";", "rm", scpRep}}, sshEngine)
+	out, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.String(), Identity: iden, Port: port, User: url.User, Args: []string{"podman", "image", "load", "--input=" + scpRep + ";", "rm", scpRep}}, sshEngine)
 	if err != nil {
 		return "", "", err
 	}
@@ -238,7 +238,7 @@ func LoadToRemote(dest entities.ImageScpOptions, localFile string, tag string, u
 	outArr := strings.Split(rep, " ")
 	id := outArr[len(outArr)-1]
 	if len(dest.Tag) > 0 { // tag the remote image using the output ID
-		_, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.Hostname(), Port: port, User: url.User, Args: []string{"podman", "image", "tag", id, dest.Tag}}, sshEngine)
+		_, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: url.Hostname(), Identity: iden, Port: port, User: url.User, Args: []string{"podman", "image", "tag", id, dest.Tag}}, sshEngine)
 		if err != nil {
 			return "", "", err
 		}
@@ -262,12 +262,12 @@ func SaveToRemote(image, localFile string, tag string, uri *url.URL, iden string
 		return err
 	}
 
-	remoteFile, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Port: port, User: uri.User, Args: []string{"mktemp"}}, sshEngine)
+	remoteFile, err := ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Identity: iden, Port: port, User: uri.User, Args: []string{"mktemp"}}, sshEngine)
 	if err != nil {
 		return err
 	}
 
-	_, err = ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Port: port, User: uri.User, Args: []string{"podman", "image", "save", image, "--format", "oci-archive", "--output", remoteFile}}, sshEngine)
+	_, err = ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Identity: iden, Port: port, User: uri.User, Args: []string{"podman", "image", "save", image, "--format", "oci-archive", "--output", remoteFile}}, sshEngine)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func SaveToRemote(image, localFile string, tag string, uri *url.URL, iden string
 	if err != nil {
 		return err
 	}
-	_, err = ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Port: port, User: uri.User, Args: []string{"rm", scpRep}}, sshEngine)
+	_, err = ssh.Exec(&ssh.ConnectionExecOptions{Host: uri.String(), Identity: iden, Port: port, User: uri.User, Args: []string{"rm", scpRep}}, sshEngine)
 	if err != nil {
 		logrus.Errorf("Removing file on endpoint: %v", err)
 	}
@@ -400,7 +400,7 @@ func RemoteArgLength(input string, side int) int {
 	return -1
 }
 
-// GetSerivceInformation takes the parsed list of hosts to connect to and validates the information
+// GetServiceInformation takes the parsed list of hosts to connect to and validates the information
 func GetServiceInformation(sshInfo *entities.ImageScpConnections, cliConnections []string, cfg *config.Config) (map[string]config.Destination, error) {
 	var serv map[string]config.Destination
 	var urlS string
