@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -34,9 +33,9 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/go-units"
-	"github.com/ghodss/yaml"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, podYAML *v1.PodTemplateSpec) (entities.PodCreateOptions, error) {
@@ -55,6 +54,9 @@ func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, 
 	}
 	if podYAML.Spec.HostPID {
 		p.Pid = "host"
+	}
+	if podYAML.Spec.HostIPC {
+		p.Ipc = "host"
 	}
 	p.Hostname = podYAML.Spec.Hostname
 	if p.Hostname == "" {
@@ -104,6 +106,17 @@ func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, 
 			p.Net.DNSOptions = dnsOptions
 		}
 	}
+
+	if pscConfig := podYAML.Spec.SecurityContext; pscConfig != nil {
+		// Extract sysctl list from pod security context
+		if options := pscConfig.Sysctls; len(options) > 0 {
+			sysctlOptions := make([]string, 0, len(options))
+			for _, opts := range options {
+				sysctlOptions = append(sysctlOptions, opts.Name+"="+opts.Value)
+			}
+			p.Sysctl = sysctlOptions
+		}
+	}
 	return p, nil
 }
 
@@ -114,6 +127,8 @@ type CtrSpecGenOptions struct {
 	Container v1.Container
 	// Image available to use (pulled or found local)
 	Image *libimage.Image
+	// IPCNSIsHost tells the container to use the host ipcns
+	IpcNSIsHost bool
 	// Volumes for all containers
 	Volumes map[string]*KubeVolume
 	// PodID of the parent pod
@@ -268,6 +283,18 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 		s.ResourceLimits.Memory.Reservation = &memoryRes
 	}
 
+	ulimitVal, ok := opts.Annotations[define.UlimitAnnotation]
+	if ok {
+		ulimits := strings.Split(ulimitVal, ",")
+		for _, ul := range ulimits {
+			parsed, err := units.ParseUlimit(ul)
+			if err != nil {
+				return nil, err
+			}
+			s.Rlimits = append(s.Rlimits, spec.POSIXRlimit{Type: parsed.Name, Soft: uint64(parsed.Soft), Hard: uint64(parsed.Hard)})
+		}
+	}
+
 	// TODO: We don't understand why specgen does not take of this, but
 	// integration tests clearly pointed out that it was required.
 	imageData, err := opts.Image.Inspect(ctx, nil)
@@ -379,10 +406,6 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 		}
 
 		volume.MountPath = dest
-		path := volumeSource.Source
-		if len(volume.SubPath) > 0 {
-			path = filepath.Join(path, volume.SubPath)
-		}
 		switch volumeSource.Type {
 		case KubeVolumeTypeBindMount:
 			// If the container has bind mounts, we need to check if
@@ -391,16 +414,19 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 				// Make sure the z/Z option is not already there (from editing the YAML)
 				if k == define.BindMountPrefix {
 					lastIndex := strings.LastIndex(v, ":")
-					if v[:lastIndex] == path && !cutil.StringInSlice("z", options) && !cutil.StringInSlice("Z", options) {
+					if v[:lastIndex] == volumeSource.Source && !cutil.StringInSlice("z", options) && !cutil.StringInSlice("Z", options) {
 						options = append(options, v[lastIndex+1:])
 					}
 				}
 			}
 			mount := spec.Mount{
 				Destination: volume.MountPath,
-				Source:      path,
+				Source:      volumeSource.Source,
 				Type:        "bind",
 				Options:     options,
+			}
+			if len(volume.SubPath) > 0 {
+				mount.Options = append(mount.Options, fmt.Sprintf("subpath=%s", volume.SubPath))
 			}
 			s.Mounts = append(s.Mounts, mount)
 		case KubeVolumeTypeNamed:
@@ -423,7 +449,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 			// We are setting the path as hostPath:mountPath to comply with pkg/specgen/generate.DeviceFromPath.
 			// The type is here just to improve readability as it is not taken into account when the actual device is created.
 			device := spec.LinuxDevice{
-				Path: fmt.Sprintf("%s:%s", path, volume.MountPath),
+				Path: fmt.Sprintf("%s:%s", volumeSource.Source, volume.MountPath),
 				Type: "c",
 			}
 			s.Devices = append(s.Devices, device)
@@ -431,7 +457,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 			// We are setting the path as hostPath:mountPath to comply with pkg/specgen/generate.DeviceFromPath.
 			// The type is here just to improve readability as it is not taken into account when the actual device is created.
 			device := spec.LinuxDevice{
-				Path: fmt.Sprintf("%s:%s", path, volume.MountPath),
+				Path: fmt.Sprintf("%s:%s", volumeSource.Source, volume.MountPath),
 				Type: "b",
 			}
 			s.Devices = append(s.Devices, device)
@@ -469,6 +495,9 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	}
 	if opts.PidNSIsHost {
 		s.PidNS.NSMode = specgen.Host
+	}
+	if opts.IpcNSIsHost {
+		s.IpcNS.NSMode = specgen.Host
 	}
 
 	// Add labels that come from kube
@@ -710,6 +739,9 @@ func setupSecurityContext(s *specgen.SpecGenerator, securityContext *v1.Security
 		}
 		if seopt.Level != "" {
 			s.SelinuxOpts = append(s.SelinuxOpts, fmt.Sprintf("level:%s", seopt.Level))
+		}
+		if seopt.FileType != "" {
+			s.SelinuxOpts = append(s.SelinuxOpts, fmt.Sprintf("filetype:%s", seopt.FileType))
 		}
 	}
 	if caps := securityContext.Capabilities; caps != nil {

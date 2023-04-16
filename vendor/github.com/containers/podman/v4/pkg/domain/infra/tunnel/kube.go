@@ -46,7 +46,7 @@ func (ic *ContainerEngine) GenerateSystemd(ctx context.Context, nameOrID string,
 //
 // Note: Caller is responsible for closing returned Reader
 func (ic *ContainerEngine) GenerateKube(ctx context.Context, nameOrIDs []string, opts entities.GenerateKubeOptions) (*entities.GenerateKubeReport, error) {
-	options := new(generate.KubeOptions).WithService(opts.Service)
+	options := new(generate.KubeOptions).WithService(opts.Service).WithType(opts.Type).WithReplicas(opts.Replicas)
 	return generate.Kube(ic.ClientCtx, nameOrIDs, options)
 }
 
@@ -58,7 +58,7 @@ func (ic *ContainerEngine) PlayKube(ctx context.Context, body io.Reader, opts en
 	options := new(kube.PlayOptions).WithAuthfile(opts.Authfile).WithUsername(opts.Username).WithPassword(opts.Password)
 	options.WithCertDir(opts.CertDir).WithQuiet(opts.Quiet).WithSignaturePolicy(opts.SignaturePolicy).WithConfigMaps(opts.ConfigMaps)
 	options.WithLogDriver(opts.LogDriver).WithNetwork(opts.Networks).WithSeccompProfileRoot(opts.SeccompProfileRoot)
-	options.WithStaticIPs(opts.StaticIPs).WithStaticMACs(opts.StaticMACs)
+	options.WithStaticIPs(opts.StaticIPs).WithStaticMACs(opts.StaticMACs).WithWait(opts.Wait).WithServiceContainer(opts.ServiceContainer)
 	if len(opts.LogOptions) > 0 {
 		options.WithLogOptions(opts.LogOptions)
 	}

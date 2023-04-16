@@ -203,6 +203,9 @@ func (u *updater) updateUnit(ctx context.Context, unit string, tasks []*task) []
 
 	// Jump to the next unit on successful update or if rollbacks are disabled.
 	if updateError == nil || !u.options.Rollback {
+		if updateError != nil {
+			errors = append(errors, fmt.Errorf("restarting unit %s during update: %w", unit, updateError))
+		}
 		return errors
 	}
 
@@ -331,8 +334,16 @@ func (t *task) rollbackImage() error {
 
 // restartSystemdUnit restarts the systemd unit the container is running in.
 func (u *updater) restartSystemdUnit(ctx context.Context, unit string) error {
+	if err := u.stopSystemdUnit(ctx, unit); err != nil {
+		return err
+	}
+	return u.startSystemdUnit(ctx, unit)
+}
+
+// startSystemdUnit starts the systemd unit the container is running in.
+func (u *updater) startSystemdUnit(ctx context.Context, unit string) error {
 	restartChan := make(chan string)
-	if _, err := u.conn.RestartUnitContext(ctx, unit, "replace", restartChan); err != nil {
+	if _, err := u.conn.StartUnitContext(ctx, unit, "replace", restartChan); err != nil {
 		return err
 	}
 
@@ -346,7 +357,28 @@ func (u *updater) restartSystemdUnit(ctx context.Context, unit string) error {
 		return nil
 
 	default:
-		return fmt.Errorf("expected %q but received %q", "done", result)
+		return fmt.Errorf("error starting systemd unit %q expected %q but received %q", unit, "done", result)
+	}
+}
+
+// stopSystemdUnit stop the systemd unit the container is running in.
+func (u *updater) stopSystemdUnit(ctx context.Context, unit string) error {
+	restartChan := make(chan string)
+	if _, err := u.conn.StopUnitContext(ctx, unit, "replace", restartChan); err != nil {
+		return err
+	}
+
+	// Wait for the restart to finish and actually check if it was
+	// successful or not.
+	result := <-restartChan
+
+	switch result {
+	case "done":
+		logrus.Infof("Successfully stopped systemd unit %q", unit)
+		return nil
+
+	default:
+		return fmt.Errorf("error stopping systemd unit %q expected %q but received %q", unit, "done", result)
 	}
 }
 
@@ -398,7 +430,11 @@ func (u *updater) assembleTasks(ctx context.Context) []error {
 
 		// Make sure the container runs in a systemd unit which is
 		// stored as a label at container creation.
-		unit, exists := labels[systemdDefine.EnvVariable]
+		unit, exists, err := u.systemdUnitForContainer(ctr, labels)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
 		if !exists {
 			errors = append(errors, fmt.Errorf("auto-updating container %q: no %s label found", ctr.ID(), systemdDefine.EnvVariable))
 			continue
@@ -434,6 +470,31 @@ func (u *updater) assembleTasks(ctx context.Context) []error {
 	}
 
 	return errors
+}
+
+// systemdUnitForContainer returns the name of the container's systemd unit.
+// If the container is part of a pod, the pod's infra container's systemd unit
+// is returned.  This allows for auto update to restart the pod's systemd unit.
+func (u *updater) systemdUnitForContainer(c *libpod.Container, labels map[string]string) (string, bool, error) {
+	podID := c.ConfigNoCopy().Pod
+	if podID == "" {
+		unit, exists := labels[systemdDefine.EnvVariable]
+		return unit, exists, nil
+	}
+
+	pod, err := u.runtime.LookupPod(podID)
+	if err != nil {
+		return "", false, fmt.Errorf("looking up pod's systemd unit: %w", err)
+	}
+
+	infra, err := pod.InfraContainer()
+	if err != nil {
+		return "", false, fmt.Errorf("looking up pod's systemd unit: %w", err)
+	}
+
+	infraLabels := infra.Labels()
+	unit, exists := infraLabels[systemdDefine.EnvVariable]
+	return unit, exists, nil
 }
 
 // assembleImageMap creates a map from `image ID -> *libimage.Image` for image lookups.

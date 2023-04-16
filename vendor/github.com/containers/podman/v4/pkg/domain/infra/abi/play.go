@@ -32,10 +32,11 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/containers/podman/v4/utils"
 	"github.com/coreos/go-systemd/v22/daemon"
-	"github.com/ghodss/yaml"
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
 	yamlv3 "gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 // sdNotifyAnnotation allows for configuring service-global and
@@ -200,8 +201,13 @@ func (ic *ContainerEngine) PlayKube(ctx context.Context, body io.Reader, options
 				if finalErr == nil {
 					return
 				}
-				if err := ic.Libpod.RemoveContainer(ctx, ctr, true, false, nil); err != nil {
-					logrus.Errorf("Cleaning up service container after failure: %v", err)
+				if err := ic.Libpod.RemoveContainer(ctx, ctr, true, true, nil); err != nil {
+					// Log this in debug mode so that we don't print out an error and confuse the user
+					// when the service container can't be removed because the pod still exists
+					// This can happen when an error happens during kube play and we are trying to
+					// clean up after the error. The service container will be removed as part of the
+					// teardown function.
+					logrus.Debugf("Error cleaning up service container after failure: %v", err)
 				}
 			}()
 		}
@@ -274,7 +280,7 @@ func (ic *ContainerEngine) PlayKube(ctx context.Context, body io.Reader, options
 				}
 			}
 
-			r, err := ic.playKubePVC(ctx, &pvcYAML)
+			r, err := ic.playKubePVC(ctx, "", &pvcYAML)
 			if err != nil {
 				return nil, err
 			}
@@ -314,15 +320,40 @@ func (ic *ContainerEngine) PlayKube(ctx context.Context, body io.Reader, options
 		return nil, fmt.Errorf("YAML document does not contain any supported kube kind")
 	}
 
+	// If we started containers along with a service container, we are
+	// running inside a systemd unit and need to set the main PID.
+
 	if options.ServiceContainer && ranContainers {
-		message := fmt.Sprintf("MAINPID=%d\n%s", os.Getpid(), daemon.SdNotifyReady)
-		if err := notifyproxy.SendMessage("", message); err != nil {
-			return nil, err
+		switch len(notifyProxies) {
+		case 0: // Optimization for containers/podman/issues/17345
+			// No container needs sdnotify, so we can mark the
+			// service container's conmon as the main PID and
+			// return early.
+			data, err := serviceContainer.Inspect(false)
+			if err != nil {
+				return nil, err
+			}
+			message := fmt.Sprintf("MAINPID=%d\n%s", data.State.ConmonPid, daemon.SdNotifyReady)
+			if err := notifyproxy.SendMessage("", message); err != nil {
+				return nil, err
+			}
+		default:
+			// At least one container has a custom sdnotify policy,
+			// so we need to let the sdnotify proxies run for the
+			// lifetime of the service container.  That means, we
+			// need to wait for the service container to stop.
+			// Podman will hence be marked as the main PID.  That
+			// comes at the cost of keeping Podman running.
+			message := fmt.Sprintf("MAINPID=%d\n%s", os.Getpid(), daemon.SdNotifyReady)
+			if err := notifyproxy.SendMessage("", message); err != nil {
+				return nil, err
+			}
+			if _, err := serviceContainer.Wait(ctx); err != nil {
+				return nil, fmt.Errorf("waiting for service container: %w", err)
+			}
 		}
 
-		if _, err := serviceContainer.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("waiting for service container: %w", err)
-		}
+		report.ServiceContainerID = serviceContainer.ID()
 	}
 
 	return report, nil
@@ -505,7 +536,12 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 		configMaps = append(configMaps, cm)
 	}
 
-	volumes, err := kube.InitializeVolumes(podYAML.Spec.Volumes, configMaps, secretsManager)
+	mountLabel, err := getMountLabel(podYAML.Spec.SecurityContext)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	volumes, err := kube.InitializeVolumes(podYAML.Spec.Volumes, configMaps, secretsManager, mountLabel)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -514,7 +550,11 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 	// defined by a configmap or secret
 	for _, v := range volumes {
 		if (v.Type == kube.KubeVolumeTypeConfigMap || v.Type == kube.KubeVolumeTypeSecret) && !v.Optional {
-			vol, err := ic.Libpod.NewVolume(ctx, libpod.WithVolumeName(v.Source))
+			volumeOptions := []libpod.VolumeCreateOption{
+				libpod.WithVolumeName(v.Source),
+				libpod.WithVolumeMountLabel(mountLabel),
+			}
+			vol, err := ic.Libpod.NewVolume(ctx, volumeOptions...)
 			if err != nil {
 				if errors.Is(err, define.ErrVolumeExists) {
 					// Volume for this configmap already exists do not
@@ -581,6 +621,19 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+
+	// Add the the original container names from the kube yaml as aliases for it. This will allow network to work with
+	// both just containerName as well as containerName-podName.
+	// In the future, we want to extend this to the CLI as well, where the name of the container created will not have
+	// the podName appended to it, but this is a breaking change and will be done in podman 5.0
+	ctrNameAliases := make([]string, 0, len(podYAML.Spec.Containers))
+	for _, container := range podYAML.Spec.Containers {
+		ctrNameAliases = append(ctrNameAliases, container.Name)
+	}
+	for k, v := range podSpec.PodSpecGen.Networks {
+		v.Aliases = append(v.Aliases, ctrNameAliases...)
+		podSpec.PodSpecGen.Networks[k] = v
 	}
 
 	if serviceContainer != nil {
@@ -695,6 +748,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 		if _, ok := ctrNames[container.Name]; ok {
 			return nil, nil, fmt.Errorf("the pod %q is invalid; duplicate container name %q detected", podName, container.Name)
 		}
+
 		ctrNames[container.Name] = ""
 		pulledImage, labels, err := ic.getImageAndLabelInfo(ctx, cwd, annotations, writer, container, options)
 		if err != nil {
@@ -710,10 +764,12 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			ConfigMaps:         configMaps,
 			Container:          container,
 			Image:              pulledImage,
+			IpcNSIsHost:        p.Ipc.IsHost(),
 			Labels:             labels,
 			LogDriver:          options.LogDriver,
 			LogOptions:         options.LogOptions,
 			NetNSIsHost:        p.NetNS.IsHost(),
+			PidNSIsHost:        p.Pid.IsHost(),
 			PodID:              pod.ID(),
 			PodInfraID:         podInfraID,
 			PodName:            podName,
@@ -722,7 +778,6 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			RestartPolicy:      ctrRestartPolicy,
 			SeccompPaths:       seccompPaths,
 			SecretsManager:     secretsManager,
-			PidNSIsHost:        p.Pid.IsHost(),
 			UserNSIsHost:       p.Userns.IsHost(),
 			Volumes:            volumes,
 		}
@@ -926,7 +981,7 @@ func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string,
 }
 
 // playKubePVC creates a podman volume from a kube persistent volume claim.
-func (ic *ContainerEngine) playKubePVC(ctx context.Context, pvcYAML *v1.PersistentVolumeClaim) (*entities.PlayKubeReport, error) {
+func (ic *ContainerEngine) playKubePVC(ctx context.Context, mountLabel string, pvcYAML *v1.PersistentVolumeClaim) (*entities.PlayKubeReport, error) {
 	var report entities.PlayKubeReport
 	opts := make(map[string]string)
 
@@ -942,6 +997,7 @@ func (ic *ContainerEngine) playKubePVC(ctx context.Context, pvcYAML *v1.Persiste
 		libpod.WithVolumeName(name),
 		libpod.WithVolumeLabels(pvcYAML.Labels),
 		libpod.WithVolumeIgnoreIfExist(),
+		libpod.WithVolumeMountLabel(mountLabel),
 	}
 
 	// Get pvc annotations and create remaining podman volume options if available.
@@ -1219,6 +1275,7 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 	var (
 		podNames    []string
 		volumeNames []string
+		secretNames []string
 	)
 	reports := new(entities.PlayKubeReport)
 
@@ -1275,9 +1332,32 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 				return nil, fmt.Errorf("unable to read YAML as Kube PersistentVolumeClaim: %w", err)
 			}
 			volumeNames = append(volumeNames, pvcYAML.Name)
+		case "Secret":
+			var secret v1.Secret
+			if err := yaml.Unmarshal(document, &secret); err != nil {
+				return nil, fmt.Errorf("unable to read YAML as Kube Secret: %w", err)
+			}
+			secretNames = append(secretNames, secret.Name)
 		default:
 			continue
 		}
+	}
+
+	// Get the service containers associated with the pods if any
+	serviceCtrIDs := []string{}
+	for _, name := range podNames {
+		pod, err := ic.Libpod.LookupPod(name)
+		if err != nil {
+			return nil, err
+		}
+		ctr, err := pod.ServiceContainer()
+		if errors.Is(err, define.ErrNoSuchCtr) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		serviceCtrIDs = append(serviceCtrIDs, ctr.ID())
 	}
 
 	// Add the reports
@@ -1291,10 +1371,26 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 		return nil, err
 	}
 
+	reports.SecretRmReport, err = ic.SecretRm(ctx, secretNames, entities.SecretRmOptions{})
+	if err != nil {
+		return nil, err
+	}
+
 	if options.Force {
 		reports.VolumeRmReport, err = ic.VolumeRm(ctx, volumeNames, entities.VolumeRmOptions{})
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// Remove the service container to ensure it is removed before we return for the remote case
+	// Needed for the clean up with podman kube play --wait in the remote case
+	if len(serviceCtrIDs) > 0 {
+		for _, ctrID := range serviceCtrIDs {
+			_, err = ic.ContainerRm(ctx, []string{ctrID}, entities.RmOptions{})
+			if err != nil && !errors.Is(err, define.ErrNoSuchCtr) {
+				return nil, err
+			}
 		}
 	}
 
@@ -1357,4 +1453,32 @@ func (ic *ContainerEngine) playKubeSecret(secret *v1.Secret) (*entities.SecretCr
 	r.ID = secretID
 
 	return r, nil
+}
+
+func getMountLabel(securityContext *v1.PodSecurityContext) (string, error) {
+	var mountLabel string
+	if securityContext == nil {
+		return "", nil
+	}
+	seopt := securityContext.SELinuxOptions
+	if seopt == nil {
+		return mountLabel, nil
+	}
+	if seopt.Level == "" && seopt.FileType == "" {
+		return mountLabel, nil
+	}
+	privLabel := selinux.PrivContainerMountLabel()
+	con, err := selinux.NewContext(privLabel)
+	if err != nil {
+		return mountLabel, err
+	}
+
+	con["level"] = "s0"
+	if seopt.Level != "" {
+		con["level"] = seopt.Level
+	}
+	if seopt.FileType != "" {
+		con["type"] = seopt.FileType
+	}
+	return con.Get(), nil
 }
