@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/containers/common v0.53.0
 	github.com/containers/image/v5 v5.25.0
-	github.com/containers/podman/v4 v4.5.0
+	github.com/containers/podman/v4 v4.5.1
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.15.1
