@@ -224,7 +224,7 @@ func getImageVolumes(ctx context.Context, img *libimage.Image, s *specgen.SpecGe
 			newVol.Options = []string{"rprivate", "rw", "nodev", "exec"}
 			volumes[cleanDest] = newVol
 			logrus.Debugf("Adding anonymous image volume at %q", cleanDest)
-		case "tmpfs":
+		case define.TypeTmpfs:
 			mount := spec.Mount{
 				Destination: cleanDest,
 				Source:      define.TypeTmpfs,
@@ -363,7 +363,7 @@ func addContainerInitBinary(s *specgen.SpecGenerator, path string) (spec.Mount, 
 		Destination: define.ContainerInitPath,
 		Type:        define.TypeBind,
 		Source:      path,
-		Options:     []string{define.TypeBind, "ro"},
+		Options:     append(define.BindOptions, "ro"),
 	}
 
 	if path == "" {
