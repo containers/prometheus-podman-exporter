@@ -39,7 +39,7 @@ func (ic *ContainerEngine) ContainerExists(ctx context.Context, nameOrID string,
 
 func (ic *ContainerEngine) ContainerWait(ctx context.Context, namesOrIds []string, opts entities.WaitOptions) ([]entities.WaitReport, error) {
 	responses := make([]entities.WaitReport, 0, len(namesOrIds))
-	options := new(containers.WaitOptions).WithCondition(opts.Condition).WithInterval(opts.Interval.String())
+	options := new(containers.WaitOptions).WithConditions(opts.Conditions).WithInterval(opts.Interval.String())
 	for _, n := range namesOrIds {
 		response := entities.WaitReport{}
 		exitCode, err := containers.Wait(ic.ClientCtx, n, options)
@@ -682,7 +682,7 @@ func logIfRmError(id string, err error, reports []*reports.RmReport) {
 func (ic *ContainerEngine) ContainerStart(ctx context.Context, namesOrIds []string, options entities.ContainerStartOptions) ([]*entities.ContainerStartReport, error) {
 	reports := []*entities.ContainerStartReport{}
 	var exitCode = define.ExecErrorCodeGeneric
-	ctrs, rawInputs, err := getContainersAndInputByContext(ic.ClientCtx, options.All, false, namesOrIds, options.Filters)
+	ctrs, rawInputs, err := getContainersAndInputByContext(ic.ClientCtx, options.All, len(options.Filters) > 0, namesOrIds, options.Filters)
 	if err != nil {
 		return nil, err
 	}

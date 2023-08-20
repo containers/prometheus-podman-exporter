@@ -108,7 +108,7 @@ github.com/containernetworking/cni/pkg/version
 # github.com/containernetworking/plugins v1.3.0
 ## explicit; go 1.20
 github.com/containernetworking/plugins/pkg/ns
-# github.com/containers/buildah v1.30.0
+# github.com/containers/buildah v1.31.2
 ## explicit; go 1.18
 github.com/containers/buildah
 github.com/containers/buildah/bind
@@ -129,7 +129,7 @@ github.com/containers/buildah/pkg/rusage
 github.com/containers/buildah/pkg/sshagent
 github.com/containers/buildah/pkg/util
 github.com/containers/buildah/util
-# github.com/containers/common v0.55.2
+# github.com/containers/common v0.55.3
 ## explicit; go 1.18
 github.com/containers/common/libimage
 github.com/containers/common/libimage/define
@@ -139,7 +139,9 @@ github.com/containers/common/libnetwork/etchosts
 github.com/containers/common/libnetwork/internal/util
 github.com/containers/common/libnetwork/netavark
 github.com/containers/common/libnetwork/network
+github.com/containers/common/libnetwork/pasta
 github.com/containers/common/libnetwork/resolvconf
+github.com/containers/common/libnetwork/slirp4netns
 github.com/containers/common/libnetwork/types
 github.com/containers/common/libnetwork/util
 github.com/containers/common/pkg/apparmor
@@ -162,11 +164,13 @@ github.com/containers/common/pkg/netns
 github.com/containers/common/pkg/parse
 github.com/containers/common/pkg/resize
 github.com/containers/common/pkg/retry
+github.com/containers/common/pkg/rootlessport
 github.com/containers/common/pkg/seccomp
 github.com/containers/common/pkg/secrets
 github.com/containers/common/pkg/secrets/filedriver
 github.com/containers/common/pkg/secrets/passdriver
 github.com/containers/common/pkg/secrets/shelldriver
+github.com/containers/common/pkg/servicereaper
 github.com/containers/common/pkg/signal
 github.com/containers/common/pkg/ssh
 github.com/containers/common/pkg/subscriptions
@@ -255,9 +259,7 @@ github.com/containers/ocicrypt
 github.com/containers/ocicrypt/blockcipher
 github.com/containers/ocicrypt/config
 github.com/containers/ocicrypt/config/keyprovider-config
-github.com/containers/ocicrypt/config/pkcs11config
 github.com/containers/ocicrypt/crypto/pkcs11
-github.com/containers/ocicrypt/helpers
 github.com/containers/ocicrypt/keywrap
 github.com/containers/ocicrypt/keywrap/jwe
 github.com/containers/ocicrypt/keywrap/keyprovider
@@ -267,7 +269,7 @@ github.com/containers/ocicrypt/keywrap/pkcs7
 github.com/containers/ocicrypt/spec
 github.com/containers/ocicrypt/utils
 github.com/containers/ocicrypt/utils/keyprovider
-# github.com/containers/podman/v4 v4.5.1
+# github.com/containers/podman/v4 v4.6.1
 ## explicit; go 1.18
 github.com/containers/podman/v4/cmd/podman/parse
 github.com/containers/podman/v4/cmd/podman/registry
@@ -334,10 +336,8 @@ github.com/containers/podman/v4/pkg/ps
 github.com/containers/podman/v4/pkg/ps/define
 github.com/containers/podman/v4/pkg/rctl
 github.com/containers/podman/v4/pkg/rootless
-github.com/containers/podman/v4/pkg/rootlessport
 github.com/containers/podman/v4/pkg/seccomp
 github.com/containers/podman/v4/pkg/selinux
-github.com/containers/podman/v4/pkg/servicereaper
 github.com/containers/podman/v4/pkg/signal
 github.com/containers/podman/v4/pkg/specgen
 github.com/containers/podman/v4/pkg/specgen/generate
@@ -347,7 +347,6 @@ github.com/containers/podman/v4/pkg/systemd
 github.com/containers/podman/v4/pkg/systemd/define
 github.com/containers/podman/v4/pkg/systemd/generate
 github.com/containers/podman/v4/pkg/systemd/notifyproxy
-github.com/containers/podman/v4/pkg/timetype
 github.com/containers/podman/v4/pkg/trust
 github.com/containers/podman/v4/pkg/util
 github.com/containers/podman/v4/utils
@@ -539,7 +538,7 @@ github.com/go-openapi/swag
 # github.com/go-openapi/validate v0.22.1
 ## explicit; go 1.14
 github.com/go-openapi/validate
-# github.com/godbus/dbus/v5 v5.1.1-0.20221029134443-4b691ce883d5
+# github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466
 ## explicit; go 1.12
 github.com/godbus/dbus/v5
 # github.com/gogo/protobuf v1.3.2
@@ -641,7 +640,7 @@ github.com/mattn/go-runewidth
 # github.com/mattn/go-shellwords v1.0.12
 ## explicit; go 1.13
 github.com/mattn/go-shellwords
-# github.com/mattn/go-sqlite3 v1.14.16
+# github.com/mattn/go-sqlite3 v1.14.17
 ## explicit; go 1.16
 github.com/mattn/go-sqlite3
 # github.com/matttproud/golang_protobuf_extensions v1.0.4
@@ -724,7 +723,7 @@ github.com/opencontainers/selinux/go-selinux
 github.com/opencontainers/selinux/go-selinux/label
 github.com/opencontainers/selinux/pkg/pwalk
 github.com/opencontainers/selinux/pkg/pwalkdir
-# github.com/openshift/imagebuilder v1.2.4
+# github.com/openshift/imagebuilder v1.2.5
 ## explicit; go 1.19
 github.com/openshift/imagebuilder
 github.com/openshift/imagebuilder/dockerfile/command
@@ -864,7 +863,7 @@ go.opencensus.io/internal
 go.opencensus.io/trace
 go.opencensus.io/trace/internal
 go.opencensus.io/trace/tracestate
-# golang.org/x/crypto v0.10.0
+# golang.org/x/crypto v0.11.0
 ## explicit; go 1.17
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blowfish
@@ -899,7 +898,7 @@ golang.org/x/exp/slices
 # golang.org/x/mod v0.10.0
 ## explicit; go 1.17
 golang.org/x/mod/semver
-# golang.org/x/net v0.11.0
+# golang.org/x/net v0.13.0
 ## explicit; go 1.17
 golang.org/x/net/context
 golang.org/x/net/http/httpguts
@@ -920,7 +919,7 @@ golang.org/x/oauth2/internal
 ## explicit; go 1.17
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.9.0
+# golang.org/x/sys v0.10.0
 ## explicit; go 1.17
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
@@ -928,10 +927,10 @@ golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows
-# golang.org/x/term v0.9.0
+# golang.org/x/term v0.10.0
 ## explicit; go 1.17
 golang.org/x/term
-# golang.org/x/text v0.10.0
+# golang.org/x/text v0.11.0
 ## explicit; go 1.17
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform

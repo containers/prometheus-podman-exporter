@@ -57,7 +57,7 @@ func getCgroupPermissions(unmask []string) string {
 		return ro
 	}
 
-	if unmask != nil && unmask[0] == "ALL" {
+	if len(unmask) != 0 && unmask[0] == "ALL" {
 		return rw
 	}
 
@@ -107,7 +107,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		}
 		sysMnt := spec.Mount{
 			Destination: "/sys",
-			Type:        "bind",
+			Type:        define.TypeBind,
 			Source:      "/sys",
 			Options:     []string{"rprivate", "nosuid", "noexec", "nodev", r, "rbind"},
 		}
@@ -115,7 +115,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.RemoveMount("/sys/fs/cgroup")
 		sysFsCgroupMnt := spec.Mount{
 			Destination: "/sys/fs/cgroup",
-			Type:        "bind",
+			Type:        define.TypeBind,
 			Source:      "/sys/fs/cgroup",
 			Options:     []string{"rprivate", "nosuid", "noexec", "nodev", r, "rbind"},
 		}
@@ -151,8 +151,8 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.RemoveMount("/dev/pts")
 		devPts := spec.Mount{
 			Destination: "/dev/pts",
-			Type:        "devpts",
-			Source:      "devpts",
+			Type:        define.TypeDevpts,
+			Source:      define.TypeDevpts,
 			Options:     []string{"rprivate", "nosuid", "noexec", "newinstance", "ptmxmode=0666", "mode=0620"},
 		}
 		g.AddMount(devPts)
@@ -164,9 +164,9 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.RemoveMount("/dev/mqueue")
 		devMqueue := spec.Mount{
 			Destination: "/dev/mqueue",
-			Type:        "bind", // constant ?
+			Type:        define.TypeBind, // constant ?
 			Source:      "/dev/mqueue",
-			Options:     []string{"bind", "nosuid", "noexec", "nodev"},
+			Options:     []string{define.TypeBind, "nosuid", "noexec", "nodev"},
 		}
 		g.AddMount(devMqueue)
 	}
@@ -255,7 +255,10 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	s.HostDeviceList = userDevices
 
 	// set the devices cgroup when not running in a user namespace
-	if !inUserNS && !s.Privileged {
+	if isRootless && len(s.DeviceCgroupRule) > 0 {
+		return nil, fmt.Errorf("device cgroup rules are not supported in rootless mode or in a user namespace")
+	}
+	if !isRootless && !s.Privileged {
 		for _, dev := range s.DeviceCgroupRule {
 			g.AddLinuxResourcesDevice(true, dev.Type, dev.Major, dev.Minor, dev.Access)
 		}
