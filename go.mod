@@ -3,7 +3,7 @@ module github.com/containers/prometheus-podman-exporter
 go 1.18
 
 require (
-	github.com/containers/common v0.55.2
+	github.com/containers/common v0.55.4
 	github.com/containers/image/v5 v5.27.0
 	github.com/containers/podman/v4 v4.5.1
 	github.com/go-kit/log v0.2.1
@@ -41,7 +41,7 @@ require (
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/ocicrypt v1.1.7 // indirect
 	github.com/containers/psgo v1.8.0 // indirect
-	github.com/containers/storage v1.48.0 // indirect
+	github.com/containers/storage v1.48.1 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20230514072755-504adb8a8af1 // indirect
