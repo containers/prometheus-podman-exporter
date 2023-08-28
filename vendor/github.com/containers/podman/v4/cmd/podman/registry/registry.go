@@ -12,9 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DefaultRootAPIPath is the default path of the REST socket
-const DefaultRootAPIPath = "/run/podman/podman.sock"
-
 // DefaultRootAPIAddress is the default address of the REST socket with unix: prefix
 const DefaultRootAPIAddress = "unix:" + DefaultRootAPIPath
 
@@ -63,7 +60,7 @@ func ContainerEngine() entities.ContainerEngine {
 	return containerEngine
 }
 
-// NewContainerEngine is a wrapper for building an ContainerEngine to be used for PreRunE functions
+// NewContainerEngine is a wrapper for building a ContainerEngine to be used for PreRunE functions
 func NewContainerEngine(cmd *cobra.Command, args []string) (entities.ContainerEngine, error) {
 	if containerEngine == nil {
 		podmanOptions.FlagSet = cmd.Flags()

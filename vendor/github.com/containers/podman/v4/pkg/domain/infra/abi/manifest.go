@@ -106,6 +106,10 @@ func (ir *ImageEngine) ManifestInspect(ctx context.Context, name string, opts en
 func (ir *ImageEngine) remoteManifestInspect(ctx context.Context, name string, opts entities.ManifestInspectOptions) ([]byte, error) {
 	sys := ir.Libpod.SystemContext()
 
+	if opts.Authfile != "" {
+		sys.AuthFilePath = opts.Authfile
+	}
+
 	sys.DockerInsecureSkipTLSVerify = opts.SkipTLSVerify
 	if opts.SkipTLSVerify == types.OptionalBoolTrue {
 		sys.OCIInsecureSkipTLSVerify = true
@@ -340,6 +344,7 @@ func (ir *ImageEngine) ManifestPush(ctx context.Context, name, destination strin
 	pushOptions.SignSigstorePrivateKeyPassphrase = opts.SignSigstorePrivateKeyPassphrase
 	pushOptions.InsecureSkipTLSVerify = opts.SkipTLSVerify
 	pushOptions.Writer = opts.Writer
+	pushOptions.CompressionLevel = opts.CompressionLevel
 
 	compressionFormat := opts.CompressionFormat
 	if compressionFormat == "" {
@@ -355,6 +360,13 @@ func (ir *ImageEngine) ManifestPush(ctx context.Context, name, destination strin
 			return "", err
 		}
 		pushOptions.CompressionFormat = &algo
+	}
+	if pushOptions.CompressionLevel == nil {
+		config, err := ir.Libpod.GetConfigNoCopy()
+		if err != nil {
+			return "", err
+		}
+		pushOptions.CompressionLevel = config.Engine.CompressionLevel
 	}
 
 	if opts.All {
