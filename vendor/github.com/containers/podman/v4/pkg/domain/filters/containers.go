@@ -8,19 +8,17 @@ import (
 	"time"
 
 	"github.com/containers/common/pkg/filters"
-	cutil "github.com/containers/common/pkg/util"
+	"github.com/containers/common/pkg/util"
 	"github.com/containers/podman/v4/libpod"
 	"github.com/containers/podman/v4/libpod/define"
-	"github.com/containers/podman/v4/pkg/util"
 )
 
 // GenerateContainerFilterFuncs return ContainerFilter functions based of filter.
 func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpod.Runtime) (func(container *libpod.Container) bool, error) {
 	switch filter {
 	case "id":
-		// we only have to match one ID
 		return func(c *libpod.Container) bool {
-			return util.StringMatchRegexSlice(c.ID(), filterValues)
+			return util.FilterID(c.ID(), filterValues)
 		}, nil
 	case "label":
 		// we have to match that all given labels exits on that container
@@ -259,7 +257,7 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 				return false
 			}
 			for _, net := range networks {
-				if cutil.StringInSlice(net, inputNetNames) {
+				if util.StringInSlice(net, inputNetNames) {
 					return true
 				}
 			}
@@ -313,7 +311,7 @@ func GeneratePruneContainerFilterFuncs(filter string, filterValues []string, r *
 }
 
 func prepareUntilFilterFunc(filterValues []string) (func(container *libpod.Container) bool, error) {
-	until, err := util.ComputeUntilTimestamp(filterValues)
+	until, err := filters.ComputeUntilTimestamp(filterValues)
 	if err != nil {
 		return nil, err
 	}

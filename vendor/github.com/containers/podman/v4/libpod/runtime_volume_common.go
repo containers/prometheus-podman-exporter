@@ -78,7 +78,7 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 		for key, val := range volume.config.Options {
 			switch strings.ToLower(key) {
 			case "device":
-				if strings.ToLower(volume.config.Options["type"]) == "bind" {
+				if strings.ToLower(volume.config.Options["type"]) == define.TypeBind {
 					if _, err := os.Stat(val); err != nil {
 						return nil, fmt.Errorf("invalid volume option %s for driver 'local': %w", key, err)
 					}
@@ -388,7 +388,11 @@ func (r *Runtime) removeVolume(ctx context.Context, v *Volume, force bool, timeo
 
 			logrus.Debugf("Removing container %s (depends on volume %q)", ctr.ID(), v.Name())
 
-			if err := r.removeContainer(ctx, ctr, force, false, false, false, timeout); err != nil {
+			opts := ctrRmOpts{
+				Force:   force,
+				Timeout: timeout,
+			}
+			if _, _, err := r.removeContainer(ctx, ctr, opts); err != nil {
 				return fmt.Errorf("removing container %s that depends on volume %s: %w", ctr.ID(), v.Name(), err)
 			}
 		}

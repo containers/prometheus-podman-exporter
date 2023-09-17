@@ -141,30 +141,32 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 			CheckpointLog:  runtimeInfo.CheckpointLog,
 			RestoreLog:     runtimeInfo.RestoreLog,
 		},
-		Image:           config.RootfsImageID,
-		ImageName:       config.RootfsImageName,
-		Namespace:       config.Namespace,
-		Rootfs:          config.Rootfs,
-		Pod:             config.Pod,
-		ResolvConfPath:  resolvPath,
-		HostnamePath:    hostnamePath,
-		HostsPath:       hostsPath,
-		StaticDir:       config.StaticDir,
-		OCIRuntime:      config.OCIRuntime,
-		ConmonPidFile:   config.ConmonPidFile,
-		PidFile:         config.PidFile,
-		Name:            config.Name,
-		RestartCount:    int32(runtimeInfo.RestartCount),
-		Driver:          driverData.Name,
-		MountLabel:      config.MountLabel,
-		ProcessLabel:    config.ProcessLabel,
-		AppArmorProfile: ctrSpec.Process.ApparmorProfile,
-		ExecIDs:         execIDs,
-		GraphDriver:     driverData,
-		Mounts:          inspectMounts,
-		Dependencies:    c.Dependencies(),
-		IsInfra:         c.IsInfra(),
-		IsService:       c.IsService(),
+		Image:                   config.RootfsImageID,
+		ImageName:               config.RootfsImageName,
+		Namespace:               config.Namespace,
+		Rootfs:                  config.Rootfs,
+		Pod:                     config.Pod,
+		ResolvConfPath:          resolvPath,
+		HostnamePath:            hostnamePath,
+		HostsPath:               hostsPath,
+		StaticDir:               config.StaticDir,
+		OCIRuntime:              config.OCIRuntime,
+		ConmonPidFile:           config.ConmonPidFile,
+		PidFile:                 config.PidFile,
+		Name:                    config.Name,
+		RestartCount:            int32(runtimeInfo.RestartCount),
+		Driver:                  driverData.Name,
+		MountLabel:              config.MountLabel,
+		ProcessLabel:            config.ProcessLabel,
+		AppArmorProfile:         ctrSpec.Process.ApparmorProfile,
+		ExecIDs:                 execIDs,
+		GraphDriver:             driverData,
+		Mounts:                  inspectMounts,
+		Dependencies:            c.Dependencies(),
+		IsInfra:                 c.IsInfra(),
+		IsService:               c.IsService(),
+		KubeExitCodePropagation: config.KubeExitCodePropagation.String(),
+		LockNumber:              c.lock.ID(),
 	}
 
 	if config.RootfsImageID != "" { // May not be set if the container was created with --rootfs
@@ -275,12 +277,12 @@ func (c *Container) GetMounts(namedVolumes []*ContainerNamedVolume, imageVolumes
 	for _, mount := range mounts {
 		// It's a mount.
 		// Is it a tmpfs? If so, discard.
-		if mount.Type == "tmpfs" {
+		if mount.Type == define.TypeTmpfs {
 			continue
 		}
 
 		mountStruct := define.InspectMount{}
-		mountStruct.Type = "bind"
+		mountStruct.Type = define.TypeBind
 		mountStruct.Source = mount.Source
 		mountStruct.Destination = mount.Destination
 
@@ -532,7 +534,7 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 		}
 	}
 	for _, mount := range mounts {
-		if mount.Type == "tmpfs" {
+		if mount.Type == define.TypeTmpfs {
 			tmpfs[mount.Destination] = strings.Join(mount.Options, ",")
 		} else {
 			// TODO - maybe we should parse for empty source/destination
