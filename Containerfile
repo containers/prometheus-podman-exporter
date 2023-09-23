@@ -1,10 +1,12 @@
-ARG ARCH="amd64"
-ARG OS="linux"
-FROM quay.io/prometheus/busybox-${OS}-${ARCH}:latest
-
+FROM --platform=${BUILDPLATFORM:-linux/amd64} quay.io/prometheus/busybox:latest
 LABEL maintainer="Navid Yaghoobi <navidys@fedoraproject.org>"
 
-COPY ./bin/remote/prometheus-podman-exporter /bin/podman_exporter
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+COPY ./bin/remote/prometheus-podman-exporter-${TARGETARCH} /bin/podman_exporter
 
 EXPOSE 9882
 USER nobody

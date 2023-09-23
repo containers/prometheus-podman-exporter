@@ -28,7 +28,10 @@ jobs:
 
       - name: Build binary
         run: |
-          make binary-remote
+          make binary-remote-amd64
+          make binary-remote-s390x
+          make binary-remote-ppc64le
+          make binary-remote-arm64
 
       - name: Get image tags
         id: image_tag
@@ -48,6 +51,7 @@ jobs:
         with:
           image: ${{ env.IMAGE_NAMESPACE }}
           tags: "${{ steps.image_tag.outputs.IMAGE_TAG }}"
+          platforms: linux/amd64,linux/s390x,linux/ppc64le,linux/arm64
           containerfiles: |
             ./Containerfile
 
