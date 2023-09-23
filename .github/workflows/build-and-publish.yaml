@@ -28,7 +28,10 @@ jobs:
 
       - name: Build binary
         run: |
-          make binary-remote
+          make binary-remote-amd64
+          make binary-remote-s390x
+          make binary-remote-ppc64le
+          make binary-remote-arm64
 
       - name: Get image tags
         id: image_tag
@@ -37,29 +40,31 @@ jobs:
           VERSION=$(grep 'VERSION=' VERSION | awk -F= '{print $2'})
           REVISION=$(grep 'REVISION=' VERSION | awk -F= '{print $2'})
           if [[ "${REVISION}" =~ "dev." ]] ; then
-            echo "develop"
+            echo "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}:develop"
           else
-            echo "v${VERSION} latest"
+            echo "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}:v${VERSION},${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}:latest"
           fi
 
-      - name: Build container image
-        uses: redhat-actions/buildah-build@v2
-        id: build_image
-        with:
-          image: ${{ env.IMAGE_NAMESPACE }}
-          tags: "${{ steps.image_tag.outputs.IMAGE_TAG }}"
-          containerfiles: |
-            ./Containerfile
+      - name: Set up qemu
+        uses: docker/setup-qemu-action@v3
 
-      - name: Publish container image
-        id: push_to_quay
-        uses: redhat-actions/push-to-registry@v2
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
         with:
-          image: ${{ steps.build_image.outputs.image }}
-          tags: ${{ steps.build_image.outputs.tags }}
           registry: ${{ env.IMAGE_REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Print image url
-        run: echo "Image pushed to ${{ steps.push_to_quay.outputs.registry-paths }}"
+      - name: Build container image
+        uses: docker/build-push-action@v5
+        id: build_image
+        with:
+          context: .
+          platforms: linux/amd64,linux/s390x,linux/ppc64le,linux/arm64,
+          push: true
+          provenance: false
+          file: "Containerfile"
+          tags: ${{ steps.image_tag.outputs.IMAGE_TAG }}

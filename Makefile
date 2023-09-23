@@ -30,7 +30,29 @@ binary-remote: ## Build prometheus-podman-exporter for remote connection
 	@mkdir -p $(BIN)/remote
 	@export CGO_ENABLED=0 && $(GO) build $(BUILDFLAGS) --tags "remote containers_image_openpgp" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/remote/$(TARGET)
 
+.PHONY: binary-remote-amd64
+binary-remote-amd64: ## Build amd64 prometheus-podman-exporter for remote connection
+	@mkdir -p $(BIN)/remote
+	@echo "building amd64"
+	@export CGO_ENABLED=0 && GOARCH=amd64 $(GO) build $(BUILDFLAGS) --tags "remote containers_image_openpgp" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/remote/$(TARGET)-amd64
 
+.PHONY: binary-remote-s390x
+binary-remote-s390x: ## Build s390x prometheus-podman-exporter for remote connection
+	@mkdir -p $(BIN)/remote
+	@echo "building s390x"
+	@export CGO_ENABLED=0 && GOARCH=s390x $(GO) build $(BUILDFLAGS) --tags "remote containers_image_openpgp" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/remote/$(TARGET)-s390x
+
+.PHONY: binary-remote-ppc64le
+binary-remote-ppc64le: ## Build ppc64le prometheus-podman-exporter for remote connection
+	@mkdir -p $(BIN)/remote
+	@echo "building ppc64le"
+	@export CGO_ENABLED=0 && GOARCH=ppc64le $(GO) build $(BUILDFLAGS) --tags "remote containers_image_openpgp" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/remote/$(TARGET)-ppc64le
+
+.PHONY: binary-remote-arm64
+binary-remote-arm64: ## Build arm64 prometheus-podman-exporter for remote connection
+	@mkdir -p $(BIN)/remote
+	@echo "building arm64"
+	@export CGO_ENABLED=0 && GOARCH=arm64 $(GO) build $(BUILDFLAGS) --tags "remote containers_image_openpgp" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/remote/$(TARGET)-arm64
 
 .PHONY: $(TARGET)
 $(TARGET): $(SRC)
