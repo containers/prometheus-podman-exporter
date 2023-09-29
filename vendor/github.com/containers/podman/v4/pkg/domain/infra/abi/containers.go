@@ -1229,10 +1229,7 @@ func (ic *ContainerEngine) ContainerLogs(ctx context.Context, namesOrIds []strin
 		WaitGroup:  &wg,
 	}
 
-	chSize := len(containers) * int(options.Tail)
-	if chSize <= 0 {
-		chSize = 1
-	}
+	chSize := len(containers)
 	logChannel := make(chan *logs.LogLine, chSize)
 
 	libpodContainers := make([]*libpod.Container, len(containers))
@@ -1526,7 +1523,7 @@ func (ic *ContainerEngine) ContainerStats(ctx context.Context, namesOrIds []stri
 	}
 	statsChan = make(chan entities.ContainerStatsReport, 1)
 
-	containerFunc := ic.Libpod.GetRunningContainers
+	var containerFunc func() ([]*libpod.Container, error)
 	queryAll := false
 	switch {
 	case options.Latest:
@@ -1539,10 +1536,14 @@ func (ic *ContainerEngine) ContainerStats(ctx context.Context, namesOrIds []stri
 		}
 	case len(namesOrIds) > 0:
 		containerFunc = func() ([]*libpod.Container, error) { return ic.Libpod.GetContainersByList(namesOrIds) }
-	default:
-		// No containers, no latest -> query all!
+	case options.All:
 		queryAll = true
 		containerFunc = ic.Libpod.GetAllContainers
+	default:
+		// queryAll is used to ignore errors when the container was removed between listing and
+		// checking stats which we should do for running containers as well
+		queryAll = true
+		containerFunc = ic.Libpod.GetRunningContainers
 	}
 
 	go func() {
