@@ -46,6 +46,7 @@ func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader
 	storeOpts := secrets.StoreOptions{
 		DriverOpts: options.DriverOpts,
 		Labels:     options.Labels,
+		Replace:    options.Replace,
 	}
 
 	secretID, err := manager.Store(name, data, options.Driver, storeOpts)
@@ -58,7 +59,11 @@ func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader
 	}, nil
 }
 
-func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string) ([]*entities.SecretInfoReport, []error, error) {
+func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string, options entities.SecretInspectOptions) ([]*entities.SecretInfoReport, []error, error) {
+	var (
+		secret *secrets.Secret
+		data   []byte
+	)
 	manager, err := ic.Libpod.SecretsManager()
 	if err != nil {
 		return nil, nil, err
@@ -66,7 +71,11 @@ func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string
 	errs := make([]error, 0, len(nameOrIDs))
 	reports := make([]*entities.SecretInfoReport, 0, len(nameOrIDs))
 	for _, nameOrID := range nameOrIDs {
-		secret, err := manager.Lookup(nameOrID)
+		if options.ShowSecret {
+			secret, data, err = manager.LookupSecretData(nameOrID)
+		} else {
+			secret, err = manager.Lookup(nameOrID)
+		}
 		if err != nil {
 			if strings.Contains(err.Error(), "no such secret") {
 				errs = append(errs, err)
@@ -78,10 +87,13 @@ func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string
 		if secret.Labels == nil {
 			secret.Labels = make(map[string]string)
 		}
+		if secret.UpdatedAt.IsZero() {
+			secret.UpdatedAt = secret.CreatedAt
+		}
 		report := &entities.SecretInfoReport{
 			ID:        secret.ID,
 			CreatedAt: secret.CreatedAt,
-			UpdatedAt: secret.CreatedAt,
+			UpdatedAt: secret.UpdatedAt,
 			Spec: entities.SecretSpec{
 				Name: secret.Name,
 				Driver: entities.SecretDriverSpec{
@@ -90,6 +102,7 @@ func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string
 				},
 				Labels: secret.Labels,
 			},
+			SecretData: string(data),
 		}
 		reports = append(reports, report)
 	}
@@ -153,15 +166,10 @@ func (ic *ContainerEngine) SecretRm(ctx context.Context, nameOrIDs []string, opt
 	}
 	for _, nameOrID := range toRemove {
 		deletedID, err := manager.Delete(nameOrID)
-		if err == nil || strings.Contains(err.Error(), "no such secret") {
-			reports = append(reports, &entities.SecretRmReport{
-				Err: err,
-				ID:  deletedID,
-			})
+		if options.Ignore && errors.Is(err, secrets.ErrNoSuchSecret) {
 			continue
-		} else {
-			return nil, err
 		}
+		reports = append(reports, &entities.SecretRmReport{Err: err, ID: deletedID})
 	}
 
 	return reports, nil

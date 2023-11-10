@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/containers/common/libimage"
+	"github.com/containers/common/libimage/filter"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/ssh"
 	"github.com/containers/image/v5/docker"
@@ -317,6 +318,7 @@ func (ir *ImageEngine) Push(ctx context.Context, source string, destination stri
 	pushOptions.OciEncryptConfig = options.OciEncryptConfig
 	pushOptions.OciEncryptLayers = options.OciEncryptLayers
 	pushOptions.CompressionLevel = options.CompressionLevel
+	pushOptions.ForceCompressionFormat = options.ForceCompressionFormat
 
 	compressionFormat := options.CompressionFormat
 	if compressionFormat == "" {
@@ -461,7 +463,7 @@ func (ir *ImageEngine) Import(ctx context.Context, options entities.ImageImportO
 
 // Search for images using term and filters
 func (ir *ImageEngine) Search(ctx context.Context, term string, opts entities.ImageSearchOptions) ([]entities.ImageSearchReport, error) {
-	filter, err := libimage.ParseSearchFilter(opts.Filters)
+	filter, err := filter.ParseSearchFilter(opts.Filters)
 	if err != nil {
 		return nil, err
 	}

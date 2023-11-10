@@ -11,6 +11,7 @@ type ListOptions struct {
 //
 //go:generate go run ../generator/generator.go InspectOptions
 type InspectOptions struct {
+	ShowSecret *bool
 }
 
 // RemoveOptions are optional options for removing secrets
@@ -27,4 +28,5 @@ type CreateOptions struct {
 	Driver     *string
 	DriverOpts map[string]string
 	Labels     map[string]string
+	Replace    *bool
 }
