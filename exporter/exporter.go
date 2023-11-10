@@ -15,7 +15,7 @@ import (
 
 // Start starts prometheus exporter.
 func Start(cmd *cobra.Command, args []string) error {
-	// setup podman resgistry
+	// setup podman registry
 	pdcs.SetupRegistry()
 
 	// setup exporter
