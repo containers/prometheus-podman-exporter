@@ -5,7 +5,8 @@ specfile_path: prometheus-podman-exporter.spec
 
 jobs:
   - job: copr_build
-    trigger: pull_request
+    trigger: commit
+    branch: main
     enable_net: true
     srpm_build_deps:
       - make
