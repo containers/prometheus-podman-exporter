@@ -15,7 +15,8 @@ func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader
 		WithDriver(options.Driver).
 		WithDriverOpts(options.DriverOpts).
 		WithName(name).
-		WithLabels(options.Labels)
+		WithLabels(options.Labels).
+		WithReplace(options.Replace)
 	created, err := secrets.Create(ic.ClientCtx, reader, opts)
 	if err != nil {
 		return nil, err
@@ -23,18 +24,21 @@ func (ic *ContainerEngine) SecretCreate(ctx context.Context, name string, reader
 	return created, nil
 }
 
-func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string) ([]*entities.SecretInfoReport, []error, error) {
+func (ic *ContainerEngine) SecretInspect(ctx context.Context, nameOrIDs []string, options entities.SecretInspectOptions) ([]*entities.SecretInfoReport, []error, error) {
 	allInspect := make([]*entities.SecretInfoReport, 0, len(nameOrIDs))
 	errs := make([]error, 0, len(nameOrIDs))
+	opts := new(secrets.InspectOptions).
+		WithShowSecret(options.ShowSecret)
+
 	for _, name := range nameOrIDs {
-		inspected, err := secrets.Inspect(ic.ClientCtx, name, nil)
+		inspected, err := secrets.Inspect(ic.ClientCtx, name, opts)
 		if err != nil {
 			errModel, ok := err.(*errorhandling.ErrorModel)
 			if !ok {
 				return nil, nil, err
 			}
 			if errModel.ResponseCode == 404 {
-				errs = append(errs, fmt.Errorf("no such secret %q", name))
+				errs = append(errs, fmt.Errorf("no secret with name or id %q: no such secret ", name))
 				continue
 			}
 			return nil, nil, err
@@ -73,10 +77,12 @@ func (ic *ContainerEngine) SecretRm(ctx context.Context, nameOrIDs []string, opt
 				return nil, err
 			}
 			if errModel.ResponseCode == 404 {
-				allRm = append(allRm, &entities.SecretRmReport{
-					Err: fmt.Errorf("no secret with name or id %q: no such secret ", name),
-					ID:  "",
-				})
+				if !options.Ignore {
+					allRm = append(allRm, &entities.SecretRmReport{
+						Err: fmt.Errorf("no secret with name or id %q: no such secret ", name),
+						ID:  "",
+					})
+				}
 				continue
 			}
 		}

@@ -44,13 +44,16 @@ type PlayOptions struct {
 	LogOptions *[]string
 	// Start - don't start the pod if false
 	Start *bool
+	// NoTrunc - use annotations that were not truncated to the
+	// Kubernetes maximum of 63 characters
+	NoTrunc *bool
 	// Userns - define the user namespace to use.
 	Userns *string
 	// Force - remove volumes on --down
 	Force *bool
 	// PublishPorts - configure how to expose ports configured inside the K8S YAML file
 	PublishPorts []string
-	// // Wait - indicates whether to return after having created the pods
+	// Wait - indicates whether to return after having created the pods
 	Wait             *bool
 	ServiceContainer *bool
 }

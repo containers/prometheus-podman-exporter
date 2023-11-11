@@ -28,11 +28,7 @@ Source0: {{{ git_dir_pack }}}
 BuildRequires: btrfs-progs-devel
 %endif
 BuildRequires: gcc
-%if 0%{?rhel} >= 9
-BuildRequires: golang >= 1.17
-%else
-BuildRequires: golang >= 1.18.2
-%endif
+BuildRequires: golang
 BuildRequires: glib2-devel
 BuildRequires: glibc-devel
 BuildRequires: glibc-static
