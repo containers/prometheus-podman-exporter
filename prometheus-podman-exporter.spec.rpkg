@@ -16,8 +16,8 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.5.0
-Release: 1%{?dist}
+Version: 1.6.0
+Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
 URL: %{git0}
@@ -92,6 +92,8 @@ popd
 
 
 %changelog
+* Sat Nov 11 2023 Navid Yaghoobi <navidys@fedoraproject.org> 1.6.0-dev-1
+
 * Sat Nov 11 2023 Navid Yaghoobi <navidys@fedoraproject.org> 1.5.0-1
 - Update install.md - official fedora and epel rpm package
 - GH action fix container build push
