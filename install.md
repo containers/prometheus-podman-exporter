@@ -4,8 +4,9 @@
 - [**Container Image**](#container-image)
 - [**Installing Packaged Versions**](#installing-packaged-versions)
   - [**Centos Stream**](#centos-stream)
-  - [**Enterprise Linux (EPEL)**](#enterprise-linux-epel)
   - [**Fedora**](#fedora)
+  - [**RHEL**](#rhel)
+  
 
 ## Building From Source
 
@@ -58,17 +59,22 @@ prometheus-podman-exporter is using go v1.17 or above.
 
 ### Centos Stream
 
-RPM package is available through [COPR repo](https://copr.fedorainfracloud.org/coprs/navidys/prometheus-podman-exporter/).
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
 
-### Enterprise Linux (EPEL)
-
-RPM package is available through [COPR repo](https://copr.fedorainfracloud.org/coprs/navidys/prometheus-podman-exporter/).
+```
+$ sudo dnf install prometheus-podman-exporter
+```
 
 ### Fedora
 
-RPM package is available through [COPR repo](https://copr.fedorainfracloud.org/coprs/navidys/prometheus-podman-exporter/).
+```
+$ sudo dnf install prometheus-podman-exporter
+```
+
+### RHEL
+
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
 
 ```
-$ sudo dnf copr enable navidys/prometheus-podman-exporter
 $ sudo dnf install prometheus-podman-exporter
 ```
