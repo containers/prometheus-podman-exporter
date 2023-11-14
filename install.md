@@ -6,6 +6,7 @@
   - [**Centos Stream**](#centos-stream)
   - [**Fedora**](#fedora)
   - [**RHEL**](#rhel)
+  - [**Gentoo**](#gentoo)
 
 
 ## Building From Source
@@ -77,4 +78,10 @@ Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then ru
 
 ```
 $ sudo dnf install prometheus-podman-exporter
+```
+
+### Gentoo
+
+```
+$ sudo emerge app-metrics/prometheus-podman-exporter
 ```
