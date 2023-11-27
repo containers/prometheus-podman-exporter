@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -39,8 +40,8 @@ func (c *Container) convertPortMappings() []types.PortMapping {
 }
 
 func (c *Container) getNetworkOptions(networkOpts map[string]types.PerNetworkOptions) types.NetworkOptions {
-	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers)+len(c.config.DNSServer))
-	nameservers = append(nameservers, c.runtime.config.Containers.DNSServers...)
+	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers.Get())+len(c.config.DNSServer))
+	nameservers = append(nameservers, c.runtime.config.Containers.DNSServers.Get()...)
 	for _, ip := range c.config.DNSServer {
 		nameservers = append(nameservers, ip.String())
 	}
@@ -530,7 +531,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 
 	if err := c.runtime.state.NetworkConnect(c, netName, netOpts); err != nil {
 		// Docker compat: treat requests to attach already attached networks as a no-op, ignoring opts
-		if errors.Is(err, define.ErrNetworkConnected) && c.ensureState(define.ContainerStateConfigured) {
+		if errors.Is(err, define.ErrNetworkConnected) && !c.ensureState(define.ContainerStateRunning, define.ContainerStateCreated) {
 			return nil
 		}
 

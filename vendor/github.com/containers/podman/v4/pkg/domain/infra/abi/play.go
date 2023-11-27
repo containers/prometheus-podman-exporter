@@ -13,10 +13,12 @@ import (
 	"sync"
 
 	buildahDefine "github.com/containers/buildah/define"
+	bparse "github.com/containers/buildah/pkg/parse"
 	"github.com/containers/common/libimage"
 	nettypes "github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/secrets"
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v4/cmd/podman/parse"
 	"github.com/containers/podman/v4/libpod"
@@ -33,7 +35,6 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/containers/podman/v4/utils"
 	"github.com/coreos/go-systemd/v22/daemon"
-	"github.com/docker/distribution/reference"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
@@ -107,6 +108,12 @@ func (ic *ContainerEngine) createServiceContainer(ctx context.Context, name stri
 	// The mode for individual containers or entire pods can be configured
 	// via the `sdNotifyAnnotation` annotation in the K8s YAML.
 	opts = append(opts, libpod.WithSdNotifyMode(define.SdNotifyModeIgnore))
+
+	if options.Replace {
+		if _, err := ic.ContainerRm(ctx, []string{spec.Name}, entities.RmOptions{Force: true, Ignore: true}); err != nil {
+			return nil, err
+		}
+	}
 
 	// Create a new libpod container based on the spec.
 	ctr, err := ic.Libpod.NewContainer(ctx, runtimeSpec, spec, false, opts...)
@@ -473,7 +480,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 		Net:        &entities.NetOptions{NoHosts: options.NoHosts},
 		ExitPolicy: string(config.PodExitPolicyStop),
 	}
-	podOpt, err = kube.ToPodOpt(ctx, podName, podOpt, podYAML)
+	podOpt, err = kube.ToPodOpt(ctx, podName, podOpt, options.PublishAllPorts, podYAML)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -628,6 +635,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			if err != nil || mountPoint == "" {
 				return nil, nil, fmt.Errorf("unable to get mountpoint of volume %q: %w", vol.Name(), err)
 			}
+			defaultMode := v.DefaultMode
 			// Create files and add data to the volume mountpoint based on the Items in the volume
 			for k, v := range v.Items {
 				dataPath := filepath.Join(mountPoint, k)
@@ -638,6 +646,10 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 				defer f.Close()
 				_, err = f.Write(v)
 				if err != nil {
+					return nil, nil, err
+				}
+				// Set file permissions
+				if err := os.Chmod(f.Name(), os.FileMode(defaultMode)); err != nil {
 					return nil, nil, err
 				}
 			}
@@ -784,6 +796,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			SecretsManager:     secretsManager,
 			UserNSIsHost:       p.Userns.IsHost(),
 			Volumes:            volumes,
+			UtsNSIsHost:        p.UtsNs.IsHost(),
 		}
 		specGen, err := kube.ToSpecGen(ctx, &specgenOpts)
 		if err != nil {
@@ -806,6 +819,12 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			return nil, nil, err
 		}
 		opts = append(opts, libpod.WithSdNotifyMode(define.SdNotifyModeIgnore))
+		if options.Replace {
+			if _, err := ic.ContainerRm(ctx, []string{spec.Name}, entities.RmOptions{Force: true, Ignore: true}); err != nil {
+				return nil, nil, err
+			}
+		}
+
 		ctr, err := generate.ExecuteCreate(ctx, ic.Libpod, rtSpec, spec, false, opts...)
 		if err != nil {
 			return nil, nil, err
@@ -853,6 +872,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			SecretsManager:     secretsManager,
 			UserNSIsHost:       p.Userns.IsHost(),
 			Volumes:            volumes,
+			UtsNSIsHost:        p.UtsNs.IsHost(),
 		}
 
 		if podYAML.Spec.TerminationGracePeriodSeconds != nil {
@@ -903,6 +923,12 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			}
 			sdNotifyProxies = append(sdNotifyProxies, proxy)
 			opts = append(opts, libpod.WithSdNotifySocket(proxy.SocketPath()))
+		}
+
+		if options.Replace {
+			if _, err := ic.ContainerRm(ctx, []string{spec.Name}, entities.RmOptions{Force: true, Ignore: true}); err != nil {
+				return nil, nil, err
+			}
 		}
 
 		ctr, err := generate.ExecuteCreate(ctx, ic.Libpod, rtSpec, spec, false, opts...)
@@ -984,7 +1010,11 @@ func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string,
 		buildOpts := new(buildahDefine.BuildOptions)
 		commonOpts := new(buildahDefine.CommonBuildOptions)
 		buildOpts.ConfigureNetwork = buildahDefine.NetworkDefault
-		buildOpts.Isolation = buildahDefine.IsolationChroot
+		isolation, err := bparse.IsolationOption("")
+		if err != nil {
+			return nil, nil, err
+		}
+		buildOpts.Isolation = isolation
 		buildOpts.CommonBuildOpts = commonOpts
 		buildOpts.Output = container.Image
 		buildOpts.ContextDirectory = filepath.Dir(buildFile)
@@ -1504,7 +1534,7 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 		return nil, err
 	}
 
-	reports.RmReport, err = ic.PodRm(ctx, podNames, entities.PodRmOptions{Ignore: true})
+	reports.RmReport, err = ic.PodRm(ctx, podNames, entities.PodRmOptions{Ignore: true, Force: true})
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/containers/podman/v4/libpod"
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/specgen"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 )
@@ -53,7 +54,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	var userDevices []spec.LinuxDevice
 	if !s.Privileged {
 		// add default devices from containers.conf
-		for _, device := range rtc.Containers.Devices {
+		for _, device := range rtc.Containers.Devices.Get() {
 			if err = DevicesFromPath(&g, device); err != nil {
 				return nil, err
 			}
@@ -171,4 +172,8 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 func WeightDevices(wtDevices map[string]spec.LinuxWeightDevice) ([]spec.LinuxWeightDevice, error) {
 	devs := []spec.LinuxWeightDevice{}
 	return devs, nil
+}
+
+func subNegativeOne(u specs.POSIXRlimit) specs.POSIXRlimit {
+	return u
 }

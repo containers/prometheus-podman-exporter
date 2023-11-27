@@ -346,7 +346,7 @@ func (ic *ContainerEngine) ContainerCommit(ctx context.Context, nameOrID string,
 			return nil, fmt.Errorf("invalid image name %q", opts.ImageName)
 		}
 	}
-	options := new(containers.CommitOptions).WithAuthor(opts.Author).WithChanges(opts.Changes).WithComment(opts.Message).WithSquash(opts.Squash)
+	options := new(containers.CommitOptions).WithAuthor(opts.Author).WithChanges(opts.Changes).WithComment(opts.Message).WithSquash(opts.Squash).WithStream(!opts.Quiet)
 	options.WithFormat(opts.Format).WithPause(opts.Pause).WithRepo(repo).WithTag(tag)
 	response, err := containers.Commit(ic.ClientCtx, nameOrID, options)
 	if err != nil {
@@ -579,13 +579,21 @@ func makeExecConfig(options entities.ExecOptions) *handlers.ExecCreateConfig {
 	return createConfig
 }
 
-func (ic *ContainerEngine) ContainerExec(ctx context.Context, nameOrID string, options entities.ExecOptions, streams define.AttachStreams) (int, error) {
+func (ic *ContainerEngine) ContainerExec(ctx context.Context, nameOrID string, options entities.ExecOptions, streams define.AttachStreams) (exitCode int, retErr error) {
 	createConfig := makeExecConfig(options)
 
 	sessionID, err := containers.ExecCreate(ic.ClientCtx, nameOrID, createConfig)
 	if err != nil {
 		return 125, err
 	}
+	defer func() {
+		if err := containers.ExecRemove(ic.ClientCtx, sessionID, nil); err != nil {
+			if retErr == nil {
+				exitCode = -1
+				retErr = err
+			}
+		}
+	}()
 	startAndAttachOptions := new(containers.ExecStartAndAttachOptions)
 	startAndAttachOptions.WithOutputStream(streams.OutputStream).WithErrorStream(streams.ErrorStream)
 	if streams.InputStream != nil {
@@ -604,13 +612,18 @@ func (ic *ContainerEngine) ContainerExec(ctx context.Context, nameOrID string, o
 	return inspectOut.ExitCode, nil
 }
 
-func (ic *ContainerEngine) ContainerExecDetached(ctx context.Context, nameOrID string, options entities.ExecOptions) (string, error) {
+func (ic *ContainerEngine) ContainerExecDetached(ctx context.Context, nameOrID string, options entities.ExecOptions) (retSessionID string, retErr error) {
 	createConfig := makeExecConfig(options)
 
 	sessionID, err := containers.ExecCreate(ic.ClientCtx, nameOrID, createConfig)
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = containers.ExecRemove(ic.ClientCtx, sessionID, nil)
+		}
+	}()
 
 	if err := containers.ExecStart(ic.ClientCtx, sessionID, nil); err != nil {
 		return "", err

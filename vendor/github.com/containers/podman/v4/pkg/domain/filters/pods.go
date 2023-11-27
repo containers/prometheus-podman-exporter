@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package filters
 
 import (
@@ -25,7 +28,7 @@ func GeneratePodFilterFunc(filter string, filterValues []string, r *libpod.Runti
 				return false
 			}
 			for _, id := range ctrIds {
-				if util.FilterID(id, filterValues) {
+				if filters.FilterID(id, filterValues) {
 					return true
 				}
 			}
@@ -90,7 +93,7 @@ func GeneratePodFilterFunc(filter string, filterValues []string, r *libpod.Runti
 		}, nil
 	case "id":
 		return func(p *libpod.Pod) bool {
-			return util.FilterID(p.ID(), filterValues)
+			return filters.FilterID(p.ID(), filterValues)
 		}, nil
 	case "name":
 		return func(p *libpod.Pod) bool {
@@ -118,6 +121,11 @@ func GeneratePodFilterFunc(filter string, filterValues []string, r *libpod.Runti
 		return func(p *libpod.Pod) bool {
 			labels := p.Labels()
 			return filters.MatchLabelFilters(filterValues, labels)
+		}, nil
+	case "label!":
+		return func(p *libpod.Pod) bool {
+			labels := p.Labels()
+			return !filters.MatchLabelFilters(filterValues, labels)
 		}, nil
 	case "until":
 		return func(p *libpod.Pod) bool {

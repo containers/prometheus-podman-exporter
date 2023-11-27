@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -1255,7 +1258,7 @@ func (c *Container) capAddDrop(caps *specs.LinuxCapabilities) *v1.Capabilities {
 	containerCaps = append(containerCaps, caps.Inheritable...)
 	containerCaps = append(containerCaps, caps.Permitted...)
 
-	calculatedCaps := determineCapAddDropFromCapabilities(c.runtime.config.Containers.DefaultCapabilities, containerCaps)
+	calculatedCaps := determineCapAddDropFromCapabilities(c.runtime.config.Containers.DefaultCapabilities.Get(), containerCaps)
 	return calculatedCaps
 }
 

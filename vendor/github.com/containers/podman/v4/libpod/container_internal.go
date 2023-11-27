@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -288,6 +291,17 @@ func (c *Container) handleRestartPolicy(ctx context.Context) (_ bool, retErr err
 			}
 		}
 	}()
+
+	// Now this is a bit of a mess, normally we try to reuse the netns but if a userns
+	// is used this is not possible as it must be owned by the userns which is created
+	// by the oci runtime. Thus we need to teardown the netns so that the runtime
+	// creates the users+netns and then we setup in completeNetworkSetup() again.
+	if c.config.PostConfigureNetNS {
+		if err := c.cleanupNetwork(); err != nil {
+			return false, err
+		}
+	}
+
 	if err := c.prepare(); err != nil {
 		return false, err
 	}
@@ -496,6 +510,11 @@ func (c *Container) setupStorage(ctx context.Context) error {
 		}
 	}
 	if containerInfoErr != nil {
+		if errors.Is(containerInfoErr, storage.ErrDuplicateName) {
+			if _, err := c.runtime.LookupContainer(c.config.Name); errors.Is(err, define.ErrNoSuchCtr) {
+				return fmt.Errorf("creating container storage: %w by an external entity", containerInfoErr)
+			}
+		}
 		return fmt.Errorf("creating container storage: %w", containerInfoErr)
 	}
 
@@ -1539,7 +1558,13 @@ func (c *Container) mountStorage() (_ string, deferredErr error) {
 	var err error
 	// Container already mounted, nothing to do
 	if c.state.Mounted {
-		return c.state.Mountpoint, nil
+		mounted := true
+		if c.ensureState(define.ContainerStateExited) {
+			mounted, _ = mount.Mounted(c.state.Mountpoint)
+		}
+		if mounted {
+			return c.state.Mountpoint, nil
+		}
 	}
 
 	if !c.config.NoShm {
@@ -1925,9 +1950,12 @@ func (c *Container) cleanupStorage() error {
 		// error
 		// We still want to be able to kick the container out of the
 		// state
-		if errors.Is(err, storage.ErrNotAContainer) || errors.Is(err, storage.ErrContainerUnknown) || errors.Is(err, storage.ErrLayerNotMounted) {
-			logrus.Errorf("Storage for container %s has been removed", c.ID())
-		} else {
+		switch {
+		case errors.Is(err, storage.ErrLayerNotMounted):
+			logrus.Infof("Storage for container %s is not mounted: %v", c.ID(), err)
+		case errors.Is(err, storage.ErrNotAContainer) || errors.Is(err, storage.ErrContainerUnknown):
+			logrus.Warnf("Storage for container %s has been removed: %v", c.ID(), err)
+		default:
 			reportErrorf("cleaning up container %s storage: %w", c.ID(), err)
 		}
 	}
@@ -2228,7 +2256,7 @@ func (c *Container) saveSpec(spec *spec.Spec) error {
 // Warning: precreate hooks may alter 'config' in place.
 func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[string][]spec.Hook, error) {
 	allHooks := make(map[string][]spec.Hook)
-	if c.runtime.config.Engine.HooksDir == nil {
+	if len(c.runtime.config.Engine.HooksDir.Get()) == 0 {
 		if rootless.IsRootless() {
 			return nil, nil
 		}
@@ -2252,7 +2280,7 @@ func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[s
 			}
 		}
 	} else {
-		manager, err := hooks.New(ctx, c.runtime.config.Engine.HooksDir, []string{"precreate", "poststop"})
+		manager, err := hooks.New(ctx, c.runtime.config.Engine.HooksDir.Get(), []string{"precreate", "poststop"})
 		if err != nil {
 			return nil, err
 		}

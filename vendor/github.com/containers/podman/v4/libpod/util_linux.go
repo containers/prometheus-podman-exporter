@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build !remote
+// +build !remote
 
 package libpod
 
@@ -92,7 +92,7 @@ func deleteSystemdCgroup(path string, resources *spec.LinuxResources) error {
 		return err
 	}
 	if rootless.IsRootless() {
-		conn, err := cgroups.GetUserConnection(rootless.GetRootlessUID())
+		conn, err := cgroups.UserConnection(rootless.GetRootlessUID())
 		if err != nil {
 			return err
 		}

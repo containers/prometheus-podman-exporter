@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -321,6 +324,5 @@ func GetLimits(resource *spec.LinuxResources) (runcconfig.Resources, error) {
 
 	// Unified state
 	final.Unified = resource.Unified
-
 	return *final, nil
 }

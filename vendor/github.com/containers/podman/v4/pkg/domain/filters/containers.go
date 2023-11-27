@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package filters
 
 import (
@@ -18,12 +21,16 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 	switch filter {
 	case "id":
 		return func(c *libpod.Container) bool {
-			return util.FilterID(c.ID(), filterValues)
+			return filters.FilterID(c.ID(), filterValues)
 		}, nil
 	case "label":
 		// we have to match that all given labels exits on that container
 		return func(c *libpod.Container) bool {
 			return filters.MatchLabelFilters(filterValues, c.Labels())
+		}, nil
+	case "label!":
+		return func(c *libpod.Container) bool {
+			return !filters.MatchLabelFilters(filterValues, c.Labels())
 		}, nil
 	case "name":
 		// we only have to match one name

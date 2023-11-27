@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -9,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,7 +236,7 @@ func makeInspectPorts(bindings []types.PortMapping, expose map[uint16][]string) 
 				hostPorts := portBindings[key]
 				hostPorts = append(hostPorts, define.InspectHostPort{
 					HostIP:   port.HostIP,
-					HostPort: fmt.Sprintf("%d", port.HostPort+i),
+					HostPort: strconv.FormatUint(uint64(port.HostPort+i), 10),
 				})
 				portBindings[key] = hostPorts
 			}
