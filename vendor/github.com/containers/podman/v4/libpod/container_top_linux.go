@@ -1,5 +1,5 @@
-//go:build linux && cgo
-// +build linux,cgo
+//go:build !remote && linux && cgo
+// +build !remote,linux,cgo
 
 package libpod
 
@@ -214,10 +214,11 @@ func (c *Container) Top(descriptors []string) ([]string, error) {
 		return nil, psgoErr
 	}
 
-	// Note that the descriptors to ps(1) must be shlexed (see #12452).
-	psDescriptors := []string{}
-	for _, d := range descriptors {
-		shSplit, err := shlex.Split(d)
+	psDescriptors := descriptors
+	if len(descriptors) == 1 {
+		// Note that the descriptors to ps(1) must be shlexed (see #12452).
+		psDescriptors = make([]string, 0, len(descriptors))
+		shSplit, err := shlex.Split(descriptors[0])
 		if err != nil {
 			return nil, fmt.Errorf("parsing ps args: %w", err)
 		}

@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -7,15 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
-	"path/filepath"
 
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/libpod/events"
 	"github.com/containers/podman/v4/pkg/specgen"
-	"github.com/containers/podman/v4/utils"
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
 )
@@ -198,65 +194,6 @@ func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Contai
 	return removedCtrs, nil
 }
 
-func (p *Pod) removePodCgroup() error {
-	// Remove pod cgroup, if present
-	if p.state.CgroupPath == "" {
-		return nil
-	}
-	logrus.Debugf("Removing pod cgroup %s", p.state.CgroupPath)
-
-	cgroup, err := utils.GetOwnCgroup()
-	if err != nil {
-		return err
-	}
-
-	// if we are trying to delete a cgroup that is our ancestor, we need to move the
-	// current process out of it before the cgroup is destroyed.
-	if isSubDir(cgroup, string(filepath.Separator)+p.state.CgroupPath) {
-		parent := path.Dir(p.state.CgroupPath)
-		if err := utils.MoveUnderCgroup(parent, "cleanup", nil); err != nil {
-			return err
-		}
-	}
-
-	switch p.runtime.config.Engine.CgroupManager {
-	case config.SystemdCgroupsManager:
-		if err := deleteSystemdCgroup(p.state.CgroupPath, p.ResourceLim()); err != nil {
-			return fmt.Errorf("removing pod %s cgroup: %w", p.ID(), err)
-		}
-	case config.CgroupfsCgroupsManager:
-		// Delete the cgroupfs cgroup
-		// Make sure the conmon cgroup is deleted first
-		// Since the pod is almost gone, don't bother failing
-		// hard - instead, just log errors.
-		conmonCgroupPath := filepath.Join(p.state.CgroupPath, "conmon")
-		conmonCgroup, err := cgroups.Load(conmonCgroupPath)
-		if err != nil && err != cgroups.ErrCgroupDeleted && err != cgroups.ErrCgroupV1Rootless {
-			return fmt.Errorf("retrieving pod %s conmon cgroup: %w", p.ID(), err)
-		}
-		if err == nil {
-			if err = conmonCgroup.Delete(); err != nil {
-				return fmt.Errorf("removing pod %s conmon cgroup: %w", p.ID(), err)
-			}
-		}
-		cgroup, err := cgroups.Load(p.state.CgroupPath)
-		if err != nil && err != cgroups.ErrCgroupDeleted && err != cgroups.ErrCgroupV1Rootless {
-			return fmt.Errorf("retrieving pod %s cgroup: %w", p.ID(), err)
-		}
-		if err == nil {
-			if err := cgroup.Delete(); err != nil {
-				return fmt.Errorf("removing pod %s cgroup: %w", p.ID(), err)
-			}
-		}
-	default:
-		// This should be caught much earlier, but let's still
-		// keep going so we make sure to evict the pod before
-		// ending up with an inconsistent state.
-		return fmt.Errorf("unrecognized cgroup manager %s when removing pod %s cgroups: %w", p.runtime.config.Engine.CgroupManager, p.ID(), define.ErrInternal)
-	}
-	return nil
-}
-
 func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool, timeout *uint) (map[string]error, error) {
 	removedCtrs := make(map[string]error)
 
@@ -327,7 +264,9 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 			continue
 		}
 		if err := r.removeVolume(ctx, volume, false, timeout, false); err != nil {
-			if errors.Is(err, define.ErrNoSuchVolume) || errors.Is(err, define.ErrVolumeRemoved) {
+			// If the anonymous volume is still being used that means it was likely transferred
+			// to another container via --volumes-from so no need to log this as real error.
+			if errors.Is(err, define.ErrNoSuchVolume) || errors.Is(err, define.ErrVolumeRemoved) || errors.Is(err, define.ErrVolumeBeingUsed) {
 				continue
 			}
 			logrus.Errorf("Removing volume %s: %v", volName, err)

@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -21,7 +22,6 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	"github.com/checkpoint-restore/go-criu/v7/stats"
-	cdi "github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
 	"github.com/containers/buildah"
 	"github.com/containers/buildah/pkg/chrootuser"
 	"github.com/containers/buildah/pkg/overlay"
@@ -57,6 +57,7 @@ import (
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+	cdi "tags.cncf.io/container-device-interface/pkg/cdi"
 )
 
 func parseOptionIDs(ctrMappings []idtools.IDMap, option string) ([]idtools.IDMap, error) {
@@ -547,7 +548,7 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 	}
 
 	g.SetRootPath(c.state.Mountpoint)
-	g.AddAnnotation("org.opencontainers.image.stopSignal", fmt.Sprintf("%d", c.config.StopSignal))
+	g.AddAnnotation("org.opencontainers.image.stopSignal", strconv.FormatUint(uint64(c.config.StopSignal), 10))
 
 	if _, exists := g.Config.Annotations[annotations.ContainerManager]; !exists {
 		g.AddAnnotation(annotations.ContainerManager, annotations.ContainerManagerLibpod)
@@ -643,7 +644,8 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 		for _, rlimit := range c.config.Spec.Process.Rlimits {
 			if rlimit.Type == "RLIMIT_NOFILE" {
 				nofileSet = true
-			} else if rlimit.Type == "RLIMIT_NPROC" {
+			}
+			if rlimit.Type == "RLIMIT_NPROC" {
 				nprocSet = true
 			}
 		}
@@ -2087,7 +2089,7 @@ func (c *Container) addResolvConf() error {
 	ipv6 := c.checkForIPv6(netStatus)
 
 	networkBackend := c.runtime.config.Network.NetworkBackend
-	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers)+len(c.config.DNSServer))
+	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers.Get())+len(c.config.DNSServer))
 
 	// If NetworkBackend is `netavark` do not populate `/etc/resolv.conf`
 	// with custom dns server since after https://github.com/containers/netavark/pull/452
@@ -2097,7 +2099,7 @@ func (c *Container) addResolvConf() error {
 	// Exception: Populate `/etc/resolv.conf` if container is not connected to any network
 	// with dns enabled then we do not get any nameservers back.
 	if networkBackend != string(types.Netavark) || len(networkNameServers) == 0 {
-		nameservers = append(nameservers, c.runtime.config.Containers.DNSServers...)
+		nameservers = append(nameservers, c.runtime.config.Containers.DNSServers.Get()...)
 		for _, ip := range c.config.DNSServer {
 			nameservers = append(nameservers, ip.String())
 		}
@@ -2120,15 +2122,15 @@ func (c *Container) addResolvConf() error {
 	// Set DNS search domains
 	search := networkSearchDomains
 
-	if len(c.config.DNSSearch) > 0 || len(c.runtime.config.Containers.DNSSearches) > 0 {
-		customSearch := make([]string, 0, len(c.config.DNSSearch)+len(c.runtime.config.Containers.DNSSearches))
-		customSearch = append(customSearch, c.runtime.config.Containers.DNSSearches...)
+	if len(c.config.DNSSearch) > 0 || len(c.runtime.config.Containers.DNSSearches.Get()) > 0 {
+		customSearch := make([]string, 0, len(c.config.DNSSearch)+len(c.runtime.config.Containers.DNSSearches.Get()))
+		customSearch = append(customSearch, c.runtime.config.Containers.DNSSearches.Get()...)
 		customSearch = append(customSearch, c.config.DNSSearch...)
 		search = customSearch
 	}
 
-	options := make([]string, 0, len(c.config.DNSOption)+len(c.runtime.config.Containers.DNSOptions))
-	options = append(options, c.runtime.config.Containers.DNSOptions...)
+	options := make([]string, 0, len(c.config.DNSOption)+len(c.runtime.config.Containers.DNSOptions.Get()))
+	options = append(options, c.runtime.config.Containers.DNSOptions.Get()...)
 	options = append(options, c.config.DNSOption...)
 
 	var namespaces []spec.LinuxNamespace
@@ -2601,11 +2603,11 @@ func (c *Container) generateUserPasswdEntry(addedUID int) (string, error) {
 	}
 
 	if c.config.PasswdEntry != "" {
-		entry := c.passwdEntry(fmt.Sprintf("%d", uid), fmt.Sprintf("%d", uid), fmt.Sprintf("%d", gid), "container user", c.WorkingDir())
+		entry := c.passwdEntry(strconv.FormatUint(uid, 10), strconv.FormatUint(uid, 10), strconv.FormatInt(int64(gid), 10), "container user", c.WorkingDir())
 		return entry, nil
 	}
 
-	u, err := user.LookupId(fmt.Sprintf("%d", uid))
+	u, err := user.LookupId(strconv.FormatUint(uid, 10))
 	if err == nil {
 		return fmt.Sprintf("%s:*:%d:%d:%s:%s:/bin/sh\n", u.Username, uid, gid, u.Name, c.WorkingDir()), nil
 	}

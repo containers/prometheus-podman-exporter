@@ -17,8 +17,10 @@ import (
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/specgen"
+	"github.com/docker/go-units"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -216,6 +218,12 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.AddAnnotation(key, val)
 	}
 
+	if s.IntelRdt != nil {
+		if s.IntelRdt.ClosID != "" {
+			g.SetLinuxIntelRdtClosID(s.IntelRdt.ClosID)
+		}
+	}
+
 	if s.ResourceLimits != nil {
 		out, err := json.Marshal(s.ResourceLimits)
 		if err != nil {
@@ -248,7 +256,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 
 	if !s.Privileged {
 		// add default devices from containers.conf
-		for _, device := range rtc.Containers.Devices {
+		for _, device := range rtc.Containers.Devices.Get() {
 			if err = DevicesFromPath(&g, device); err != nil {
 				return nil, err
 			}
@@ -350,4 +358,38 @@ func WeightDevices(wtDevices map[string]spec.LinuxWeightDevice) ([]spec.LinuxWei
 		devs = append(devs, *dev)
 	}
 	return devs, nil
+}
+
+// subNegativeOne translates Hard or soft limits of -1 to the current
+// processes Max limit
+func subNegativeOne(u spec.POSIXRlimit) spec.POSIXRlimit {
+	if !rootless.IsRootless() ||
+		(int64(u.Hard) != -1 && int64(u.Soft) != -1) {
+		return u
+	}
+
+	ul, err := units.ParseUlimit(fmt.Sprintf("%s=%d:%d", u.Type, int64(u.Soft), int64(u.Hard)))
+	if err != nil {
+		logrus.Warnf("Failed to check %s ulimit %q", u.Type, err)
+		return u
+	}
+	rl, err := ul.GetRlimit()
+	if err != nil {
+		logrus.Warnf("Failed to check %s ulimit %q", u.Type, err)
+		return u
+	}
+
+	var rlimit unix.Rlimit
+
+	if err := unix.Getrlimit(rl.Type, &rlimit); err != nil {
+		logrus.Warnf("Failed to return RLIMIT_NOFILE ulimit %q", err)
+		return u
+	}
+	if int64(u.Hard) == -1 {
+		u.Hard = rlimit.Max
+	}
+	if int64(u.Soft) == -1 {
+		u.Soft = rlimit.Max
+	}
+	return u
 }

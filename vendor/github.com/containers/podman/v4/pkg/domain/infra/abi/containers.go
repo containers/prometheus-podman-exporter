@@ -867,6 +867,10 @@ func (ic *ContainerEngine) ContainerExec(ctx context.Context, nameOrID string, o
 	}
 	ctr := containers[0]
 
+	if options.Tty {
+		util.ExecAddTERM(ctr.Env(), options.Envs)
+	}
+
 	execConfig, err := makeExecConfig(options, ic.Libpod)
 	if err != nil {
 		return ec, err
@@ -904,6 +908,7 @@ func (ic *ContainerEngine) ContainerExecDetached(ctx context.Context, nameOrID s
 
 	// TODO: we should try and retrieve exit code if this fails.
 	if err := ctr.ExecStart(id); err != nil {
+		_ = ctr.ExecRemove(id, true)
 		return "", err
 	}
 	return id, nil
@@ -1578,9 +1583,6 @@ func (ic *ContainerEngine) ContainerStats(ctx context.Context, namesOrIds []stri
 				if err != nil {
 					if queryAll && (errors.Is(err, define.ErrCtrRemoved) || errors.Is(err, define.ErrNoSuchCtr) || errors.Is(err, define.ErrCtrStateInvalid)) {
 						continue
-					}
-					if errors.Is(err, cgroups.ErrCgroupV1Rootless) {
-						err = cgroups.ErrCgroupV1Rootless
 					}
 					return nil, err
 				}

@@ -258,6 +258,21 @@ func (o *PlayOptions) GetLogOptions() []string {
 	return *o.LogOptions
 }
 
+// WithReplace set field Replace to given value
+func (o *PlayOptions) WithReplace(value bool) *PlayOptions {
+	o.Replace = &value
+	return o
+}
+
+// GetReplace returns value of field Replace
+func (o *PlayOptions) GetReplace() bool {
+	if o.Replace == nil {
+		var z bool
+		return z
+	}
+	return *o.Replace
+}
+
 // WithStart set field Start to given value
 func (o *PlayOptions) WithStart(value bool) *PlayOptions {
 	o.Start = &value
@@ -331,6 +346,21 @@ func (o *PlayOptions) GetPublishPorts() []string {
 		return z
 	}
 	return o.PublishPorts
+}
+
+// WithPublishAllPorts set field PublishAllPorts to given value
+func (o *PlayOptions) WithPublishAllPorts(value bool) *PlayOptions {
+	o.PublishAllPorts = &value
+	return o
+}
+
+// GetPublishAllPorts returns value of field PublishAllPorts
+func (o *PlayOptions) GetPublishAllPorts() bool {
+	if o.PublishAllPorts == nil {
+		var z bool
+		return z
+	}
+	return *o.PublishAllPorts
 }
 
 // WithWait set field Wait to given value

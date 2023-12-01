@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, podYAML *v1.PodTemplateSpec) (entities.PodCreateOptions, error) {
+func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, publishAllPorts bool, podYAML *v1.PodTemplateSpec) (entities.PodCreateOptions, error) {
 	p.Net = &entities.NetOptions{NoHosts: p.Net.NoHosts}
 
 	p.Name = podName
@@ -69,6 +69,12 @@ func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, 
 	}
 	if podYAML.Spec.HostNetwork {
 		p.Net.Network = specgen.Namespace{NSMode: "host"}
+		nodeHostName, err := os.Hostname()
+		if err != nil {
+			return p, err
+		}
+		p.Hostname = nodeHostName
+		p.Uts = "host"
 	}
 	if podYAML.Spec.HostAliases != nil {
 		if p.Net.NoHosts {
@@ -82,7 +88,7 @@ func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, 
 		}
 		p.Net.AddHosts = hosts
 	}
-	podPorts := getPodPorts(podYAML.Spec.Containers)
+	podPorts := getPodPorts(podYAML.Spec.Containers, publishAllPorts)
 	p.Net.PublishPorts = podPorts
 
 	if dnsConfig := podYAML.Spec.DNSConfig; dnsConfig != nil {
@@ -156,6 +162,8 @@ type CtrSpecGenOptions struct {
 	UserNSIsHost bool
 	// PidNSIsHost tells the container to use the host pidns
 	PidNSIsHost bool
+	// UtsNSIsHost tells the container to use the host utsns
+	UtsNSIsHost bool
 	// SecretManager to access the secrets
 	SecretsManager *secrets.SecretsManager
 	// LogDriver which should be used for the container
@@ -563,6 +571,9 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	if opts.IpcNSIsHost {
 		s.IpcNS.NSMode = specgen.Host
 	}
+	if opts.UtsNSIsHost {
+		s.UtsNS.NSMode = specgen.Host
+	}
 
 	// Add labels that come from kube
 	if len(s.Labels) == 0 {
@@ -578,7 +589,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	}
 
 	if ro := opts.ReadOnly; ro != itypes.OptionalBoolUndefined {
-		s.ReadOnlyFilesystem = (ro == itypes.OptionalBoolTrue)
+		s.ReadOnlyFilesystem = ro == itypes.OptionalBoolTrue
 	}
 	// This should default to true for kubernetes yaml
 	s.ReadWriteTmpfs = true
@@ -774,7 +785,7 @@ func makeHealthCheck(inCmd string, interval int32, retries int32, timeout int32,
 		// kubernetes interval defaults to 10 sec and cannot be less than 1
 		interval = 10
 	}
-	hc.Interval = (time.Duration(interval) * time.Second)
+	hc.Interval = time.Duration(interval) * time.Second
 	if retries < 1 {
 		// kubernetes retries defaults to 3
 		retries = 3
@@ -784,13 +795,13 @@ func makeHealthCheck(inCmd string, interval int32, retries int32, timeout int32,
 		// kubernetes timeout defaults to 1
 		timeout = 1
 	}
-	timeoutDuration := (time.Duration(timeout) * time.Second)
+	timeoutDuration := time.Duration(timeout) * time.Second
 	if timeoutDuration < time.Duration(1) {
 		return nil, errors.New("healthcheck-timeout must be at least 1 second")
 	}
 	hc.Timeout = timeoutDuration
 
-	startPeriodDuration := (time.Duration(startPeriod) * time.Second)
+	startPeriodDuration := time.Duration(startPeriod) * time.Second
 	if startPeriodDuration < time.Duration(0) {
 		return nil, errors.New("healthcheck-start-period must be 0 seconds or greater")
 	}
@@ -856,7 +867,7 @@ func setupSecurityContext(s *specgen.SpecGenerator, securityContext *v1.Security
 		runAsUser = podSecurityContext.RunAsUser
 	}
 	if runAsUser != nil {
-		s.User = fmt.Sprintf("%d", *runAsUser)
+		s.User = strconv.FormatInt(*runAsUser, 10)
 	}
 
 	runAsGroup := securityContext.RunAsGroup
@@ -870,7 +881,7 @@ func setupSecurityContext(s *specgen.SpecGenerator, securityContext *v1.Security
 		s.User = fmt.Sprintf("%s:%d", s.User, *runAsGroup)
 	}
 	for _, group := range podSecurityContext.SupplementalGroups {
-		s.Groups = append(s.Groups, fmt.Sprintf("%d", group))
+		s.Groups = append(s.Groups, strconv.FormatInt(group, 10))
 	}
 }
 
@@ -1143,14 +1154,14 @@ func getContainerResources(container v1.Container) (v1.ResourceRequirements, err
 
 // getPodPorts converts a slice of kube container descriptions to an
 // array of portmapping
-func getPodPorts(containers []v1.Container) []types.PortMapping {
+func getPodPorts(containers []v1.Container, publishAll bool) []types.PortMapping {
 	var infraPorts []types.PortMapping
 	for _, container := range containers {
 		for _, p := range container.Ports {
 			if p.HostPort != 0 && p.ContainerPort == 0 {
 				p.ContainerPort = p.HostPort
 			}
-			if p.HostPort == 0 && p.ContainerPort != 0 {
+			if p.HostPort == 0 && p.ContainerPort != 0 && publishAll {
 				p.HostPort = p.ContainerPort
 			}
 			if p.Protocol == "" {

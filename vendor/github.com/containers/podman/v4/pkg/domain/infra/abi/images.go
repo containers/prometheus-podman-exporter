@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	bdefine "github.com/containers/buildah/define"
 	"github.com/containers/common/libimage"
 	"github.com/containers/common/libimage/filter"
 	"github.com/containers/common/pkg/config"
@@ -56,7 +57,18 @@ func (ir *ImageEngine) Prune(ctx context.Context, opts entities.ImagePruneOption
 	}
 
 	if !opts.All {
-		pruneOptions.Filters = append(pruneOptions.Filters, "dangling=true")
+		// Issue #20469: Docker clients handle the --all flag on the
+		// client side by setting the dangling filter directly.
+		alreadySet := false
+		for _, filter := range pruneOptions.Filters {
+			if strings.HasPrefix(filter, "dangling=") {
+				alreadySet = true
+				break
+			}
+		}
+		if !alreadySet {
+			pruneOptions.Filters = append(pruneOptions.Filters, "dangling=true")
+		}
 	}
 	if opts.External {
 		pruneOptions.Filters = append(pruneOptions.Filters, "containers=external")
@@ -513,7 +525,11 @@ func (ir *ImageEngine) Build(ctx context.Context, containerFiles []string, opts 
 	if err != nil {
 		return nil, err
 	}
-	return &entities.BuildReport{ID: id}, nil
+	saveFormat := define.OCIArchive
+	if opts.OutputFormat == bdefine.Dockerv2ImageManifest {
+		saveFormat = define.V2s2Archive
+	}
+	return &entities.BuildReport{ID: id, SaveFormat: saveFormat}, nil
 }
 
 func (ir *ImageEngine) Tree(ctx context.Context, nameOrID string, opts entities.ImageTreeOptions) (*entities.ImageTreeReport, error) {
@@ -829,7 +845,7 @@ func transferRootful(source entities.ImageScpOptions, dest entities.ImageScpOpti
 	if err != nil {
 		return err
 	}
-	out, err := execTransferPodman(uLoad, loadCommand, (len(dest.Tag) > 0))
+	out, err := execTransferPodman(uLoad, loadCommand, len(dest.Tag) > 0)
 	if err != nil {
 		return err
 	}

@@ -16,7 +16,9 @@ import (
 	"github.com/containers/buildah/copier"
 	"github.com/containers/buildah/define"
 	"github.com/containers/buildah/docker"
+	"github.com/containers/buildah/internal/config"
 	"github.com/containers/buildah/internal/mkcw"
+	"github.com/containers/buildah/internal/tmpdir"
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/image"
 	"github.com/containers/image/v5/manifest"
@@ -78,6 +80,8 @@ type containerImageRef struct {
 	blobDirectory         string
 	preEmptyLayers        []v1.History
 	postEmptyLayers       []v1.History
+	overrideChanges       []string
+	overrideConfig        *manifest.Schema2Config
 }
 
 type blobLayerInfo struct {
@@ -285,6 +289,24 @@ func (i *containerImageRef) createConfigsAndManifests() (v1.Image, v1.Manifest, 
 	}
 	// Always replace this value, since we're newer than our base image.
 	dimage.Created = created
+	// Clear the list of diffIDs, since we always repopulate it.
+	dimage.RootFS = &docker.V2S2RootFS{}
+	dimage.RootFS.Type = docker.TypeLayers
+	dimage.RootFS.DiffIDs = []digest.Digest{}
+	// Only clear the history if we're squashing, otherwise leave it be so
+	// that we can append entries to it.  Clear the parent, too, we no
+	// longer include its layers and history.
+	if i.confidentialWorkload.Convert || i.squash || i.omitHistory {
+		dimage.Parent = ""
+		dimage.History = []docker.V2S2History{}
+	}
+
+	// If we were supplied with a configuration, copy fields from it to
+	// matching fields in both formats.
+	if err := config.Override(dimage.Config, &oimage.Config, i.overrideChanges, i.overrideConfig); err != nil {
+		return v1.Image{}, v1.Manifest{}, docker.V2Image{}, docker.V2S2Manifest{}, fmt.Errorf("applying changes: %w", err)
+	}
+
 	// If we're producing a confidential workload, override the command and
 	// assorted other settings that aren't expected to work correctly.
 	if i.confidentialWorkload.Convert {
@@ -302,17 +324,6 @@ func (i *containerImageRef) createConfigsAndManifests() (v1.Image, v1.Manifest, 
 		oimage.Config.Volumes = nil
 		dimage.Config.ExposedPorts = nil
 		oimage.Config.ExposedPorts = nil
-	}
-	// Clear the list of diffIDs, since we always repopulate it.
-	dimage.RootFS = &docker.V2S2RootFS{}
-	dimage.RootFS.Type = docker.TypeLayers
-	dimage.RootFS.DiffIDs = []digest.Digest{}
-	// Only clear the history if we're squashing, otherwise leave it be so
-	// that we can append entries to it.  Clear the parent, too, we no
-	// longer include its layers and history.
-	if i.confidentialWorkload.Convert || i.squash || i.omitHistory {
-		dimage.Parent = ""
-		dimage.History = []docker.V2S2History{}
 	}
 
 	// Build empty manifests.  The Layers lists will be populated later.
@@ -374,7 +385,7 @@ func (i *containerImageRef) NewImageSource(ctx context.Context, sc *types.System
 	logrus.Debugf("layer list: %q", layers)
 
 	// Make a temporary directory to hold blobs.
-	path, err := os.MkdirTemp(os.TempDir(), define.Package)
+	path, err := os.MkdirTemp(tmpdir.GetTempDir(), define.Package)
 	if err != nil {
 		return nil, fmt.Errorf("creating temporary directory to hold layer blobs: %w", err)
 	}
@@ -409,11 +420,6 @@ func (i *containerImageRef) NewImageSource(ctx context.Context, sc *types.System
 		layer, err := i.store.Layer(layerID)
 		if err != nil {
 			return nil, fmt.Errorf("unable to locate layer %q: %w", layerID, err)
-		}
-		// If we're up to the final layer, but we don't want to include
-		// a diff for it, we're done.
-		if i.emptyLayer && layerID == i.layerID {
-			continue
 		}
 		// If we already know the digest of the contents of parent
 		// layers, reuse their blobsums, diff IDs, and sizes.
@@ -468,6 +474,11 @@ func (i *containerImageRef) NewImageSource(ctx context.Context, sc *types.System
 				return nil, err
 			}
 		} else {
+			// If we're up to the final layer, but we don't want to
+			// include a diff for it, we're done.
+			if i.emptyLayer && layerID == i.layerID {
+				continue
+			}
 			// Extract this layer, one of possibly many.
 			rc, err = i.store.Diff("", layerID, diffOptions)
 			if err != nil {
@@ -916,12 +927,14 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 		squash:                options.Squash,
 		confidentialWorkload:  options.ConfidentialWorkloadOptions,
 		omitHistory:           options.OmitHistory,
-		emptyLayer:            options.EmptyLayer && !options.Squash,
+		emptyLayer:            options.EmptyLayer && !options.Squash && !options.ConfidentialWorkloadOptions.Convert,
 		idMappingOptions:      &b.IDMappingOptions,
 		parent:                parent,
 		blobDirectory:         options.BlobDirectory,
 		preEmptyLayers:        b.PrependedEmptyLayers,
 		postEmptyLayers:       b.AppendedEmptyLayers,
+		overrideChanges:       options.OverrideChanges,
+		overrideConfig:        options.OverrideConfig,
 	}
 	return ref, nil
 }

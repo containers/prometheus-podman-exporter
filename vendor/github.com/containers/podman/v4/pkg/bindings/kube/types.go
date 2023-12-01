@@ -42,6 +42,8 @@ type PlayOptions struct {
 	LogDriver *string
 	// LogOptions for the container. For example: journald
 	LogOptions *[]string
+	// Replace - replace existing pods and containers
+	Replace *bool
 	// Start - don't start the pod if false
 	Start *bool
 	// NoTrunc - use annotations that were not truncated to the
@@ -53,6 +55,9 @@ type PlayOptions struct {
 	Force *bool
 	// PublishPorts - configure how to expose ports configured inside the K8S YAML file
 	PublishPorts []string
+	// PublishAllPorts - whether to publish all ports defined in the K8S YAML file
+	// (containerPort, hostPort) otherwise only hostPort will be published
+	PublishAllPorts *bool
 	// Wait - indicates whether to return after having created the pods
 	Wait             *bool
 	ServiceContainer *bool
