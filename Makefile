@@ -6,7 +6,12 @@ SRC = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 PRE_COMMIT = $(shell command -v bin/venv/bin/pre-commit ~/.local/bin/pre-commit pre-commit | head -n1)
 PKG_MANAGER ?= $(shell command -v dnf yum|head -n1)
 SELINUXOPT ?= $(shell test -x /usr/sbin/selinuxenabled && selinuxenabled && echo -Z)
-BUILDFLAGS := -mod=vendor $(BUILDFLAGS)
+BUILDFLAGS := -mod=vendor
+BUILDTAGS ?= \
+	$(shell hack/systemd_tag.sh) \
+	$(shell hack/btrfs_installed_tag.sh) \
+	$(shell hack/btrfs_tag.sh)
+
 VERSION = $(shell cat VERSION  | grep VERSION | cut -d'=' -f2)
 REVISION = $(shell cat VERSION  | grep REVISION | cut -d'=' -f2)
 BRANCH=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -58,7 +63,7 @@ binary-remote-arm64: ## Build arm64 prometheus-podman-exporter for remote connec
 $(TARGET): $(SRC)
 	@echo "running go build"
 	@mkdir -p $(BIN)
-	$(GO) build $(BUILDFLAGS) -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/$(TARGET)
+	$(GO) build $(BUILDFLAGS) -tags "$(BUILDTAGS)" -ldflags="-X '$(PKG_PATH)/cmd.buildVersion=$(VERSION)' -X '$(PKG_PATH)/cmd.buildRevision=$(REVISION)' -X '$(PKG_PATH)/cmd.buildBranch=$(BRANCH)'" -o $(BIN)/$(TARGET)
 
 .PHONY: install
 install:    ## Install prometheus-podman-exporter binary

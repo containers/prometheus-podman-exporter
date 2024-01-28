@@ -50,9 +50,6 @@ BuildRequires: shadow-utils-subid-devel
 
 %build
 %set_build_flags
-%if 0%{?rhel} >= 9
-export BUILDFLAGS="-tags \"exclude_graphdriver_btrfs\""
-%endif
 make binary
 
 %install

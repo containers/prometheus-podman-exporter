@@ -15,9 +15,6 @@ import (
 
 // Start starts prometheus exporter.
 func Start(cmd *cobra.Command, args []string) error {
-	// setup podman registry
-	pdcs.SetupRegistry()
-
 	// setup exporter
 	promlogConfig := &promlog.Config{Level: &promlog.AllowedLevel{}}
 
@@ -76,6 +73,12 @@ func Start(cmd *cobra.Command, args []string) error {
 			</body>
 			</html>`))
 	})
+
+	// setup podman registry
+	pdcs.SetupRegistry()
+	// start podman event streamer and initiate first update.
+	pdcs.StartEventStreamer(logger)
+
 	level.Info(logger).Log("msg", "Listening on", "address", webListen)
 
 	server := &http.Server{
