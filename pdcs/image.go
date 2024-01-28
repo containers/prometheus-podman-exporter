@@ -2,11 +2,20 @@ package pdcs
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/podman/v4/cmd/podman/registry"
 	"github.com/containers/podman/v4/pkg/domain/entities"
 )
+
+var imageRep ImageReport
+
+type ImageReport struct {
+	images    []Image
+	updateErr error
+	repLock   sync.Mutex
+}
 
 // Image implements image's basic information.
 type Image struct {
@@ -21,12 +30,33 @@ type Image struct {
 
 // Images returns list of images (Image).
 func Images() ([]Image, error) {
-	images := make([]Image, 0)
+	imageRep.repLock.Lock()
+	defer imageRep.repLock.Unlock()
 
-	reports, err := registry.ImageEngine().List(registry.GetContext(), entities.ImageListOptions{All: true})
-	if err != nil {
-		return images, err
+	if imageRep.updateErr != nil {
+		return nil, imageRep.updateErr
 	}
+
+	images := imageRep.images
+
+	return images, nil
+}
+
+func updateImages() {
+	images := make([]Image, 0)
+	reports, err := registry.ImageEngine().List(registry.GetContext(), entities.ImageListOptions{All: true})
+
+	imageRep.repLock.Lock()
+	defer imageRep.repLock.Unlock()
+
+	if err != nil {
+		imageRep.updateErr = err
+		imageRep.images = nil
+
+		return
+	}
+
+	imageRep.updateErr = nil
 
 	for _, rep := range reports {
 		if len(rep.RepoTags) > 0 {
@@ -56,7 +86,7 @@ func Images() ([]Image, error) {
 		}
 	}
 
-	return images, nil
+	imageRep.images = images
 }
 
 func repoTagDecompose(repoTags string) (string, string) {
