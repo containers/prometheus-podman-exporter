@@ -25,6 +25,7 @@ type Image struct {
 	Tag        string
 	Created    int64
 	Size       int64
+	Digest     string
 	Labels     map[string]string
 }
 
@@ -70,6 +71,7 @@ func updateImages() {
 					Tag:        tag,
 					Size:       rep.Size,
 					Created:    rep.Created,
+					Digest:     rep.Digest,
 					Labels:     rep.Labels,
 				})
 			}
@@ -81,6 +83,7 @@ func updateImages() {
 				Tag:        "<none>",
 				Created:    rep.Created,
 				Size:       rep.Size,
+				Digest:     rep.Digest,
 				Labels:     rep.Labels,
 			})
 		}
