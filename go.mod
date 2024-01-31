@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/containers/common v0.57.2
-	github.com/containers/image/v5 v5.29.1
+	github.com/containers/image/v5 v5.29.2
 	github.com/containers/podman/v4 v4.9.0
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
