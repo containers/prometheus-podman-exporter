@@ -27,14 +27,14 @@ func NewImageStatsCollector(logger log.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "image", "size"),
 				"Image size",
-				[]string{"id", "repository", "tag", "digest"}, nil,
+				[]string{"id", "repository", "tag"}, nil,
 			), prometheus.GaugeValue,
 		},
 		created: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "image", "created_seconds"),
 				"Image creation time in unixtime.",
-				[]string{"id", "repository", "tag", "digest"}, nil,
+				[]string{"id", "repository", "tag"}, nil,
 			), prometheus.GaugeValue,
 		},
 		logger: logger,
