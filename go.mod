@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/containers/common v0.57.3
 	github.com/containers/image/v5 v5.29.2
-	github.com/containers/podman/v4 v4.9.0
+	github.com/containers/podman/v4 v4.9.1
 	github.com/go-kit/log v0.2.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.18.0
@@ -38,7 +38,7 @@ require (
 	github.com/containerd/typeurl/v2 v2.1.1 // indirect
 	github.com/containernetworking/cni v1.1.2 // indirect
 	github.com/containernetworking/plugins v1.3.0 // indirect
-	github.com/containers/buildah v1.33.3 // indirect
+	github.com/containers/buildah v1.33.4 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20231030195837-b5a7f79da98b // indirect
