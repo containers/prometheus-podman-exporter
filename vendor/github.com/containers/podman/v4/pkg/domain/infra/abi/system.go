@@ -78,16 +78,13 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 		}
 	}
 
-	if !rootless.IsRootless() {
-		return nil
-	}
-
 	// do it only after podman has already re-execed and running with uid==0.
 	hasCapSysAdmin, err := unshare.HasCapSysAdmin()
 	if err != nil {
 		return err
 	}
-	if hasCapSysAdmin {
+	// check for both euid == 0 and CAP_SYS_ADMIN because we may be running in a container with CAP_SYS_ADMIN set.
+	if os.Geteuid() == 0 && hasCapSysAdmin {
 		ownsCgroup, err := cgroups.UserOwnsCurrentSystemdCgroup()
 		if err != nil {
 			logrus.Infof("Failed to detect the owner for the current cgroup: %v", err)
