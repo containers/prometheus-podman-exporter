@@ -53,8 +53,8 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 		c.info.desc = infoMetric
 		ch <- c.info.mustNewConstMetric(1, infoValues...)
 
-		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag, rep.Digest)
-		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag, rep.Digest)
+		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag)
+		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag)
 	}
 
 	return nil
