@@ -257,12 +257,12 @@ podman_pod_created_seconds{id="d05cda23085a"} 1.655489348e+09
 ```shell
 # HELP podman_image_info Image information.
 # TYPE podman_image_info gauge
-podman_image_info{digest="sha256:4d7fdebe2a853aceb15019554b56e58055f7a746c0b4095eec869d5b6c11987e",id="48565a8e6250",parent_id="",repository="docker.io/bitnami/prometheus",tag="latest"} 1
-podman_image_info{digest="sha256:6d9ac9237a84afe1516540f40a0fafdc86859b2141954b4d643af7066d598b74",id="62aedd01bd85",parent_id="",repository="docker.io/library/busybox",tag="latest"} 1
-podman_image_info{digest="sha256:548f3d4246cda60c311a035620c26ea8fb21b3abc870c5806626a32ef936982b",id="75c013514322",parent_id="",repository="docker.io/library/sonarqube",tag="latest"} 1
-podman_image_info{digest="sha256:218169c5590870bb95c06e9f7e80ded58f6644c1974b0ca7f2c3405b74fc3b57",id="a45fa0117c2b",parent_id="",repository="localhost/podman-pause",tag="4.1.0-1651853754"} 1
-podman_image_info{digest="sha256:ba846154ade27292d216cce2d21f1c7e589f3b66a4a643bff0cdd348efd17aa3",id="b260a49eebf9",parent_id="",repository="docker.io/library/httpd",tag="latest"} 1
-podman_image_info{digest="sha256:7567a7c70a3c1d75aeeedc968d1304174a16651e55a60d1fb132a05e1e63a054",id="c4b778290339",parent_id="b260a49eebf9",repository="docker.io/grafana/grafana",tag="latest"} 1
+podman_image_info{id="48565a8e6250",parent_id="",repository="docker.io/bitnami/prometheus",tag="latest",digest="sha256:4d7fdebe2a853aceb15019554b56e58055f7a746c0b4095eec869d5b6c11987e"} 1
+podman_image_info{id="62aedd01bd85",parent_id="",repository="docker.io/library/busybox",tag="latest",digest="sha256:6d9ac9237a84afe1516540f40a0fafdc86859b2141954b4d643af7066d598b74"} 1
+podman_image_info{id="75c013514322",parent_id="",repository="docker.io/library/sonarqube",tag="latest",digest="sha256:548f3d4246cda60c311a035620c26ea8fb21b3abc870c5806626a32ef936982b"} 1
+podman_image_info{id="a45fa0117c2b",parent_id="",repository="localhost/podman-pause",tag="4.1.0-1651853754",digest="sha256:218169c5590870bb95c06e9f7e80ded58f6644c1974b0ca7f2c3405b74fc3b57"} 1
+podman_image_info{id="b260a49eebf9",parent_id="",repository="docker.io/library/httpd",tag="latest",digest="sha256:ba846154ade27292d216cce2d21f1c7e589f3b66a4a643bff0cdd348efd17aa3"} 1
+podman_image_info{id="c4b778290339",parent_id="b260a49eebf9",repository="docker.io/grafana/grafana",tag="latest",digest="sha256:7567a7c70a3c1d75aeeedc968d1304174a16651e55a60d1fb132a05e1e63a054"} 1
 
 # HELP podman_image_created_seconds Image creation time in unixtime.
 # TYPE podman_image_created_seconds gauge
