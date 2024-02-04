@@ -16,7 +16,7 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.8.0
+Version: 1.9.0
 Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
@@ -89,7 +89,17 @@ popd
 
 
 %changelog
-* Sun Jan 21 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.8.0-dev-1
+* Sun Feb 04 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.9.0-dev-1
+
+* Sun Feb 04 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.8.0-1
+- Add pod_id and pod_name to all container metrics
+- Fix inconsistent label cardinality on image scrap
+- Add digest (sha256) labels for container info metric
+- Cache scrapping of images
+- Bump github.com/containers/podman/v4 to 4.9.2
+- Bump github.com/containers/common to 0.57.4
+- Bump github.com/containers/image/v5 to v5.29.2
+- Go version update to 1.20
 
 * Sun Jan 21 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.7.0-1
 - Bump github.com/containers/podman/v4 from 4.8.2 to 4.8.3
