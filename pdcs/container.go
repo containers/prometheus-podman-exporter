@@ -17,6 +17,7 @@ const (
 type Container struct {
 	ID       string
 	PodID    string // if container is part of pod
+	PodName  string // if container is part of pod
 	Name     string
 	Labels   map[string]string
 	Image    string
@@ -48,7 +49,10 @@ type ContainerStat struct {
 func Containers() ([]Container, error) {
 	containers := make([]Container, 0)
 
-	reports, err := registry.ContainerEngine().ContainerList(registry.Context(), entities.ContainerListOptions{All: true})
+	reports, err := registry.ContainerEngine().ContainerList(
+		registry.Context(),
+		entities.ContainerListOptions{All: true, Pod: true},
+	)
 	if err != nil {
 		return containers, err
 	}
@@ -57,6 +61,7 @@ func Containers() ([]Container, error) {
 		containers = append(containers, Container{
 			ID:       getID(rep.ID),
 			PodID:    getID(rep.Pod),
+			PodName:  rep.PodName,
 			Name:     rep.Names[0],
 			Image:    rep.Image,
 			Created:  rep.Created.Unix(),

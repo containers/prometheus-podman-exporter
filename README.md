@@ -75,153 +75,153 @@ The table below list all existing collector and their description.
 ```shell
 # HELP podman_container_info Container information.
 # TYPE podman_container_info gauge
-podman_container_info{id="19286a13dc23",image="docker.io/library/sonarqube:latest",name="sonar01",pod_id="",ports="0.0.0.0:9000->9000/tcp"} 1
-podman_container_info{id="22e3d69be889",image="localhost/podman-pause:4.1.0-1651853754",name="959a0a3530db-infra",pod_id="959a0a3530db",ports=""} 1
-podman_container_info{id="390ac740fa80",image="localhost/podman-pause:4.1.0-1651853754",name="d05cda23085a-infra",pod_id="d05cda23085a",ports=""} 1
-podman_container_info{id="482113b805f7",image="docker.io/library/httpd:latest",name="web_server",pod_id="",ports="0.0.0.0:8000->80/tcp"} 1
-podman_container_info{id="642490688d9c",image="docker.io/grafana/grafana:latest",name="grafana",pod_id="",ports="0.0.0.0:3000->3000/tcp"} 1
-podman_container_info{id="ad36e85960a1",image="docker.io/library/busybox:latest",name="busybox01",pod_id="3e8bae64e9af",ports=""} 1
-podman_container_info{id="dda983cc3ecf",image="localhost/podman-pause:4.1.0-1651853754",name="3e8bae64e9af-infra",pod_id="3e8bae64e9af",ports=""} 1
+podman_container_info{id="19286a13dc23",image="docker.io/library/sonarqube:latest",name="sonar01",pod_id="",pod_name="",ports="0.0.0.0:9000->9000/tcp"} 1
+podman_container_info{id="22e3d69be889",image="localhost/podman-pause:4.1.0-1651853754",name="959a0a3530db-infra",pod_id="959a0a3530db",pod_name="pod02",ports=""} 1
+podman_container_info{id="390ac740fa80",image="localhost/podman-pause:4.1.0-1651853754",name="d05cda23085a-infra",pod_id="d05cda23085a",pod_name="pod03",ports=""} 1
+podman_container_info{id="482113b805f7",image="docker.io/library/httpd:latest",name="web_server",pod_id="",pod_name="",ports="0.0.0.0:8000->80/tcp"} 1
+podman_container_info{id="642490688d9c",image="docker.io/grafana/grafana:latest",name="grafana",pod_id="",pod_name="",ports="0.0.0.0:3000->3000/tcp"} 1
+podman_container_info{id="ad36e85960a1",image="docker.io/library/busybox:latest",name="busybox01",pod_id="3e8bae64e9af",pod_name="pod01",ports=""} 1
+podman_container_info{id="dda983cc3ecf",image="localhost/podman-pause:4.1.0-1651853754",name="3e8bae64e9af-infra",pod_id="3e8bae64e9af",pod_name="pod01",ports=""} 1
 
 # HELP podman_container_state Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).
 # TYPE podman_container_state gauge
-podman_container_state{id="19286a13dc23"} 2
-podman_container_state{id="22e3d69be889"} 0
-podman_container_state{id="390ac740fa80"} 5
-podman_container_state{id="482113b805f7"} 4
-podman_container_state{id="642490688d9c"} 2
-podman_container_state{id="ad36e85960a1"} 5
-podman_container_state{id="dda983cc3ecf"} 2
+podman_container_state{id="19286a13dc23",pod_id="",pod_name=""} 2
+podman_container_state{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_state{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 5
+podman_container_state{id="482113b805f7",pod_id="",pod_name=""} 4
+podman_container_state{id="642490688d9c",pod_id="",pod_name=""} 2
+podman_container_state{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 5
+podman_container_state{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 2
 
 # HELP podman_container_block_input_total Container block input.
 # TYPE podman_container_block_input_total counter
-podman_container_block_input_total{id="19286a13dc23"} 49152
-podman_container_block_input_total{id="22e3d69be889"} 0
-podman_container_block_input_total{id="390ac740fa80"} 0
-podman_container_block_input_total{id="482113b805f7"} 0
-podman_container_block_input_total{id="642490688d9c"} 1.41533184e+08
-podman_container_block_input_total{id="ad36e85960a1"} 0
-podman_container_block_input_total{id="dda983cc3ecf"} 0
+podman_container_block_input_total{id="19286a13dc23",pod_id="",pod_name=""} 49152
+podman_container_block_input_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_block_input_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_block_input_total{id="482113b805f7",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="642490688d9c",pod_id="",pod_name=""} 1.41533184e+08
+podman_container_block_input_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_block_input_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 0
 
 # HELP podman_container_block_output_total Container block output.
 # TYPE podman_container_block_output_total counter
-podman_container_block_output_total{id="19286a13dc23"} 1.790976e+06
-podman_container_block_output_total{id="22e3d69be889"} 0
-podman_container_block_output_total{id="390ac740fa80"} 0
-podman_container_block_output_total{id="482113b805f7"} 8192
-podman_container_block_output_total{id="642490688d9c"} 4.69248e+07
-podman_container_block_output_total{id="ad36e85960a1"} 0
-podman_container_block_output_total{id="dda983cc3ecf"} 0
+podman_container_block_output_total{id="19286a13dc23",pod_id="",pod_name=""} 1.790976e+06
+podman_container_block_output_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_block_output_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_block_output_total{id="482113b805f7",pod_id="",pod_name=""} 8192
+podman_container_block_output_total{id="642490688d9c",pod_id="",pod_name=""} 4.69248e+07
+podman_container_block_output_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_block_output_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 0
 
 # HELP podman_container_cpu_seconds_total total CPU time spent for container in seconds.
 # TYPE podman_container_cpu_seconds_total counter
-podman_container_cpu_seconds_total{id="19286a13dc23"} 83.231904
-podman_container_cpu_seconds_total{id="22e3d69be889"} 0
-podman_container_cpu_seconds_total{id="390ac740fa80"} 0
-podman_container_cpu_seconds_total{id="482113b805f7"} 0.069712
-podman_container_cpu_seconds_total{id="642490688d9c"} 3.028685
-podman_container_cpu_seconds_total{id="ad36e85960a1"} 0
-podman_container_cpu_seconds_total{id="dda983cc3ecf"} 0.011687
+podman_container_cpu_seconds_total{id="19286a13dc23",pod_id="",pod_name=""} 83.231904
+podman_container_cpu_seconds_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_cpu_seconds_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_cpu_seconds_total{id="482113b805f7",pod_id="",pod_name=""} 0.069712
+podman_container_cpu_seconds_total{id="642490688d9c",pod_id="",pod_name=""} 3.028685
+podman_container_cpu_seconds_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_cpu_seconds_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 0.011687
 
 # HELP podman_container_cpu_system_seconds_total total system CPU time spent for container in seconds.
 # TYPE podman_container_cpu_system_seconds_total counter
-podman_container_cpu_system_seconds_total{id="19286a13dc23"} 0.007993418
-podman_container_cpu_system_seconds_total{id="22e3d69be889"} 0
-podman_container_cpu_system_seconds_total{id="390ac740fa80"} 0
-podman_container_cpu_system_seconds_total{id="482113b805f7"} 4.8591e-05
-podman_container_cpu_system_seconds_total{id="642490688d9c"} 0.00118734
-podman_container_cpu_system_seconds_total{id="ad36e85960a1"} 0
-podman_container_cpu_system_seconds_total{id="dda983cc3ecf"} 9.731e-06
+podman_container_cpu_system_seconds_total{id="19286a13dc23",pod_id="",pod_name=""} 0.007993418
+podman_container_cpu_system_seconds_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_cpu_system_seconds_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_cpu_system_seconds_total{id="482113b805f7",pod_id="",pod_name=""} 4.8591e-05
+podman_container_cpu_system_seconds_total{id="642490688d9c",pod_id="",pod_name=""} 0.00118734
+podman_container_cpu_system_seconds_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_cpu_system_seconds_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 9.731e-06
 
 # HELP podman_container_created_seconds Container creation time in unixtime.
 # TYPE podman_container_created_seconds gauge
-podman_container_created_seconds{id="19286a13dc23"} 1.655859887e+09
-podman_container_created_seconds{id="22e3d69be889"} 1.655484892e+09
-podman_container_created_seconds{id="390ac740fa80"} 1.655489348e+09
-podman_container_created_seconds{id="482113b805f7"} 1.655859728e+09
-podman_container_created_seconds{id="642490688d9c"} 1.655859511e+09
-podman_container_created_seconds{id="ad36e85960a1"} 1.655859858e+09
-podman_container_created_seconds{id="dda983cc3ecf"} 1.655859839e+09
+podman_container_created_seconds{id="19286a13dc23",pod_id="",pod_name=""} 1.655859887e+09
+podman_container_created_seconds{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 1.655484892e+09
+podman_container_created_seconds{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 1.655489348e+09
+podman_container_created_seconds{id="482113b805f7",pod_id="",pod_name=""} 1.655859728e+09
+podman_container_created_seconds{id="642490688d9c",pod_id="",pod_name=""} 1.655859511e+09
+podman_container_created_seconds{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 1.655859858e+09
+podman_container_created_seconds{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 1.655859839e+09
 
 # HELP podman_container_started_seconds Container started time in unixtime.
 # TYPE podman_container_started_seconds gauge
-podman_container_started_seconds{id="19286a13dc23"} 1.659253804e+09
-podman_container_started_seconds{id="22e3d69be889"} -6.21355968e+10
-podman_container_started_seconds{id="390ac740fa80"} 1.66064284e+09
-podman_container_started_seconds{id="482113b805f7"} 1.659253804e+09
-podman_container_started_seconds{id="642490688d9c"} 1.660642996e+09
-podman_container_started_seconds{id="ad36e85960a1"} 1.66064284e+09
-podman_container_started_seconds{id="dda983cc3ecf"} 1.66064284e+09
+podman_container_started_seconds{id="19286a13dc23",pod_id="",pod_name=""} 1.659253804e+09
+podman_container_started_seconds{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} -6.21355968e+10
+podman_container_started_seconds{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 1.66064284e+09
+podman_container_started_seconds{id="482113b805f7",pod_id="",pod_name=""} 1.659253804e+09
+podman_container_started_seconds{id="642490688d9c",pod_id="",pod_name=""} 1.660642996e+09
+podman_container_started_seconds{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 1.66064284e+09
+podman_container_started_seconds{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 1.66064284e+09
 
 # HELP podman_container_exit_code Container exit code, if the container has not exited or restarted then the exit code will be 0.
 # TYPE podman_container_exit_code gauge
-podman_container_exit_code{id="19286a13dc23"} 0
-podman_container_exit_code{id="22e3d69be889"} 0
-podman_container_exit_code{id="390ac740fa80"} 1
-podman_container_exit_code{id="482113b805f7"} 0
-podman_container_exit_code{id="642490688d9c"} 0
-podman_container_exit_code{id="ad36e85960a1"} 130
-podman_container_exit_code{id="dda983cc3ecf"} 0
+podman_container_exit_code{id="19286a13dc23",pod_id="",pod_name=""} 0
+podman_container_exit_code{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_exit_code{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 1
+podman_container_exit_code{id="482113b805f7",pod_id="",pod_name=""} 0
+podman_container_exit_code{id="642490688d9c",pod_id="",pod_name=""} 0
+podman_container_exit_code{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 130
+podman_container_exit_code{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 0
 
 # HELP podman_container_exited_seconds Container exited time in unixtime.
 # TYPE podman_container_exited_seconds gauge
-podman_container_exited_seconds{id="19286a13dc23"} 1.659253805e+09
-podman_container_exited_seconds{id="22e3d69be889"} -6.21355968e+10
-podman_container_exited_seconds{id="390ac740fa80"} 1.660643511e+09
-podman_container_exited_seconds{id="482113b805f7"} 1.659253805e+09
-podman_container_exited_seconds{id="642490688d9c"} 1.659253804e+09
-podman_container_exited_seconds{id="ad36e85960a1"} 1.660643511e+09
-podman_container_exited_seconds{id="dda983cc3ecf"} 1.660643511e+09
+podman_container_exited_seconds{id="19286a13dc23",pod_id="",pod_name=""} 1.659253805e+09
+podman_container_exited_seconds{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} -6.21355968e+10
+podman_container_exited_seconds{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 1.660643511e+09
+podman_container_exited_seconds{id="482113b805f7",pod_id="",pod_name=""} 1.659253805e+09
+podman_container_exited_seconds{id="642490688d9c",pod_id="",pod_name=""} 1.659253804e+09
+podman_container_exited_seconds{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 1.660643511e+09
+podman_container_exited_seconds{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 1.660643511e+09
 
 # HELP podman_container_mem_limit_bytes Container memory limit.
 # TYPE podman_container_mem_limit_bytes gauge
-podman_container_mem_limit_bytes{id="19286a13dc23"} 9.713655808e+09
-podman_container_mem_limit_bytes{id="22e3d69be889"} 0
-podman_container_mem_limit_bytes{id="390ac740fa80"} 0
-podman_container_mem_limit_bytes{id="482113b805f7"} 9.713655808e+09
-podman_container_mem_limit_bytes{id="642490688d9c"} 9.713655808e+09
-podman_container_mem_limit_bytes{id="ad36e85960a1"} 0
-podman_container_mem_limit_bytes{id="dda983cc3ecf"} 9.713655808e+09
+podman_container_mem_limit_bytes{id="19286a13dc23",pod_id="",pod_name=""} 9.713655808e+09
+podman_container_mem_limit_bytes{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_mem_limit_bytes{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_mem_limit_bytes{id="482113b805f7",pod_id="",pod_name=""} 9.713655808e+09
+podman_container_mem_limit_bytes{id="642490688d9c",pod_id="",pod_name=""} 9.713655808e+09
+podman_container_mem_limit_bytes{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_mem_limit_bytes{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 9.713655808e+09
 
 # HELP podman_container_mem_usage_bytes Container memory usage.
 # TYPE podman_container_mem_usage_bytes gauge
-podman_container_mem_usage_bytes{id="19286a13dc23"} 1.029062656e+09
-podman_container_mem_usage_bytes{id="22e3d69be889"} 0
-podman_container_mem_usage_bytes{id="390ac740fa80"} 0
-podman_container_mem_usage_bytes{id="482113b805f7"} 2.748416e+06
-podman_container_mem_usage_bytes{id="642490688d9c"} 3.67616e+07
-podman_container_mem_usage_bytes{id="ad36e85960a1"} 0
-podman_container_mem_usage_bytes{id="dda983cc3ecf"} 49152
+podman_container_mem_usage_bytes{id="19286a13dc23",pod_id="",pod_name=""} 1.029062656e+09
+podman_container_mem_usage_bytes{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_mem_usage_bytes{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_mem_usage_bytes{id="482113b805f7",pod_id="",pod_name=""} 2.748416e+06
+podman_container_mem_usage_bytes{id="642490688d9c",pod_id="",pod_name=""} 3.67616e+07
+podman_container_mem_usage_bytes{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_mem_usage_bytes{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 49152
 
 # HELP podman_container_net_input_total Container network input.
 # TYPE podman_container_net_input_total counter
-podman_container_net_input_total{id="19286a13dc23"} 430
-podman_container_net_input_total{id="22e3d69be889"} 0
-podman_container_net_input_total{id="390ac740fa80"} 0
-podman_container_net_input_total{id="482113b805f7"} 430
-podman_container_net_input_total{id="642490688d9c"} 4323
-podman_container_net_input_total{id="ad36e85960a1"} 0
-podman_container_net_input_total{id="dda983cc3ecf"} 430
+podman_container_net_input_total{id="19286a13dc23",pod_id="",pod_name=""} 430
+podman_container_net_input_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_net_input_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_net_input_total{id="482113b805f7",pod_id="",pod_name=""} 430
+podman_container_net_input_total{id="642490688d9c",pod_id="",pod_name=""} 4323
+podman_container_net_input_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_net_input_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 430
 
 # HELP podman_container_net_output_total Container network output.
 # TYPE podman_container_net_output_total counter
-podman_container_net_output_total{id="19286a13dc23"} 110
-podman_container_net_output_total{id="22e3d69be889"} 0
-podman_container_net_output_total{id="390ac740fa80"} 0
-podman_container_net_output_total{id="482113b805f7"} 110
-podman_container_net_output_total{id="642490688d9c"} 12071
-podman_container_net_output_total{id="ad36e85960a1"} 0
-podman_container_net_output_total{id="dda983cc3ecf"} 110
+podman_container_net_output_total{id="19286a13dc23",pod_id="",pod_name=""} 110
+podman_container_net_output_total{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_net_output_total{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_net_output_total{id="482113b805f7",pod_id="",pod_name=""} 110
+podman_container_net_output_total{id="642490688d9c",pod_id="",pod_name=""} 12071
+podman_container_net_output_total{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_net_output_total{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 110
 
 # HELP podman_container_pids Container pid number.
 # TYPE podman_container_pids gauge
-podman_container_pids{id="19286a13dc23"} 94
-podman_container_pids{id="22e3d69be889"} 0
-podman_container_pids{id="390ac740fa80"} 0
-podman_container_pids{id="482113b805f7"} 82
-podman_container_pids{id="642490688d9c"} 14
-podman_container_pids{id="ad36e85960a1"} 0
-podman_container_pids{id="dda983cc3ecf"} 1
+podman_container_pids{id="19286a13dc23",pod_id="",pod_name=""} 94
+podman_container_pids{id="22e3d69be889",pod_id="959a0a3530db",pod_name="pod02"} 0
+podman_container_pids{id="390ac740fa80",pod_id="d05cda23085a",pod_name="pod03"} 0
+podman_container_pids{id="482113b805f7",pod_id="",pod_name=""} 82
+podman_container_pids{id="642490688d9c",pod_id="",pod_name=""} 14
+podman_container_pids{id="ad36e85960a1",pod_id="3e8bae64e9af",pod_name="pod01"} 0
+podman_container_pids{id="dda983cc3ecf",pod_id="3e8bae64e9af",pod_name="pod01"} 1
 ```
 
 #### `pod`

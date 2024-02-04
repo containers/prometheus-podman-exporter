@@ -31,7 +31,7 @@ type handler struct {
 // ServeHTTP implements http.Handler.
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	filters := r.URL.Query()["collect[]"]
-	level.Debug(h.logger).Log("msg", "collect query:", "filters", filters)
+	level.Debug(h.logger).Log("msg", "collect query:", "filters", fmt.Sprintf("%v", filters))
 
 	if len(filters) == 0 {
 		// No filters, use the prepared unfiltered handler.
