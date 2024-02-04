@@ -16,8 +16,8 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.8.0
-Release: 1%{?dist}
+Version: 1.9.0
+Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
 URL: %{git0}
@@ -89,6 +89,8 @@ popd
 
 
 %changelog
+* Sun Feb 04 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.9.0-dev-1
+
 * Sun Feb 04 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.8.0-1
 - Add pod_id and pod_name to all container metrics
 - Fix inconsistent label cardinality on image scrap
