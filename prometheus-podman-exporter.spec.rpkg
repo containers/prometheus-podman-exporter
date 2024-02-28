@@ -16,8 +16,8 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.9.0
-Release: 1%{?dist}
+Version: 1.10.0
+Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
 URL: %{git0}
@@ -89,6 +89,8 @@ popd
 
 
 %changelog
+* Wed Feb 28 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.10.0-dev-1
+
 * Wed Feb 28 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.9.0-1
 - Fix exporter panic when using cli store_labels option
 - Bump github.com/containers/podman/v4 from 4.9.2 to 4.9.3
