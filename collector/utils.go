@@ -34,3 +34,13 @@ func whitelistContains(text string) bool {
 
 	return false
 }
+
+func slicesContains(list []string, value string) bool {
+	for _, item := range list {
+		if item == strings.ToLower(value) {
+			return true
+		}
+	}
+
+	return false
+}

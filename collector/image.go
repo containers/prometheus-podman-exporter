@@ -64,7 +64,7 @@ func (c *imageCollector) getImageInfoDesc(rep pdcs.Image) (*prometheus.Desc, []s
 	imageLabels := []string{"id", "parent_id", "repository", "tag", "digest"}
 	imageLabelsValue := []string{rep.ID, rep.ParentID, rep.Repository, rep.Tag, rep.Digest}
 
-	extraLabels, extraValues := c.getExtraLabelsAndValues(rep)
+	extraLabels, extraValues := c.getExtraLabelsAndValues(imageLabels, rep)
 
 	imageLabels = append(imageLabels, extraLabels...)
 	imageLabelsValue = append(imageLabelsValue, extraValues...)
@@ -78,11 +78,15 @@ func (c *imageCollector) getImageInfoDesc(rep pdcs.Image) (*prometheus.Desc, []s
 	return infoDesc, imageLabelsValue
 }
 
-func (c *imageCollector) getExtraLabelsAndValues(rep pdcs.Image) ([]string, []string) {
+func (c *imageCollector) getExtraLabelsAndValues(collectorLabels []string, rep pdcs.Image) ([]string, []string) {
 	extraLabels := make([]string, 0)
 	extraValues := make([]string, 0)
 
 	for label, value := range rep.Labels {
+		if slicesContains(collectorLabels, label) {
+			continue
+		}
+
 		validLabel := sanitizeLabelName(label)
 		if storeLabels {
 			extraLabels = append(extraLabels, validLabel)

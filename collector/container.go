@@ -191,7 +191,7 @@ func (c *containerCollector) getContainerInfoDesc(rep pdcs.Container) (*promethe
 	containerLabels := []string{"id", "name", "image", "ports", "pod_id", "pod_name"}
 	containerLabelsValue := []string{rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID, rep.PodName}
 
-	extraLabels, extraValues := c.getExtraLabelsAndValues(rep)
+	extraLabels, extraValues := c.getExtraLabelsAndValues(containerLabels, rep)
 
 	containerLabels = append(containerLabels, extraLabels...)
 	containerLabelsValue = append(containerLabelsValue, extraValues...)
@@ -205,11 +205,18 @@ func (c *containerCollector) getContainerInfoDesc(rep pdcs.Container) (*promethe
 	return infoDesc, containerLabelsValue
 }
 
-func (c *containerCollector) getExtraLabelsAndValues(rep pdcs.Container) ([]string, []string) {
+func (c *containerCollector) getExtraLabelsAndValues(
+	collectorLabels []string,
+	rep pdcs.Container,
+) ([]string, []string) {
 	extraLabels := make([]string, 0)
 	extraValues := make([]string, 0)
 
 	for label, value := range rep.Labels {
+		if slicesContains(collectorLabels, label) {
+			continue
+		}
+
 		validLabel := sanitizeLabelName(label)
 		if storeLabels {
 			extraLabels = append(extraLabels, validLabel)

@@ -73,7 +73,7 @@ func (c *podCollector) getPodInfoDesc(rep pdcs.Pod) (*prometheus.Desc, []string)
 	podLabels := []string{"id", "name", "infra_id"}
 	podLabelsValue := []string{rep.ID, rep.Name, rep.InfraID}
 
-	extraLabels, extraValues := c.getExtraLabelsAndValues(rep)
+	extraLabels, extraValues := c.getExtraLabelsAndValues(podLabels, rep)
 
 	podLabels = append(podLabels, extraLabels...)
 	podLabelsValue = append(podLabelsValue, extraValues...)
@@ -87,11 +87,15 @@ func (c *podCollector) getPodInfoDesc(rep pdcs.Pod) (*prometheus.Desc, []string)
 	return infoDesc, podLabelsValue
 }
 
-func (c *podCollector) getExtraLabelsAndValues(rep pdcs.Pod) ([]string, []string) {
+func (c *podCollector) getExtraLabelsAndValues(collectorLabels []string, rep pdcs.Pod) ([]string, []string) {
 	extraLabels := make([]string, 0)
 	extraValues := make([]string, 0)
 
 	for label, value := range rep.Labels {
+		if slicesContains(collectorLabels, label) {
+			continue
+		}
+
 		validLabel := sanitizeLabelName(label)
 		if storeLabels {
 			extraLabels = append(extraLabels, validLabel)
