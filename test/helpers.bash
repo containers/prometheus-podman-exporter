@@ -1,0 +1,8 @@
+METRICS_URL="http://127.0.0.1:9882/metrics"
+TEST_VOLUME="exp_e2etest_vol01"
+TEST_NETWORK="exp_e2etest_net01"
+TEST_POD="exp_e2etest_pod01"
+TEST_CNT="exp_e2etest_cnt01"
+TEST_CNT_LABEL="exp_e2etest_cnt02"
+TEST_BUSYBOX_IMAGE="docker.io/library/busybox"
+TEST_HTTP_IMAGE="docker.io/library/httpd"

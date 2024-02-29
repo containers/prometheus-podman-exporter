@@ -2,7 +2,7 @@
 
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/containers/prometheus-podman-exporter)](https://pkg.go.dev/github.com/containers/prometheus-podman-exporter)
 [![Go Report](https://img.shields.io/badge/go%20report-A%2B-brightgreen.svg)](https://goreportcard.com/report/github.com/containers/prometheus-podman-exporter)
-[![Build Status](https://api.cirrus-ci.com/github/containers/prometheus-podman-exporter.svg)](https://cirrus-ci.com/github/containers/prometheus-podman-exporter/master)
+![Go](https://github.com/containers/prometheus-podman-exporter/workflows/Go/badge.svg)
 
 Prometheus exporter for podman v4.x environment exposing containers, pods, images, volumes and networks information.
 
