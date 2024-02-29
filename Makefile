@@ -2,6 +2,9 @@ PKG_PATH = "github.com/containers/prometheus-podman-exporter"
 BIN := ./bin
 GO := go
 TARGET := prometheus-podman-exporter
+COVERAGE_PATH ?= .coverage
+GINKO_CLI_VERSION = $(shell grep 'ginkgo/v2' go.mod | grep -o ' v.*' | sed 's/ //g')
+GOBIN := $(shell $(GO) env GOBIN)
 SRC = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 PRE_COMMIT = $(shell command -v bin/venv/bin/pre-commit ~/.local/bin/pre-commit pre-commit | head -n1)
 PKG_MANAGER ?= $(shell command -v dnf yum|head -n1)
@@ -78,7 +81,7 @@ uninstall:  ## Uninstall prometheus-podman-exporter binary
 #=================================================
 
 .PHONY: install.tools
-install.tools: .install.pre-commit .install.codespell .install.golangci-lint ## Install needed tools
+install.tools: .install.pre-commit .install.codespell .install.golangci-lint .install.ginkgo ## Install needed tools
 
 .PHONY: .install.codespell
 .install.codespell:
@@ -88,6 +91,12 @@ install.tools: .install.pre-commit .install.codespell .install.golangci-lint ## 
 .install.pre-commit:
 	if [ -z "$(PRE_COMMIT)" ]; then \
 		python3 -m pip install --user pre-commit; \
+	fi
+
+.PHONY: .install.ginkgo
+.install.ginkgo:
+	if [ ! -x "$(GOBIN)/ginkgo" ]; then \
+		$(GO) install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@$(GINKO_CLI_VERSION) ; \
 	fi
 
 .PHONY: .install.golangci-lint
@@ -136,6 +145,22 @@ govet:   ## Run govet
 codespell: ## Run codespell
 	@echo "running codespell"
 	@codespell -S ./vendor,go.mod,go.sum,./.git
+
+.PHONY: test-unit
+test-unit: ## Run unit tests
+	rm -rf ${COVERAGE_PATH} && mkdir -p ${COVERAGE_PATH}
+	$(GOBIN)/ginkgo \
+		-r \
+		--skip-package test/ \
+		--cover \
+		--tags "$(BUILDTAGS) containers_image_openpgp" \
+		--covermode atomic \
+		--coverprofile coverprofile \
+		--output-dir ${COVERAGE_PATH} \
+		--succinct
+	$(GO) tool cover -html=${COVERAGE_PATH}/coverprofile -o ${COVERAGE_PATH}/coverage.html
+	$(GO) tool cover -func=${COVERAGE_PATH}/coverprofile > ${COVERAGE_PATH}/functions
+	cat ${COVERAGE_PATH}/functions | sed -n 's/\(total:\).*\([0-9][0-9].[0-9]\)/\1 \2/p'
 
 #=================================================
 # Help menu
