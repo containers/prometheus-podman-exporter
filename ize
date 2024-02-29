@@ -1,0 +1,70 @@
+[
+     {
+          "Id": "3f57d9401f8d42f986df300f0c69192fc41da28ccc8d797829467780db3dd741",
+          "Digest": "sha256:6d9ac9237a84afe1516540f40a0fafdc86859b2141954b4d643af7066d598b74",
+          "RepoTags": [
+               "docker.io/library/busybox:latest"
+          ],
+          "RepoDigests": [
+               "docker.io/library/busybox@sha256:538721340ded10875f4710cad688c70e5d0ecb4dcd5e7d0c161f301f36f79414",
+               "docker.io/library/busybox@sha256:6d9ac9237a84afe1516540f40a0fafdc86859b2141954b4d643af7066d598b74"
+          ],
+          "Parent": "",
+          "Comment": "buildkit.dockerfile.v0",
+          "Created": "2024-01-17T21:49:12Z",
+          "Config": {
+               "Env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+               ],
+               "Cmd": [
+                    "sh"
+               ],
+               "WorkingDir": "/",
+               "ArgsEscaped": true
+          },
+          "Version": "",
+          "Author": "",
+          "Architecture": "amd64",
+          "Os": "linux",
+          "Size": 4504102,
+          "VirtualSize": 4504102,
+          "GraphDriver": {
+               "Name": "overlay",
+               "Data": {
+                    "UpperDir": "/home/navid/.local/share/containers/storage/overlay/2e112031b4b923a873c8b3d685d48037e4d5ccd967b658743d93a6e56c3064b9/diff",
+                    "WorkDir": "/home/navid/.local/share/containers/storage/overlay/2e112031b4b923a873c8b3d685d48037e4d5ccd967b658743d93a6e56c3064b9/work"
+               }
+          },
+          "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                    "sha256:2e112031b4b923a873c8b3d685d48037e4d5ccd967b658743d93a6e56c3064b9"
+               ]
+          },
+          "Labels": null,
+          "Annotations": {
+               "org.opencontainers.image.revision": "09ee80aedec1d8c604f104e8bec41ed19274620a",
+               "org.opencontainers.image.source": "https://github.com/docker-library/busybox.git#09ee80aedec1d8c604f104e8bec41ed19274620a:latest/glibc",
+               "org.opencontainers.image.url": "https://hub.docker.com/_/busybox",
+               "org.opencontainers.image.version": "1.36.1-glibc"
+          },
+          "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+          "User": "",
+          "History": [
+               {
+                    "created": "2024-01-17T21:49:12Z",
+                    "created_by": "ADD busybox.tar.xz / # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2024-01-17T21:49:12Z",
+                    "created_by": "CMD [\"sh\"]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               }
+          ],
+          "NamesHistory": [
+               "docker.io/library/busybox:latest"
+          ]
+     }
+]

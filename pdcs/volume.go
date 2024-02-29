@@ -21,7 +21,7 @@ func Volumes() ([]Volume, error) {
 
 	reports, err := registry.ContainerEngine().VolumeList(context.Background(), entities.VolumeListOptions{})
 	if err != nil {
-		return volumes, err
+		return nil, err
 	}
 
 	for _, rep := range reports {
