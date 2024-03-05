@@ -71,7 +71,7 @@ jobs:
             bash hack/install_dep.sh
             make binary
             ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels
-          with_on: |
+          wait-on: |
             http://localhost:9882/
 
       - run: |
