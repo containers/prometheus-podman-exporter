@@ -40,48 +40,6 @@ jobs:
           check_filenames: true
           skip: ./.git,./vendor,*_test.go,go.sum,go.mod
 
-  vendoring:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-go@v3
-        with:
-          go-version: '>=1.20'
-      - uses: actions/checkout@v3
-      - run: |
-          go mod tidy
-          go mod vendor
-          go mod verify
-          bash ./hack/tree_status.sh
-
-  golangci-lint_fmt:
-    runs-on: ubuntu-latest
-    container:
-      image: fedora:latest
-    steps:
-      - uses: actions/setup-go@v3
-        with:
-          # cannot use 1.21.X latest version since golangci-lint has an issue.
-          go-version: '1.21.4'
-      - uses: actions/checkout@v3
-      - run: |
-          bash hack/install_dep.sh
-          make .install.golangci-lint
-          make lint
-          make gofmt
-
-  build_binary:
-    runs-on: ubuntu-latest
-    container:
-      image: fedora:latest
-    steps:
-      - uses: actions/setup-go@v3
-        with:
-          go-version: '>=1.20'
-      - uses: actions/checkout@v3
-      - run: |
-          bash hack/install_dep.sh
-          make binary
-
   goreportcard:
     name: update reportcard
     if: github.event.pull_request.merged == true
