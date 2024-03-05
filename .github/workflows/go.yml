@@ -1,4 +1,4 @@
-name: validate pull requests
+name: Go
 on:
   push:
     branches: [ main ]
