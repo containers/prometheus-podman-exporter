@@ -81,7 +81,7 @@ jobs:
       - run: |
           yum -y install jq
           make .install.bats
-          make test-e2e
+          bash bats test/
 
   build_binary:
     runs-on: ubuntu-latest
