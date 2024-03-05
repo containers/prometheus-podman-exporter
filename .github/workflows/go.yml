@@ -72,7 +72,8 @@ jobs:
             make binary
             ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels
           wait-on: |
-            http://localhost:9882/
+            http-get://127.0.0.1:9882/metrics
+          wait-for: 1m
 
       - run: |
           yum -y install jq
