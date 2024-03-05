@@ -177,6 +177,7 @@ test-unit: ## Run unit tests
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests
 	@bats test/
+	@printf "done"
 
 #=================================================
 # Help menu
