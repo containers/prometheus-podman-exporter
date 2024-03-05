@@ -65,12 +65,13 @@ jobs:
         with:
           go-version: '1.21.4'
       - uses: actions/checkout@v3
+      - run: |
+          bash hack/install_dep.sh
+          make binary
       - uses: JarvusInnovations/background-action@v1
         with:
           run: |
-            bash hack/install_dep.sh
-            make binary
-            ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels -d
+            ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels --debug
           wait-on: |
             http-get://127.0.0.1:9882/metrics
           wait-for: 1m
