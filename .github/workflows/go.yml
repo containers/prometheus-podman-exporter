@@ -70,10 +70,12 @@ jobs:
           run: |
             bash hack/install_dep.sh
             make binary
-            ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels
+            ./bin/prometheus-podman-exporter --collector.enable-all --collector.store_labels -d
           wait-on: |
             http-get://127.0.0.1:9882/metrics
           wait-for: 1m
+          tail: true
+          log-output: stderr,stdout
 
       - run: |
           yum -y install jq
