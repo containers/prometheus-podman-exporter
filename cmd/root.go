@@ -30,7 +30,7 @@ volumes and networks information.`,
 	Run:     run,
 }
 
-func preRun(cmd *cobra.Command, args []string) error {
+func preRun(cmd *cobra.Command, _ []string) error {
 	version.Version = buildVersion
 	version.Revision = buildRevision
 	version.Branch = buildBranch
@@ -51,7 +51,6 @@ func preRun(cmd *cobra.Command, args []string) error {
 func run(cmd *cobra.Command, args []string) {
 	if err := exporter.Start(cmd, args); err != nil {
 		log.Panic(err.Error())
-		os.Exit(1)
 	}
 }
 

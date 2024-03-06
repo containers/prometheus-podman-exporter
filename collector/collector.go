@@ -79,6 +79,7 @@ func NewPodmanCollector(logger log.Logger) (*PodmanCollector, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			collectors[key] = collector
 			initiatedCollectors[key] = collector
 		}
@@ -136,6 +137,7 @@ func execute(name string, c Collector, ch chan<- prometheus.Metric, logger log.L
 			name,
 			"duration_seconds",
 			duration.Seconds())
+
 		success = 1
 	}
 

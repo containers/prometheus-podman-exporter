@@ -14,7 +14,7 @@ import (
 )
 
 // Start starts prometheus exporter.
-func Start(cmd *cobra.Command, args []string) error {
+func Start(cmd *cobra.Command, _ []string) error {
 	// setup exporter
 	promlogConfig := &promlog.Config{Level: &promlog.AllowedLevel{}}
 
@@ -64,7 +64,7 @@ func Start(cmd *cobra.Command, args []string) error {
 
 	level.Info(logger).Log("msg", "Starting podman-prometheus-exporter", "version", version.Info())
 	http.Handle(webTelemetryPath, newHandler(webDisableExporterMetrics, webMaxRequests, logger))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`<html>
 			<head><title>Podman Exporter</title></head>
 			<body>

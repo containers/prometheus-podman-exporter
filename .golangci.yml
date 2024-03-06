@@ -19,6 +19,7 @@ linters:
     - interfacer
     - scopelint
     - gomoddirectives
+    - depguard
     # deprecated
     - varcheck
     - deadcode
