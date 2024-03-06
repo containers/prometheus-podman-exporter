@@ -3,6 +3,7 @@
 - [**Building From Source**](#building-from-source)
 - [**Container Image**](#container-image)
 - [**Installing Packaged Versions**](#installing-packaged-versions)
+  - [**AlmaLinux, Rocky Linux**](#almalinux-rocky-linux)
   - [**Centos Stream**](#centos-stream)
   - [**Fedora**](#fedora)
   - [**RHEL**](#rhel)
@@ -15,17 +16,10 @@ prometheus-podman-exporter is using go v1.17 or above.
 
 1. Clone the repo
 2. Install dependencies
-    * Fedora
 
-        ```shell
-        $ sudo dnf install -y btrfs-progs-devel device-mapper-devel gpgme-devel libassuan-devel
-        ```
-
-    * Debian
-
-        ```shell
-        $ sudo apt-get -y install libgpgme-dev libbtrfs-dev libdevmapper-dev libassuan-dev pkg-config
-        ```
+    ```shell
+    $ sudo dnf -y install btrfs-progs-devel device-mapper-devel gpgme-devel libassuan-devel
+    ```
 
 2. Build and run the executable
 
@@ -58,30 +52,38 @@ prometheus-podman-exporter is using go v1.17 or above.
 
 ## Installing Packaged Versions
 
+### AlmaLinux, Rocky Linux
+
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
+
+```shell
+$ sudo dnf -y install prometheus-podman-exporter
+```
+
 ### Centos Stream
 
 Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
 
-```
-$ sudo dnf install prometheus-podman-exporter
+```shell
+$ sudo dnf -y install prometheus-podman-exporter
 ```
 
 ### Fedora
 
-```
-$ sudo dnf install prometheus-podman-exporter
+```shell
+$ sudo dnf -y install prometheus-podman-exporter
 ```
 
 ### RHEL
 
 Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
 
-```
-$ sudo dnf install prometheus-podman-exporter
+```shell
+$ sudo dnf -y install prometheus-podman-exporter
 ```
 
 ### Gentoo
 
-```
+```shell
 $ sudo emerge app-metrics/prometheus-podman-exporter
 ```
