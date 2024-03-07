@@ -4,6 +4,7 @@
 - [**Container Image**](#container-image)
 - [**Installing Packaged Versions**](#installing-packaged-versions)
   - [**AlmaLinux, Rocky Linux**](#almalinux-rocky-linux)
+  - [**Arch Linux (AUR)**](#arch-linux-aur)
   - [**Centos Stream**](#centos-stream)
   - [**Fedora**](#fedora)
   - [**RHEL**](#rhel)
@@ -58,6 +59,12 @@ Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then ru
 
 ```shell
 $ sudo dnf -y install prometheus-podman-exporter
+```
+
+### Arch Linux (AUR)
+
+```shell
+$ yay -S prometheus-podman-exporter
 ```
 
 ### Centos Stream
