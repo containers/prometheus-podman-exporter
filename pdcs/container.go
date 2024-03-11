@@ -2,32 +2,39 @@ package pdcs
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/containers/podman/v4/cmd/podman/registry"
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/domain/entities"
+	klog "github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 )
 
 const (
 	nano float64 = 1e+9
 )
 
+var cntSizeCache containerSizeCache
+
 // Container implements container's basic information and its state.
 type Container struct {
-	ID       string
-	PodID    string // if container is part of pod
-	PodName  string // if container is part of pod
-	Name     string
-	Labels   map[string]string
-	Image    string
-	Created  int64
-	Started  int64
-	Exited   int64
-	ExitCode int32
-	Ports    string
-	State    int
-	Health   int
+	ID         string
+	PodID      string // if container is part of pod
+	PodName    string // if container is part of pod
+	Name       string
+	Labels     map[string]string
+	Image      string
+	Created    int64
+	Started    int64
+	Exited     int64
+	ExitCode   int32
+	Ports      string
+	State      int
+	Health     int
+	RwSize     int64
+	RootFsSize int64
 }
 
 // ContainerStat implements container's stat.
@@ -45,6 +52,17 @@ type ContainerStat struct {
 	BlockOutput uint64
 }
 
+type containerSizeCache struct {
+	cacheLock  sync.Mutex
+	cacheError error
+	cache      map[string]containerSize
+}
+
+type containerSize struct {
+	rwSize     int64
+	rootFsSize int64
+}
+
 // Containers returns list of containers (Container).
 func Containers() ([]Container, error) {
 	containers := make([]Container, 0)
@@ -54,24 +72,50 @@ func Containers() ([]Container, error) {
 		entities.ContainerListOptions{All: true, Pod: true},
 	)
 	if err != nil {
-		return containers, err
+		return nil, err
+	}
+
+	cntSizeCache.cacheLock.Lock()
+
+	cacheSizeInfo := cntSizeCache.cache
+	cacheErr := cntSizeCache.cacheError
+
+	cntSizeCache.cacheLock.Unlock()
+
+	if cacheErr != nil {
+		return nil, err
 	}
 
 	for _, rep := range reports {
+		var (
+			rwSize     int64
+			rootFsSize int64
+		)
+
+		cntID := getID(rep.ID)
+
+		cntSizeInfo, ok := cacheSizeInfo[cntID]
+		if ok {
+			rwSize = cntSizeInfo.rwSize
+			rootFsSize = cntSizeInfo.rootFsSize
+		}
+
 		containers = append(containers, Container{
-			ID:       getID(rep.ID),
-			PodID:    getID(rep.Pod),
-			PodName:  rep.PodName,
-			Name:     rep.Names[0],
-			Image:    rep.Image,
-			Created:  rep.Created.Unix(),
-			Started:  rep.StartedAt,
-			Exited:   rep.ExitedAt,
-			ExitCode: rep.ExitCode,
-			State:    conReporter{rep}.state(),
-			Health:   conReporter{rep}.health(),
-			Ports:    conReporter{rep}.ports(),
-			Labels:   rep.Labels,
+			ID:         cntID,
+			PodID:      getID(rep.Pod),
+			PodName:    rep.PodName,
+			Name:       rep.Names[0],
+			Image:      rep.Image,
+			Created:    rep.Created.Unix(),
+			Started:    rep.StartedAt,
+			Exited:     rep.ExitedAt,
+			ExitCode:   rep.ExitCode,
+			State:      conReporter{rep}.state(),
+			Health:     conReporter{rep}.health(),
+			Ports:      conReporter{rep}.ports(),
+			Labels:     rep.Labels,
+			RwSize:     rwSize,
+			RootFsSize: rootFsSize,
 		})
 	}
 
@@ -127,4 +171,49 @@ func ContainersStats() ([]ContainerStat, error) {
 	}
 
 	return stat, nil
+}
+
+func updateContainerSize() {
+	cntSizeCache.cacheLock.Lock()
+	defer cntSizeCache.cacheLock.Unlock()
+
+	reports, err := registry.ContainerEngine().ContainerList(
+		registry.Context(),
+		entities.ContainerListOptions{All: true, Pod: false, Size: true},
+	)
+	if err != nil {
+		cntSizeCache.cacheError = err
+
+		return
+	}
+
+	for _, cnt := range reports {
+		cntID := getID(cnt.ID)
+
+		var cntSz containerSize
+
+		if cnt.Size != nil {
+			cntSz.rwSize = cnt.Size.RwSize
+			cntSz.rootFsSize = cnt.Size.RootFsSize
+		}
+
+		cntSizeCache.cache[cntID] = cntSz
+	}
+}
+
+// StartCacheSizeTicker starts container cache refresh routine.
+func StartCacheSizeTicker(logger klog.Logger, duration int64) {
+	level.Debug(logger).Log("msg", "starting container size cache ticker", "duration", duration)
+	level.Debug(logger).Log("msg", "update container size cache")
+	updateContainerSize()
+
+	ticker := time.NewTicker(time.Duration(duration) * time.Second)
+
+	go func() {
+		for {
+			<-ticker.C
+			level.Debug(logger).Log("msg", "update container size cache")
+			updateContainerSize()
+		}
+	}()
 }

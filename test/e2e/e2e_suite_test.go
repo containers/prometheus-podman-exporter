@@ -16,7 +16,8 @@ import (
 )
 
 var (
-	URL = "http://127.0.0.1:9882/metrics"
+	endpointURL         = "http://127.0.0.1:9882/metrics"
+	cacheDuration int64 = 3600
 )
 
 func TestE2e(t *testing.T) {
@@ -46,6 +47,7 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("collector.system", "s", false, "")
 	rootCmd.Flags().BoolP("collector.store_labels", "b", false, "")
 	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "", "")
+	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration, "")
 
 	go func() {
 		err := exporter.Start(rootCmd, nil)
@@ -77,7 +79,7 @@ func extractLabelValue(line string, label string) string {
 }
 
 func queryEndPoint() []string {
-	req, err := http.NewRequest("GET", URL, nil)
+	req, err := http.NewRequest("GET", endpointURL, nil)
 	Expect(err).To(BeNil())
 
 	res, err := http.DefaultClient.Do(req)

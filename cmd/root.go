@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	maxRequest int = 40
+	maxRequest    int   = 40
+	cacheDuration int64 = 3600
 )
 
 var (
@@ -50,13 +51,15 @@ func preRun(cmd *cobra.Command, _ []string) error {
 
 func run(cmd *cobra.Command, args []string) {
 	if err := exporter.Start(cmd, args); err != nil {
-		log.Panic(err.Error())
+		log.Print(err.Error())
+		os.Exit(1)
 	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		log.Print(err.Error())
 		os.Exit(1)
 	}
 }
@@ -94,4 +97,6 @@ func init() {
 		"Comma separated list of pod/container/image labels to be converted\n"+
 			"to labels on prometheus metrics for each pod/container/image.\n"+
 			"collector.store_labels must be set to false for this to take effect.")
+	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration,
+		"Duration (seconds) to retrieve container, size and refresh the cache")
 }

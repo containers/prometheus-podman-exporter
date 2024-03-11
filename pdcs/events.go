@@ -11,12 +11,15 @@ import (
 	"github.com/go-kit/log/level"
 )
 
-func StartEventStreamer(logger klog.Logger) {
+func StartEventStreamer(logger klog.Logger, updateImage bool) {
 	var eventOptions entities.EventsOptions
 
 	level.Debug(logger).Log("msg", "starting podman event streamer")
-	level.Debug(logger).Log("msg", "update images")
-	updateImages()
+
+	if updateImage {
+		level.Debug(logger).Log("msg", "update images")
+		updateImages()
+	}
 
 	eventChannel := make(chan *events.Event, 1)
 	eventOptions.EventChan = eventChannel
@@ -41,7 +44,7 @@ func StartEventStreamer(logger klog.Logger) {
 					continue
 				}
 
-				if event.Type == events.Image {
+				if updateImage && event.Type == events.Image {
 					level.Debug(logger).Log("msg", "update images")
 					updateImages()
 				}

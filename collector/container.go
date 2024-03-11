@@ -23,6 +23,8 @@ type containerCollector struct {
 	netOutput   typedDesc
 	blockInput  typedDesc
 	blockOutput typedDesc
+	rwSize      typedDesc
+	rootFsSize  typedDesc
 	logger      log.Logger
 }
 
@@ -142,6 +144,20 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 				[]string{"id", "pod_id", "pod_name"}, nil,
 			), prometheus.CounterValue,
 		},
+		rwSize: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "rw_size_bytes"),
+				"Container top read-write layer size in bytes.",
+				[]string{"id", "pod_id", "pod_name"}, nil,
+			), prometheus.GaugeValue,
+		},
+		rootFsSize: typedDesc{
+			prometheus.NewDesc(
+				prometheus.BuildFQName(namespace, "container", "rootfs_size_bytes"),
+				"Container root filesystem size in bytes.",
+				[]string{"id", "pod_id", "pod_name"}, nil,
+			), prometheus.GaugeValue,
+		},
 		logger: logger,
 	}, nil
 }
@@ -170,6 +186,8 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 		ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID, rep.PodID, rep.PodName)
 		ch <- c.exited.mustNewConstMetric(float64(rep.Exited), rep.ID, rep.PodID, rep.PodName)
 		ch <- c.exitCode.mustNewConstMetric(float64(rep.ExitCode), rep.ID, rep.PodID, rep.PodName)
+		ch <- c.rwSize.mustNewConstMetric(float64(rep.RwSize), rep.ID, rep.PodID, rep.PodName)
+		ch <- c.rootFsSize.mustNewConstMetric(float64(rep.RootFsSize), rep.ID, rep.PodID, rep.PodName)
 
 		if cntStat != nil {
 			ch <- c.pids.mustNewConstMetric(float64(cntStat.PIDs), rep.ID, rep.PodID, rep.PodName)
