@@ -25,4 +25,6 @@ func SetupRegistry() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	cntSizeCache.cache = make(map[string]containerSize)
 }

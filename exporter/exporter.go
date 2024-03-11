@@ -1,7 +1,9 @@
 package exporter
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/containers/prometheus-podman-exporter/collector"
@@ -13,15 +15,40 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const minCacheDuration int64 = 5
+
+var errMinCacheDurtion = errors.New("invalid cache duration value, shall be >= " + strconv.Itoa(int(minCacheDuration)))
+
+type exporterOptions struct {
+	debug                     bool
+	webListen                 string
+	webMaxRequests            int
+	webTelemetryPath          string
+	webDisableExporterMetrics bool
+	webConfigFile             string
+	cacheDuration             int64
+	enableAll                 bool
+	storeLabels               bool
+	whiteListedLabels         string
+	enableImages              bool
+	enablePods                bool
+	enableVolumes             bool
+	enableNetworks            bool
+	enableSystem              bool
+}
+
 // Start starts prometheus exporter.
 func Start(cmd *cobra.Command, _ []string) error {
 	// setup exporter
+	logLevel := "info"
 	promlogConfig := &promlog.Config{Level: &promlog.AllowedLevel{}}
 
-	logLevel := "info"
+	cmdOptions, err := parseOptions(cmd)
+	if err != nil {
+		return err
+	}
 
-	debug, _ := cmd.Flags().GetBool("debug")
-	if debug {
+	if cmdOptions.debug {
 		logLevel = "debug"
 	}
 
@@ -29,41 +56,19 @@ func Start(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	webListen, err := cmd.Flags().GetString("web.listen-address")
-	if err != nil {
-		return err
-	}
-
-	webMaxRequests, err := cmd.Flags().GetInt("web.max-requests")
-	if err != nil {
-		return err
-	}
-
-	webTelemetryPath, err := cmd.Flags().GetString("web.telemetry-path")
-	if err != nil {
-		return err
-	}
-
-	webDisableExporterMetrics, err := cmd.Flags().GetBool("web.disable-exporter-metrics")
-	if err != nil {
-		return err
-	}
-
-	webConfigFile, err := cmd.Flags().GetString("web.config.file")
-	if err != nil {
-		return err
-	}
-
 	logger := promlog.New(promlogConfig)
 
-	if err := setEnabledCollectors(cmd); err != nil {
+	if err := setEnabledCollectors(cmdOptions); err != nil {
 		level.Error(logger).Log("msg", "cannot set enabled collectors", "err", err)
 
 		return err
 	}
 
 	level.Info(logger).Log("msg", "Starting podman-prometheus-exporter", "version", version.Info())
-	http.Handle(webTelemetryPath, newHandler(webDisableExporterMetrics, webMaxRequests, logger))
+	http.Handle(
+		cmdOptions.webTelemetryPath,
+		newHandler(cmdOptions.webDisableExporterMetrics, cmdOptions.webMaxRequests, logger),
+	)
 	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`<html>
 			<head><title>Podman Exporter</title></head>
@@ -77,20 +82,26 @@ func Start(cmd *cobra.Command, _ []string) error {
 	// setup podman registry
 	pdcs.SetupRegistry()
 	// start podman event streamer and initiate first update.
-	pdcs.StartEventStreamer(logger)
+	updateImages := false
+	if cmdOptions.enableAll || cmdOptions.enableImages {
+		updateImages = true
+	}
 
-	level.Info(logger).Log("msg", "Listening on", "address", webListen)
+	pdcs.StartEventStreamer(logger, updateImages)
+	pdcs.StartCacheSizeTicker(logger, cmdOptions.cacheDuration)
+
+	level.Info(logger).Log("msg", "Listening on", "address", cmdOptions.webListen)
 
 	server := &http.Server{
 		ReadHeaderTimeout: 3 * time.Second, //nolint:gomnd
 	}
 	serverSystemd := false
-	serverWebListen := []string{webListen}
+	serverWebListen := []string{cmdOptions.webListen}
 
 	toolkitFlag := new(web.FlagConfig)
 	toolkitFlag.WebSystemdSocket = &serverSystemd
 	toolkitFlag.WebListenAddresses = &serverWebListen
-	toolkitFlag.WebConfigFile = &webConfigFile
+	toolkitFlag.WebConfigFile = &cmdOptions.webConfigFile
 
 	if err := web.ListenAndServe(server, toolkitFlag, logger); err != nil {
 		return err
@@ -99,34 +110,19 @@ func Start(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func setEnabledCollectors(cmd *cobra.Command) error {
+func setEnabledCollectors(opts *exporterOptions) error {
 	enList := []string{"container"}
 
-	enableAll, err := cmd.Flags().GetBool("collector.enable-all")
-	if err != nil {
-		return err
-	}
+	collector.RegisterVariableLabels(opts.storeLabels, opts.whiteListedLabels)
 
-	storeLabels, err := cmd.Flags().GetBool("collector.store_labels")
-	if err != nil {
-		return err
-	}
-
-	whiteListedLabels, err := cmd.Flags().GetString("collector.whitelisted_labels")
-	if err != nil {
-		return err
-	}
-
-	collector.RegisterVariableLabels(storeLabels, whiteListedLabels)
-
-	if enableAll {
+	if opts.enableAll {
 		enList = append(enList, "pod")
 		enList = append(enList, "image")
 		enList = append(enList, "volume")
 		enList = append(enList, "network")
 		enList = append(enList, "system")
 	} else {
-		enList = append(enList, getEnabledCollectors(cmd)...)
+		enList = append(enList, getEnabledCollectors(opts)...)
 	}
 
 	// set podman collector state
@@ -137,46 +133,127 @@ func setEnabledCollectors(cmd *cobra.Command) error {
 	return nil
 }
 
-func getEnabledCollectors(cmd *cobra.Command) []string {
+func getEnabledCollectors(opts *exporterOptions) []string {
 	enCollectors := make([]string, 0)
 
-	enimage := command{cmd}.isEnabled("collector.image")
-	if enimage {
+	if opts.enableImages {
 		enCollectors = append(enCollectors, "image")
 	}
 
-	enpod := command{cmd}.isEnabled("collector.pod")
-	if enpod {
+	if opts.enablePods {
 		enCollectors = append(enCollectors, "pod")
 	}
 
-	envolume := command{cmd}.isEnabled("collector.volume")
-	if envolume {
+	if opts.enableVolumes {
 		enCollectors = append(enCollectors, "volume")
 	}
 
-	ennetwork := command{cmd}.isEnabled("collector.network")
-	if ennetwork {
+	if opts.enableNetworks {
 		enCollectors = append(enCollectors, "network")
 	}
 
-	ensystem := command{cmd}.isEnabled("collector.system")
-	if ensystem {
+	if opts.enableSystem {
 		enCollectors = append(enCollectors, "system")
 	}
 
 	return enCollectors
 }
 
-type command struct {
-	*cobra.Command
-}
-
-func (c command) isEnabled(name string) bool {
-	enable, err := c.Flags().GetBool(name)
+func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclop
+	debug, err := cmd.Flags().GetBool("debug")
 	if err != nil {
-		return false
+		return nil, err
 	}
 
-	return enable
+	webListen, err := cmd.Flags().GetString("web.listen-address")
+	if err != nil {
+		return nil, err
+	}
+
+	webMaxRequests, err := cmd.Flags().GetInt("web.max-requests")
+	if err != nil {
+		return nil, err
+	}
+
+	webTelemetryPath, err := cmd.Flags().GetString("web.telemetry-path")
+	if err != nil {
+		return nil, err
+	}
+
+	webDisableExporterMetrics, err := cmd.Flags().GetBool("web.disable-exporter-metrics")
+	if err != nil {
+		return nil, err
+	}
+
+	webConfigFile, err := cmd.Flags().GetString("web.config.file")
+	if err != nil {
+		return nil, err
+	}
+
+	enableAll, err := cmd.Flags().GetBool("collector.enable-all")
+	if err != nil {
+		return nil, err
+	}
+
+	storeLabels, err := cmd.Flags().GetBool("collector.store_labels")
+	if err != nil {
+		return nil, err
+	}
+
+	whiteListedLabels, err := cmd.Flags().GetString("collector.whitelisted_labels")
+	if err != nil {
+		return nil, err
+	}
+
+	enableImages, err := cmd.Flags().GetBool("collector.image")
+	if err != nil {
+		return nil, err
+	}
+
+	enablePods, err := cmd.Flags().GetBool("collector.pod")
+	if err != nil {
+		return nil, err
+	}
+
+	enableVolumes, err := cmd.Flags().GetBool("collector.volume")
+	if err != nil {
+		return nil, err
+	}
+
+	enableNetworks, err := cmd.Flags().GetBool("collector.network")
+	if err != nil {
+		return nil, err
+	}
+
+	enableSystem, err := cmd.Flags().GetBool("collector.system")
+	if err != nil {
+		return nil, err
+	}
+
+	cacheDuration, err := cmd.Flags().GetInt64("collector.cache_duration")
+	if err != nil {
+		return nil, err
+	}
+
+	if cacheDuration < minCacheDuration {
+		return nil, errMinCacheDurtion
+	}
+
+	return &exporterOptions{
+		debug:                     debug,
+		webListen:                 webListen,
+		webMaxRequests:            webMaxRequests,
+		webTelemetryPath:          webTelemetryPath,
+		webDisableExporterMetrics: webDisableExporterMetrics,
+		webConfigFile:             webConfigFile,
+		enableAll:                 enableAll,
+		storeLabels:               storeLabels,
+		whiteListedLabels:         whiteListedLabels,
+		enableImages:              enableImages,
+		enablePods:                enablePods,
+		enableVolumes:             enableVolumes,
+		enableNetworks:            enableNetworks,
+		enableSystem:              enableSystem,
+		cacheDuration:             cacheDuration,
+	}, nil
 }

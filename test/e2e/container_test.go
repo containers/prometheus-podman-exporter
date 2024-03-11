@@ -90,5 +90,22 @@ var _ = Describe("Container", func() {
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01Info)))
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt02Info)))
 
+		// podman_container_rw_size_bytes
+		expectedCnt01RwSize := fmt.Sprintf("podman_container_rw_size_bytes{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"} 0",
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+		expectedCnt02RwSize := fmt.Sprintf("podman_container_rw_size_bytes{id=\"%s\",pod_id=\"\",pod_name=\"\"} 0",
+			cnt02Inpect[0].ID[0:12])
+
+		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01RwSize)))
+		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt02RwSize)))
+
+		// podman_container_rootfs_size_bytes
+		expectedCnt01RootFsSize := fmt.Sprintf("podman_container_rootfs_size_bytes{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"}",
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+		expectedCnt02RootFsSize := fmt.Sprintf("podman_container_rootfs_size_bytes{id=\"%s\",pod_id=\"\",pod_name=\"\"}",
+			cnt02Inpect[0].ID[0:12])
+
+		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01RootFsSize)))
+		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt02RootFsSize)))
 	})
 })
