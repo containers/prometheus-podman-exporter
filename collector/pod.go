@@ -14,6 +14,11 @@ type podCollector struct {
 	logger          log.Logger
 }
 
+type podDescLabels struct {
+	labels      []string
+	labelsValue []string
+}
+
 func init() {
 	registerCollector("pod", defaultDisabled, NewPodStatsCollector)
 }
@@ -25,25 +30,13 @@ func NewPodStatsCollector(logger log.Logger) (Collector, error) {
 			nil, prometheus.GaugeValue,
 		},
 		state: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "pod", "state"),
-				"Pods current state current state (-1=unknown,0=created,1=error,2=exited,3=paused,4=running,5=degraded,6=stopped).",
-				[]string{"id"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		numOfContainers: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "pod", "containers"),
-				"Number of containers in a pod.",
-				[]string{"id"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		created: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "pod", "created_seconds"),
-				"Pods creation time in unixtime.",
-				[]string{"id"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		logger: logger,
 	}, nil
@@ -51,16 +44,58 @@ func NewPodStatsCollector(logger log.Logger) (Collector, error) {
 
 // Update reads and exposes pod stats.
 func (c *podCollector) Update(ch chan<- prometheus.Metric) error {
+	defaultPodLabels := []string{"id"}
+
 	reports, err := pdcs.Pods()
 	if err != nil {
 		return err
 	}
 
 	for _, rep := range reports {
-		infoMetric, infoValues := c.getPodInfoDesc(rep)
-		c.info.desc = infoMetric
+		podLabelsInfo := c.getPodDescLabels(rep)
 
-		ch <- c.info.mustNewConstMetric(1, infoValues...)
+		if enhanceAllMetrics {
+			defaultPodLabels = podLabelsInfo.labels
+		}
+
+		infoDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "pod", "info"),
+			"Pod information",
+			podLabelsInfo.labels, nil,
+		)
+
+		stateDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "pod", "state"),
+			"Pods current state current state (-1=unknown,0=created,1=error,2=exited,3=paused,4=running,5=degraded,6=stopped).",
+			defaultPodLabels, nil)
+
+		numOfCntDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "pod", "containers"),
+			"Number of containers in a pod.",
+			defaultPodLabels, nil,
+		)
+
+		createdDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "pod", "created_seconds"),
+			"Pods creation time in unixtime.",
+			defaultPodLabels, nil,
+		)
+
+		c.info.desc = infoDesc
+		c.state.desc = stateDesc
+		c.numOfContainers.desc = numOfCntDesc
+		c.created.desc = createdDesc
+
+		ch <- c.info.mustNewConstMetric(1, podLabelsInfo.labelsValue...)
+
+		if enhanceAllMetrics {
+			ch <- c.state.mustNewConstMetric(float64(rep.State), podLabelsInfo.labelsValue...)
+			ch <- c.numOfContainers.mustNewConstMetric(float64(rep.NumOfContainers), podLabelsInfo.labelsValue...)
+			ch <- c.created.mustNewConstMetric(float64(rep.Created), podLabelsInfo.labelsValue...)
+
+			continue
+		}
+
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID)
 		ch <- c.numOfContainers.mustNewConstMetric(float64(rep.NumOfContainers), rep.ID)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
@@ -69,7 +104,7 @@ func (c *podCollector) Update(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
-func (c *podCollector) getPodInfoDesc(rep pdcs.Pod) (*prometheus.Desc, []string) {
+func (c *podCollector) getPodDescLabels(rep pdcs.Pod) *podDescLabels {
 	podLabels := []string{"id", "name", "infra_id"}
 	podLabelsValue := []string{rep.ID, rep.Name, rep.InfraID}
 
@@ -78,13 +113,12 @@ func (c *podCollector) getPodInfoDesc(rep pdcs.Pod) (*prometheus.Desc, []string)
 	podLabels = append(podLabels, extraLabels...)
 	podLabelsValue = append(podLabelsValue, extraValues...)
 
-	infoDesc := prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "pod", "info"),
-		"Pod information",
-		podLabels, nil,
-	)
+	pDescLabels := podDescLabels{
+		labels:      podLabels,
+		labelsValue: podLabelsValue,
+	}
 
-	return infoDesc, podLabelsValue
+	return &pDescLabels
 }
 
 func (c *podCollector) getExtraLabelsAndValues(collectorLabels []string, rep pdcs.Pod) ([]string, []string) {

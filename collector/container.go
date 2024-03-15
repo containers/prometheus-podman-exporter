@@ -28,6 +28,11 @@ type containerCollector struct {
 	logger      log.Logger
 }
 
+type containerDescLabels struct {
+	labels      []string
+	labelsValue []string
+}
+
 func init() {
 	registerCollector("container", defaultEnabled, NewContainerStatsCollector)
 }
@@ -39,124 +44,55 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 			nil, prometheus.GaugeValue,
 		},
 		state: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "state"),
-				//nolint:lll
-				"Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		health: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "health"),
-				"Container current health (-1=unknown,0=healthy,1=unhealthy,2=starting).",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		created: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "created_seconds"),
-				"Container creation time in unixtime.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		started: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "started_seconds"),
-				"Container started time in unixtime.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		exited: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "exited_seconds"),
-				"Container exited time in unixtime.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		exitCode: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "exit_code"),
-				"Container exit code, if the container has not exited or restarted then the exit code will be 0.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		pids: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "pids"),
-				"Container pid number.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		cpu: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "cpu_seconds_total"),
-				"total CPU time spent for container in seconds.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		cpuSystem: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "cpu_system_seconds_total"),
-				"total system CPU time spent for container in seconds.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		memUsage: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "mem_usage_bytes"),
-				"Container memory usage.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		memLimit: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "mem_limit_bytes"),
-				"Container memory limit.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		netInput: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "net_input_total"),
-				"Container network input in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		netOutput: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "net_output_total"),
-				"Container network output in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		blockInput: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "block_input_total"),
-				"Container block input in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		blockOutput: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "block_output_total"),
-				"Container block output in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.CounterValue,
+			nil, prometheus.CounterValue,
 		},
 		rwSize: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "rw_size_bytes"),
-				"Container top read-write layer size in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		rootFsSize: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "container", "rootfs_size_bytes"),
-				"Container root filesystem size in bytes.",
-				[]string{"id", "pod_id", "pod_name"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		logger: logger,
 	}, nil
@@ -164,6 +100,8 @@ func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
 
 // Update reads and exposes container stats.
 func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
+	defaultContainersLabel := []string{"id", "pod_id", "pod_name"}
+
 	reports, err := pdcs.Containers()
 	if err != nil {
 		return err
@@ -175,11 +113,169 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	for _, rep := range reports {
-		infoMetric, infoValues := c.getContainerInfoDesc(rep)
-		c.info.desc = infoMetric
+		cntLabelsInfo := c.getContainerDescLabel(rep)
+
+		if enhanceAllMetrics {
+			defaultContainersLabel = cntLabelsInfo.labels
+		}
+
+		infoDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "info"),
+			"Container information.",
+			cntLabelsInfo.labels, nil,
+		)
+
+		stateDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "state"),
+			//nolint:lll
+			"Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).",
+			defaultContainersLabel, nil,
+		)
+
+		healthDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "health"),
+			"Container current health (-1=unknown,0=healthy,1=unhealthy,2=starting).",
+			defaultContainersLabel, nil,
+		)
+
+		createdDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "created_seconds"),
+			"Container creation time in unixtime.",
+			defaultContainersLabel, nil,
+		)
+
+		startedDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "started_seconds"),
+			"Container started time in unixtime.",
+			defaultContainersLabel, nil,
+		)
+
+		exitedDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "exited_seconds"),
+			"Container exited time in unixtime.",
+			defaultContainersLabel, nil,
+		)
+
+		exitedCodeDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "exit_code"),
+			"Container exit code, if the container has not exited or restarted then the exit code will be 0.",
+			defaultContainersLabel, nil,
+		)
+
+		pidsDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "pids"),
+			"Container pid number.",
+			defaultContainersLabel, nil,
+		)
+
+		cpuDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "cpu_seconds_total"),
+			"total CPU time spent for container in seconds.",
+			defaultContainersLabel, nil,
+		)
+
+		cpuSystemDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "cpu_system_seconds_total"),
+			"total system CPU time spent for container in seconds.",
+			defaultContainersLabel, nil,
+		)
+
+		memUsageDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "mem_usage_bytes"),
+			"Container memory usage.",
+			defaultContainersLabel, nil,
+		)
+
+		memLimitDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "mem_limit_bytes"),
+			"Container memory limit.",
+			defaultContainersLabel, nil,
+		)
+
+		netInputDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "net_input_total"),
+			"Container network input in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		netOutputDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "net_output_total"),
+			"Container network output in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		blockInputDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "block_input_total"),
+			"Container block input in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		blockOutputDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "block_output_total"),
+			"Container block output in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		rwSizeDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "rw_size_bytes"),
+			"Container top read-write layer size in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		rootFsSizeDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "container", "rootfs_size_bytes"),
+			"Container root filesystem size in bytes.",
+			defaultContainersLabel, nil,
+		)
+
+		c.info.desc = infoDesc
+		c.state.desc = stateDesc
+		c.health.desc = healthDesc
+		c.created.desc = createdDesc
+		c.started.desc = startedDesc
+		c.exited.desc = exitedDesc
+		c.exitCode.desc = exitedCodeDesc
+		c.pids.desc = pidsDesc
+		c.cpu.desc = cpuDesc
+		c.cpuSystem.desc = cpuSystemDesc
+		c.memUsage.desc = memUsageDesc
+		c.memLimit.desc = memLimitDesc
+		c.netInput.desc = netInputDesc
+		c.netOutput.desc = netOutputDesc
+		c.blockInput.desc = blockInputDesc
+		c.blockOutput.desc = blockOutputDesc
+		c.rwSize.desc = rwSizeDesc
+		c.rootFsSize.desc = rootFsSizeDesc
+
 		cntStat := getContainerStat(rep.ID, statReports)
 
-		ch <- c.info.mustNewConstMetric(1, infoValues...)
+		ch <- c.info.mustNewConstMetric(1, cntLabelsInfo.labelsValue...)
+
+		if enhanceAllMetrics {
+			ch <- c.state.mustNewConstMetric(float64(rep.State), cntLabelsInfo.labelsValue...)
+			ch <- c.health.mustNewConstMetric(float64(rep.Health), cntLabelsInfo.labelsValue...)
+			ch <- c.created.mustNewConstMetric(float64(rep.Created), cntLabelsInfo.labelsValue...)
+			ch <- c.started.mustNewConstMetric(float64(rep.Started), cntLabelsInfo.labelsValue...)
+			ch <- c.exited.mustNewConstMetric(float64(rep.Exited), cntLabelsInfo.labelsValue...)
+			ch <- c.exitCode.mustNewConstMetric(float64(rep.ExitCode), cntLabelsInfo.labelsValue...)
+			ch <- c.rwSize.mustNewConstMetric(float64(rep.RwSize), cntLabelsInfo.labelsValue...)
+			ch <- c.rootFsSize.mustNewConstMetric(float64(rep.RootFsSize), cntLabelsInfo.labelsValue...)
+
+			if cntStat != nil {
+				ch <- c.pids.mustNewConstMetric(float64(cntStat.PIDs), cntLabelsInfo.labelsValue...)
+				ch <- c.cpu.mustNewConstMetric(cntStat.CPU, cntLabelsInfo.labelsValue...)
+				ch <- c.cpuSystem.mustNewConstMetric(cntStat.CPUSystem, cntLabelsInfo.labelsValue...)
+				ch <- c.memUsage.mustNewConstMetric(float64(cntStat.MemUsage), cntLabelsInfo.labelsValue...)
+				ch <- c.memLimit.mustNewConstMetric(float64(cntStat.MemLimit), cntLabelsInfo.labelsValue...)
+				ch <- c.netInput.mustNewConstMetric(float64(cntStat.NetInput), cntLabelsInfo.labelsValue...)
+				ch <- c.netOutput.mustNewConstMetric(float64(cntStat.NetOutput), cntLabelsInfo.labelsValue...)
+				ch <- c.blockInput.mustNewConstMetric(float64(cntStat.BlockInput), cntLabelsInfo.labelsValue...)
+				ch <- c.blockOutput.mustNewConstMetric(float64(cntStat.BlockOutput), cntLabelsInfo.labelsValue...)
+			}
+
+			continue
+		}
+
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID, rep.PodID, rep.PodName)
 		ch <- c.health.mustNewConstMetric(float64(rep.Health), rep.ID, rep.PodID, rep.PodName)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.PodID, rep.PodName)
@@ -205,7 +301,7 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
-func (c *containerCollector) getContainerInfoDesc(rep pdcs.Container) (*prometheus.Desc, []string) {
+func (c *containerCollector) getContainerDescLabel(rep pdcs.Container) *containerDescLabels {
 	containerLabels := []string{"id", "name", "image", "ports", "pod_id", "pod_name"}
 	containerLabelsValue := []string{rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID, rep.PodName}
 
@@ -214,13 +310,12 @@ func (c *containerCollector) getContainerInfoDesc(rep pdcs.Container) (*promethe
 	containerLabels = append(containerLabels, extraLabels...)
 	containerLabelsValue = append(containerLabelsValue, extraValues...)
 
-	infoDesc := prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "container", "info"),
-		"Container information.",
-		containerLabels, nil,
-	)
+	cntDescLabels := containerDescLabels{
+		labels:      containerLabels,
+		labelsValue: containerLabelsValue,
+	}
 
-	return infoDesc, containerLabelsValue
+	return &cntDescLabels
 }
 
 func (c *containerCollector) getExtraLabelsAndValues(

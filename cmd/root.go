@@ -67,36 +67,54 @@ func Execute() {
 func init() {
 	rootCmd.Flags().BoolP("debug", "d", false,
 		"Set log level to debug.")
+
 	rootCmd.Flags().BoolP("version", "", false,
 		"Print version and exit.")
+
 	rootCmd.Flags().StringP("web.config.file", "", "",
 		"[EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.")
+
 	rootCmd.Flags().StringP("web.listen-address", "l", ":9882",
 		"Address on which to expose metrics and web interface.")
+
 	rootCmd.Flags().StringP("web.telemetry-path", "p", "/metrics",
 		"Path under which to expose metrics.")
+
 	rootCmd.Flags().BoolP("web.disable-exporter-metrics", "e", false,
 		"Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).")
+
 	rootCmd.Flags().IntP("web.max-requests", "m", maxRequest,
 		"Maximum number of parallel scrape requests. Use 0 to disable")
+
 	rootCmd.Flags().BoolP("collector.enable-all", "a", false,
 		"Enable all collectors by default.")
+
 	rootCmd.Flags().BoolP("collector.image", "i", false,
 		"Enable image collector.")
+
 	rootCmd.Flags().BoolP("collector.pod", "o", false,
 		"Enable pod collector.")
+
 	rootCmd.Flags().BoolP("collector.volume", "v", false,
 		"Enable volume collector.")
+
 	rootCmd.Flags().BoolP("collector.network", "n", false,
 		"Enable network collector.")
+
 	rootCmd.Flags().BoolP("collector.system", "s", false,
 		"Enable system collector.")
+
 	rootCmd.Flags().BoolP("collector.store_labels", "b", false,
 		"Convert pod/container/image labels on prometheus metrics for each pod/container/image.")
+
 	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "",
 		"Comma separated list of pod/container/image labels to be converted\n"+
 			"to labels on prometheus metrics for each pod/container/image.\n"+
 			"collector.store_labels must be set to false for this to take effect.")
+
 	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration,
-		"Duration (seconds) to retrieve container, size and refresh the cache")
+		"Duration (seconds) to retrieve container, size and refresh the cache.")
+
+	rootCmd.Flags().BoolP("collector.enhance-metrics", "", false,
+		"enhance all metrics with the same field as for their podman_<...>_info metrics.")
 }

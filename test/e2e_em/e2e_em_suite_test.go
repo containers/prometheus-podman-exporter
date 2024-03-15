@@ -1,10 +1,8 @@
-package e2e_test
+package e2e_em_test
 
 import (
-	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +18,9 @@ var (
 	cacheDuration int64 = 3600
 )
 
-func TestE2e(t *testing.T) {
+func TestE2eEm(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "E2E Suite")
+	RunSpecs(t, "E2E EnhanceMetrics Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -48,7 +46,7 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("collector.store_labels", "b", false, "")
 	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "", "")
 	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration, "")
-	rootCmd.Flags().BoolP("collector.enhance-metrics", "", false, "")
+	rootCmd.Flags().BoolP("collector.enhance-metrics", "", true, "")
 
 	go func() {
 		err := exporter.Start(rootCmd, nil)
@@ -57,27 +55,6 @@ var _ = BeforeSuite(func() {
 
 	time.Sleep(10 * time.Second)
 })
-
-func extractLabelValue(line string, label string) string {
-	value := "-9999999999999"
-	r := regexp.MustCompile("{(.*)}")
-	matches := r.FindAllStringSubmatch(line, -1)
-	if len(matches) == 0 {
-		return value
-	}
-
-	if len(matches[0]) == 0 {
-		return value
-	}
-
-	for _, item := range strings.Split(matches[0][1], ",") {
-		if strings.Index(item, fmt.Sprintf("%s=", label)) == 0 {
-			return strings.ReplaceAll(strings.Split(item, "=")[1], "\"", "")
-		}
-	}
-
-	return value
-}
 
 func queryEndPoint() []string {
 	req, err := http.NewRequest("GET", endpointURL, nil)
