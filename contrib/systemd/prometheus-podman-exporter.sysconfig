@@ -1,0 +1,1 @@
+PODMAN_EXPORTER_OPTS="--collector.enable-all"
