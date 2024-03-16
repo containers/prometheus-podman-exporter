@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+
+description="Prometheus exporter for podman (v4) machine"
+
+command_user="${RUN_AS_USER:-root:root}"
+command="/usr/bin/prometheus-podman-exporter"
+command_args="${PODMAN_EXPORTER_OPTS}"
+command_background="true"
+extra_started_commands="reload"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+reload() {
+    if ! service_started "${RC_SVCNAME}" ; then
+        eerror "${RC_SVCNAME} isn't running"
+        return 1
+    fi
+
+    ebegin "Reloading ${RC_SVCNAME} service"
+    pkill -HUP -F "${pidfile}"
+    eend $? "Reloading ${RC_SVCNAME} service failed."
+}
