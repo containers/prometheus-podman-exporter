@@ -1,6 +1,7 @@
 # prometheus-podman-exporter
 
-[![PkgGoDev](https://pkg.go.dev/badge/github.com/containers/prometheus-podman-exporter)](https://pkg.go.dev/github.com/containers/prometheus-podman-exporter)
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/containers/prometheus-podman-exporter)
 [![Go Report](https://img.shields.io/badge/go%20report-A%2B-brightgreen.svg)](https://goreportcard.com/report/github.com/containers/prometheus-podman-exporter)
 ![Go](https://github.com/containers/prometheus-podman-exporter/workflows/Go/badge.svg)
 
@@ -24,8 +25,9 @@ Usage:
   prometheus-podman-exporter [flags]
 
 Flags:
-  -t, --collector.cache_duration int          Duration (seconds) to retrieve container, size and refresh the cache (default 3600)
+  -t, --collector.cache_duration int          Duration (seconds) to retrieve container, size and refresh the cache. (default 3600)
   -a, --collector.enable-all                  Enable all collectors by default.
+      --collector.enhance-metrics             enhance all metrics with the same field as for their podman_<...>_info metrics.
   -i, --collector.image                       Enable image collector.
   -n, --collector.network                     Enable network collector.
   -o, --collector.pod                         Enable pod collector.

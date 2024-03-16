@@ -9,15 +9,17 @@ import (
 var (
 	collectorSync     sync.Once
 	storeLabels       bool
+	enhanceAllMetrics bool
 	whitelistedLabels []string
 	invalidNameCharRE = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 )
 
 // RegisterVariableLabels sets storeLabels or whiteListed labels to be converted to metrics.
-func RegisterVariableLabels(storeLabel bool, whiteListed string) {
+func RegisterVariableLabels(storeLabel bool, whiteListed string, enhanceMetrics bool) {
 	collectorSync.Do(func() {
 		storeLabels = storeLabel
 		whitelistedLabels = strings.Split(whiteListed, ",")
+		enhanceAllMetrics = enhanceMetrics
 	})
 }
 

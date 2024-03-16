@@ -35,6 +35,7 @@ type exporterOptions struct {
 	enableVolumes             bool
 	enableNetworks            bool
 	enableSystem              bool
+	enhanceMetrics            bool
 }
 
 // Start starts prometheus exporter.
@@ -65,6 +66,8 @@ func Start(cmd *cobra.Command, _ []string) error {
 	}
 
 	level.Info(logger).Log("msg", "Starting podman-prometheus-exporter", "version", version.Info())
+	level.Info(logger).Log("msg", "metrics", "enhanced", cmdOptions.enhanceMetrics)
+
 	http.Handle(
 		cmdOptions.webTelemetryPath,
 		newHandler(cmdOptions.webDisableExporterMetrics, cmdOptions.webMaxRequests, logger),
@@ -113,7 +116,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 func setEnabledCollectors(opts *exporterOptions) error {
 	enList := []string{"container"}
 
-	collector.RegisterVariableLabels(opts.storeLabels, opts.whiteListedLabels)
+	collector.RegisterVariableLabels(opts.storeLabels, opts.whiteListedLabels, opts.enhanceMetrics)
 
 	if opts.enableAll {
 		enList = append(enList, "pod")
@@ -239,6 +242,11 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, errMinCacheDurtion
 	}
 
+	enhanceMetrics, err := cmd.Flags().GetBool("collector.enhance-metrics")
+	if err != nil {
+		return nil, err
+	}
+
 	return &exporterOptions{
 		debug:                     debug,
 		webListen:                 webListen,
@@ -255,5 +263,6 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		enableNetworks:            enableNetworks,
 		enableSystem:              enableSystem,
 		cacheDuration:             cacheDuration,
+		enhanceMetrics:            enhanceMetrics,
 	}, nil
 }

@@ -13,6 +13,11 @@ type imageCollector struct {
 	logger  log.Logger
 }
 
+type imageDescLabels struct {
+	labels      []string
+	labelsValue []string
+}
+
 func init() {
 	registerCollector("image", defaultDisabled, NewImageStatsCollector)
 }
@@ -24,18 +29,10 @@ func NewImageStatsCollector(logger log.Logger) (Collector, error) {
 			nil, prometheus.GaugeValue,
 		},
 		size: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "image", "size"),
-				"Image size",
-				[]string{"id", "repository", "tag"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		created: typedDesc{
-			prometheus.NewDesc(
-				prometheus.BuildFQName(namespace, "image", "created_seconds"),
-				"Image creation time in unixtime.",
-				[]string{"id", "repository", "tag"}, nil,
-			), prometheus.GaugeValue,
+			nil, prometheus.GaugeValue,
 		},
 		logger: logger,
 	}, nil
@@ -43,15 +40,50 @@ func NewImageStatsCollector(logger log.Logger) (Collector, error) {
 
 // Update reads and exposes images stats.
 func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
+	defaultImageLabels := []string{"id", "repository", "tag"}
+
 	reports, err := pdcs.Images()
 	if err != nil {
 		return err
 	}
 
 	for _, rep := range reports {
-		infoMetric, infoValues := c.getImageInfoDesc(rep)
-		c.info.desc = infoMetric
-		ch <- c.info.mustNewConstMetric(1, infoValues...)
+		imageLabelsInfo := c.getImageDescLabels(rep)
+
+		if enhanceAllMetrics {
+			defaultImageLabels = imageLabelsInfo.labels
+		}
+
+		infoDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "image", "info"),
+			"Image information.",
+			imageLabelsInfo.labels, nil,
+		)
+
+		sizeDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "image", "size"),
+			"Image size.",
+			defaultImageLabels, nil,
+		)
+
+		createdDesc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "image", "created_seconds"),
+			"Image creation time in unixtime.",
+			defaultImageLabels, nil,
+		)
+
+		c.info.desc = infoDesc
+		c.created.desc = createdDesc
+		c.size.desc = sizeDesc
+
+		ch <- c.info.mustNewConstMetric(1, imageLabelsInfo.labelsValue...)
+
+		if enhanceAllMetrics {
+			ch <- c.size.mustNewConstMetric(float64(rep.Size), imageLabelsInfo.labelsValue...)
+			ch <- c.created.mustNewConstMetric(float64(rep.Created), imageLabelsInfo.labelsValue...)
+
+			continue
+		}
 
 		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag)
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag)
@@ -60,7 +92,7 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
-func (c *imageCollector) getImageInfoDesc(rep pdcs.Image) (*prometheus.Desc, []string) {
+func (c *imageCollector) getImageDescLabels(rep pdcs.Image) *imageDescLabels {
 	imageLabels := []string{"id", "parent_id", "repository", "tag", "digest"}
 	imageLabelsValue := []string{rep.ID, rep.ParentID, rep.Repository, rep.Tag, rep.Digest}
 
@@ -69,13 +101,12 @@ func (c *imageCollector) getImageInfoDesc(rep pdcs.Image) (*prometheus.Desc, []s
 	imageLabels = append(imageLabels, extraLabels...)
 	imageLabelsValue = append(imageLabelsValue, extraValues...)
 
-	infoDesc := prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "image", "info"),
-		"Image information.",
-		imageLabels, nil,
-	)
+	imgDescLabels := imageDescLabels{
+		labels:      imageLabels,
+		labelsValue: imageLabelsValue,
+	}
 
-	return infoDesc, imageLabelsValue
+	return &imgDescLabels
 }
 
 func (c *imageCollector) getExtraLabelsAndValues(collectorLabels []string, rep pdcs.Image) ([]string, []string) {
