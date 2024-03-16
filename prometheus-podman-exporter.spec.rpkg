@@ -59,7 +59,7 @@ install -dp %{buildroot}%{_userunitdir}
 install -p ./bin/%{name} %{buildroot}%{_bindir}
 install -Dpm0644 ./contrib/systemd/%{name}.sysconfig %{buildroot}%{_sysconfdir}/sysconfig/%{name}
 install -Dpm0644 ./contrib/systemd/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
-install -Dpm0644 ./contrib/systemd/%{name}.service %{buildroot}%{_userunitdir}/%{name}.service
+install -Dpm0644 ./contrib/systemd/user/%{name}.service %{buildroot}%{_userunitdir}/%{name}.service
 
 pushd %{buildroot}%{_unitdir}
 ln -s %{name}.service %{shortname}.service
