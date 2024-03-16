@@ -1,0 +1,6 @@
+# Config file for /etc/init.d/prometheus-podman-exporter
+
+# Configure the user[:group] the podman will run as
+#RUN_AS_USER="root:root"
+
+PODMAN_EXPORTER_OPTS="--collector.enable-all"
