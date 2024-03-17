@@ -91,7 +91,13 @@ popd
 
 
 %changelog
-* Sat Mar 16 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.11.0-dev-1
+* Sun Mar 17 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.11.0-dev-1
+
+* Sun Mar 17 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.10.1-1
+- systemd use default.target + users environment file path
+- Add openrc service and it's config file
+- Add systemd user service...
+- fix userns option for rootless unix socket use case in install.md
 
 * Sat Mar 16 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.10.0-1
 - Enhance all metrics with the same fields as for podman_<...>_info metric
