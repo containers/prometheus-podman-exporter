@@ -5,9 +5,9 @@
 [![Go Report](https://img.shields.io/badge/go%20report-A%2B-brightgreen.svg)](https://goreportcard.com/report/github.com/containers/prometheus-podman-exporter)
 ![Go](https://github.com/containers/prometheus-podman-exporter/workflows/Go/badge.svg)
 
-Prometheus exporter for podman v4.x environment exposing containers, pods, images, volumes and networks information.
+Prometheus exporter for podman v4 and v5 environment exposing containers, pods, images, volumes and networks information.
 
-prometheus-podman-exporter uses the podman v4.x (libpod) library to fetch the statistics and therefore no need to enable podman.socket service unless using the container image.
+prometheus-podman-exporter uses the podman (libpod) library to fetch the statistics and therefore no need to enable podman.socket service unless using the container image.
 
 - [**Installation**](#installation)
 - [**Usage and Options**](#usage-and-options)

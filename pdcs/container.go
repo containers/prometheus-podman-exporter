@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/podman/v4/cmd/podman/registry"
-	"github.com/containers/podman/v4/libpod/define"
-	"github.com/containers/podman/v4/pkg/domain/entities"
+	"github.com/containers/podman/v5/cmd/podman/registry"
+	"github.com/containers/podman/v5/libpod/define"
+	"github.com/containers/podman/v5/pkg/domain/entities"
 	klog "github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 )
@@ -155,6 +155,16 @@ func ContainersStats() ([]ContainerStat, error) {
 	}
 
 	for _, rep := range statReport {
+		var (
+			netInput  uint64
+			netOutput uint64
+		)
+
+		for _, net := range rep.Network {
+			netInput += net.RxBytes
+			netOutput += net.TxBytes
+		}
+
 		stat = append(stat, ContainerStat{
 			ID:          getID(rep.ContainerID),
 			Name:        rep.Name,
@@ -163,8 +173,8 @@ func ContainersStats() ([]ContainerStat, error) {
 			CPUSystem:   float64(rep.CPUSystemNano) / nano,
 			MemUsage:    rep.MemUsage,
 			MemLimit:    rep.MemLimit,
-			NetInput:    rep.NetInput,
-			NetOutput:   rep.NetOutput,
+			NetInput:    netInput,
+			NetOutput:   netOutput,
 			BlockInput:  rep.BlockInput,
 			BlockOutput: rep.BlockOutput,
 		})

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/containers/podman/v4/pkg/domain/entities"
+	"github.com/containers/podman/v5/pkg/domain/entities"
+	"github.com/containers/prometheus-podman-exporter/test/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -27,9 +28,8 @@ var _ = Describe("Container", func() {
 		Expect(err).To(BeNil())
 
 		var (
-			cnt01Inpect       []entities.ContainerInspectReport
-			cnt02Inpect       []entities.ContainerInspectReport
-			cnt01Pod01Inspect entities.PodInspectReport
+			cnt01Inpect []entities.ContainerInspectReport
+			cnt02Inpect []entities.ContainerInspectReport
 		)
 
 		cnt01InspectOutput, err := exec.Command("podman", "container", "inspect", testCnt01Name).Output()
@@ -42,16 +42,14 @@ var _ = Describe("Container", func() {
 		err = json.Unmarshal(cnt02InspectOutput, &cnt02Inpect)
 		Expect(err).To(BeNil())
 
-		pod01InspectOutput, err := exec.Command("podman", "pod", "inspect", testCnt01PodName).Output()
-		Expect(err).To(BeNil())
-		err = json.Unmarshal(pod01InspectOutput, &cnt01Pod01Inspect)
+		cnt01Pod01Inspect, err := utils.PodInformation(testCnt01PodName)
 		Expect(err).To(BeNil())
 
 		response := queryEndPoint()
 
 		// podman_container_state
 		expectedCnt01State := fmt.Sprintf("podman_container_state{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"} 0",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02State := fmt.Sprintf("podman_container_state{id=\"%s\",pod_id=\"\",pod_name=\"\"} 0", cnt02Inpect[0].ID[0:12])
 
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01State)))
@@ -59,7 +57,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_created_seconds
 		expectedCnt01Created := fmt.Sprintf("podman_container_created_seconds{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"}",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02Created := fmt.Sprintf("podman_container_created_seconds{id=\"%s\",pod_id=\"\",pod_name=\"\"}", cnt02Inpect[0].ID[0:12])
 
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01Created)))
@@ -67,7 +65,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_exited_seconds
 		expectedCnt01ExitedSeconds := fmt.Sprintf("podman_container_exited_seconds{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"}",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02ExitedSeconds := fmt.Sprintf("podman_container_exited_seconds{id=\"%s\",pod_id=\"\",pod_name=\"\"}", cnt02Inpect[0].ID[0:12])
 
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01ExitedSeconds)))
@@ -75,7 +73,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_exit_code
 		expectedCnt01ExitedCode := fmt.Sprintf("podman_container_exit_code{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"}",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02ExitedCode := fmt.Sprintf("podman_container_exit_code{id=\"%s\",pod_id=\"\",pod_name=\"\"}", cnt02Inpect[0].ID[0:12])
 
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01ExitedCode)))
@@ -83,7 +81,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_info
 		expectedCnt01Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",name=\"%s\",pod_id=\"%s\",pod_name=\"%s\",ports=\"\"}",
-			cnt01Inpect[0].ID[0:12], testBusyBoxImage, testCnt01Name, cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], testBusyBoxImage, testCnt01Name, cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",name=\"%s\",pod_id=\"\",pod_name=\"\",ports=\"\"}",
 			cnt02Inpect[0].ID[0:12], testBusyBoxImage, testCnt02Name)
 
@@ -92,7 +90,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_rw_size_bytes
 		expectedCnt01RwSize := fmt.Sprintf("podman_container_rw_size_bytes{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"} 0",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02RwSize := fmt.Sprintf("podman_container_rw_size_bytes{id=\"%s\",pod_id=\"\",pod_name=\"\"} 0",
 			cnt02Inpect[0].ID[0:12])
 
@@ -101,7 +99,7 @@ var _ = Describe("Container", func() {
 
 		// podman_container_rootfs_size_bytes
 		expectedCnt01RootFsSize := fmt.Sprintf("podman_container_rootfs_size_bytes{id=\"%s\",pod_id=\"%s\",pod_name=\"%s\"}",
-			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID[0:12], cnt01Pod01Inspect.Name)
+			cnt01Inpect[0].ID[0:12], cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
 		expectedCnt02RootFsSize := fmt.Sprintf("podman_container_rootfs_size_bytes{id=\"%s\",pod_id=\"\",pod_name=\"\"}",
 			cnt02Inpect[0].ID[0:12])
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 
-	"github.com/containers/podman/v4/cmd/podman/registry"
-	"github.com/containers/podman/v4/libpod/events"
-	"github.com/containers/podman/v4/pkg/domain/entities"
+	"github.com/containers/podman/v5/cmd/podman/registry"
+	"github.com/containers/podman/v5/libpod/events"
+	"github.com/containers/podman/v5/pkg/domain/entities"
 	klog "github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 )
