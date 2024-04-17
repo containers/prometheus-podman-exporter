@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/containers/common v0.58.2
 	github.com/containers/image/v5 v5.30.0
-	github.com/containers/podman/v5 v5.0.1
+	github.com/containers/podman/v5 v5.0.2
 	github.com/go-kit/log v0.2.1
 	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
