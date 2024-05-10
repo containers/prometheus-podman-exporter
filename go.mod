@@ -3,9 +3,9 @@ module github.com/containers/prometheus-podman-exporter
 go 1.20
 
 require (
-	github.com/containers/common v0.58.2
-	github.com/containers/image/v5 v5.30.0
-	github.com/containers/podman/v5 v5.0.2
+	github.com/containers/common v0.58.3
+	github.com/containers/image/v5 v5.30.1
+	github.com/containers/podman/v5 v5.0.3
 	github.com/go-kit/log v0.2.1
 	github.com/onsi/ginkgo/v2 v2.17.2
 	github.com/onsi/gomega v1.33.1
@@ -41,11 +41,11 @@ require (
 	github.com/containerd/typeurl/v2 v2.1.1 // indirect
 	github.com/containernetworking/cni v1.1.2 // indirect
 	github.com/containernetworking/plugins v1.4.0 // indirect
-	github.com/containers/buildah v1.35.3 // indirect
+	github.com/containers/buildah v1.35.4 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20240212203526-ceb12d4fd50c // indirect
-	github.com/containers/ocicrypt v1.1.9 // indirect
+	github.com/containers/ocicrypt v1.1.10 // indirect
 	github.com/containers/psgo v1.9.0 // indirect
 	github.com/containers/storage v1.53.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
