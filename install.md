@@ -5,7 +5,7 @@
 - [**Installing Packaged Versions**](#installing-packaged-versions)
   - [**AlmaLinux, Rocky Linux**](#almalinux-rocky-linux)
   - [**Arch Linux (AUR)**](#arch-linux-aur)
-  - [**Centos Stream**](#centos-stream)
+  - [**CentOS Stream**](#centos-stream)
   - [**Fedora**](#fedora)
   - [**RHEL**](#rhel)
   - [**Gentoo**](#gentoo)
@@ -55,7 +55,7 @@ prometheus-podman-exporter is using go v1.17 or above.
 
 ### AlmaLinux, Rocky Linux
 
-Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) (Rocky Linux >= 9 and AlmaLinux >= 9) and then run:
 
 ```shell
 $ sudo dnf -y install prometheus-podman-exporter
@@ -67,9 +67,9 @@ $ sudo dnf -y install prometheus-podman-exporter
 $ yay -S prometheus-podman-exporter
 ```
 
-### Centos Stream
+### CentOS Stream
 
-Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) (CentOS >= 9) and then run:
 
 ```shell
 $ sudo dnf -y install prometheus-podman-exporter
@@ -83,7 +83,7 @@ $ sudo dnf -y install prometheus-podman-exporter
 
 ### RHEL
 
-Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) and then run:
+Enable [EPEL repository](https://docs.fedoraproject.org/en-US/epel/) (RHEL >= 9) and then run:
 
 ```shell
 $ sudo dnf -y install prometheus-podman-exporter
