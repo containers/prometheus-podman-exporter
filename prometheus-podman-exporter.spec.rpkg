@@ -16,7 +16,7 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.11.0
+Version: 1.11.1
 Release: 1%{?dist}
 Summary: Prometheus exporter for podman v4.x
 License: ASL 2.0
@@ -91,6 +91,14 @@ popd
 
 
 %changelog
+* Sun May 12 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.11.1-1
+- Bump github.com/containers/podman/v5 from 5.0.0 to 5.0.3
+- Bump github.com/containers/common from 0.58.1 to 0.58.2
+- Bump github.com/prometheus/client_golang from 1.19.0 to 1.19.1
+- Bump github.com/onsi/ginkgo/v2 from 2.17.0 to 2.17.3
+- Bump github.com/onsi/gomega from 1.32.0 to 1.33.1
+- Update install.md
+
 * Thu Mar 21 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.11.0-1
 - Podman v5 support (5.0.0)
 - Bump github.com/containers/image/v5 to v5.30.0
