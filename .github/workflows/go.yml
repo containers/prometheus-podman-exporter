@@ -55,7 +55,7 @@ jobs:
   tests_podmanv5:
     runs-on: ubuntu-latest
     container:
-      image: quay.io/podman/upstream:latest
+      image: quay.io/containers/podman:v5
       volumes:
         - container_volume:/var/lib/containers
       options: "--device /dev/fuse:rw --security-opt label=disable --security-opt seccomp=unconfined --privileged"
