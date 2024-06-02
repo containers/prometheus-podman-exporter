@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/containers/podman/v5/pkg/specgen"
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/containers/storage"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/regexp"
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -268,7 +268,7 @@ func WithStaticDir(dir string) RuntimeOption {
 func WithRegistriesConf(path string) RuntimeOption {
 	logrus.Debugf("Setting custom registries.conf: %q", path)
 	return func(rt *Runtime) error {
-		if _, err := os.Stat(path); err != nil {
+		if err := fileutils.Exists(path); err != nil {
 			return fmt.Errorf("locating specified registries.conf: %w", err)
 		}
 		if rt.imageContext == nil {
@@ -557,7 +557,7 @@ func WithShmDir(dir string) CtrCreateOption {
 	}
 }
 
-// WithNOShmMount tells libpod whether to mount /dev/shm
+// WithNoShm tells libpod whether to mount /dev/shm
 func WithNoShm(mount bool) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
@@ -1329,7 +1329,7 @@ func WithRootFS(rootfs string, overlay bool, mapping *string) CtrCreateOption {
 		if ctr.valid {
 			return define.ErrCtrFinalized
 		}
-		if _, err := os.Stat(rootfs); err != nil {
+		if err := fileutils.Exists(rootfs); err != nil {
 			return err
 		}
 		ctr.config.Rootfs = rootfs
@@ -1392,12 +1392,11 @@ func WithRestartPolicy(policy string) CtrCreateOption {
 			return define.ErrCtrFinalized
 		}
 
-		switch policy {
-		case define.RestartPolicyNone, define.RestartPolicyNo, define.RestartPolicyOnFailure, define.RestartPolicyAlways, define.RestartPolicyUnlessStopped:
-			ctr.config.RestartPolicy = policy
-		default:
-			return fmt.Errorf("%q is not a valid restart policy: %w", policy, define.ErrInvalidArg)
+		if err := define.ValidateRestartPolicy(policy); err != nil {
+			return err
 		}
+
+		ctr.config.RestartPolicy = policy
 
 		return nil
 	}
@@ -1475,6 +1474,7 @@ func WithImageVolumes(volumes []*ContainerImageVolume) CtrCreateOption {
 				Dest:      vol.Dest,
 				Source:    vol.Source,
 				ReadWrite: vol.ReadWrite,
+				SubPath:   vol.SubPath,
 			})
 		}
 
@@ -1827,7 +1827,7 @@ func WithSecrets(containerSecrets []*ContainerSecret) CtrCreateOption {
 	}
 }
 
-// WithSecrets adds environment variable secrets to the container
+// WithEnvSecrets adds environment variable secrets to the container
 func WithEnvSecrets(envSecrets map[string]string) CtrCreateOption {
 	return func(ctr *Container) error {
 		ctr.config.EnvSecrets = make(map[string]*secrets.Secret)
@@ -2085,7 +2085,7 @@ func WithPodCgroupParent(path string) PodCreateOption {
 	}
 }
 
-// WithPodCgroups tells containers in this pod to use the cgroup created for
+// WithPodParent tells containers in this pod to use the cgroup created for
 // this pod.
 // This can still be overridden at the container level by explicitly specifying
 // a Cgroup parent.

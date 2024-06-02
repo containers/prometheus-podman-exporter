@@ -37,6 +37,7 @@ import (
 	"github.com/containers/podman/v5/pkg/systemd/notifyproxy"
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/containers/podman/v5/utils"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/coreos/go-systemd/v22/daemon"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/selinux/go-selinux"
@@ -123,6 +124,54 @@ func (ic *ContainerEngine) createServiceContainer(ctx context.Context, name stri
 	}
 
 	return ctr, nil
+}
+
+func (ic *ContainerEngine) prepareAutomountImages(ctx context.Context, forContainer string, annotations map[string]string) ([]*specgen.ImageVolume, error) {
+	volMap := make(map[string]*specgen.ImageVolume)
+
+	ctrAnnotation := define.KubeImageAutomountAnnotation + "/" + forContainer
+
+	automount, ok := annotations[ctrAnnotation]
+	if !ok || automount == "" {
+		return nil, nil
+	}
+
+	for _, imageName := range strings.Split(automount, ";") {
+		img, fullName, err := ic.Libpod.LibimageRuntime().LookupImage(imageName, nil)
+		if err != nil {
+			return nil, fmt.Errorf("image %s from container %s does not exist in local storage, cannot automount: %w", imageName, forContainer, err)
+		}
+
+		logrus.Infof("Resolved image name %s to %s for automount into container %s", imageName, fullName, forContainer)
+
+		inspect, err := img.Inspect(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("cannot inspect image %s to automount into container %s: %w", fullName, forContainer, err)
+		}
+
+		volumes := inspect.Config.Volumes
+
+		for path := range volumes {
+			if oldPath, ok := volMap[path]; ok && oldPath != nil {
+				logrus.Warnf("Multiple volume mounts to %q requested, overriding image %q with image %s", path, oldPath.Source, fullName)
+			}
+
+			imgVol := new(specgen.ImageVolume)
+			imgVol.Source = fullName
+			imgVol.Destination = path
+			imgVol.ReadWrite = false
+			imgVol.SubPath = path
+
+			volMap[path] = imgVol
+		}
+	}
+
+	toReturn := make([]*specgen.ImageVolume, 0, len(volMap))
+	for _, vol := range volMap {
+		toReturn = append(toReturn, vol)
+	}
+
+	return toReturn, nil
 }
 
 func prepareVolumesFrom(forContainer, podName string, ctrNames, annotations map[string]string) ([]string, error) {
@@ -828,6 +877,11 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			initCtrType = define.OneShotInitContainer
 		}
 
+		automountImages, err := ic.prepareAutomountImages(ctx, initCtr.Name, annotations)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		var volumesFrom []string
 		if list, err := prepareVolumesFrom(initCtr.Name, podName, ctrNames, annotations); err != nil {
 			return nil, nil, err
@@ -856,6 +910,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			UserNSIsHost:       p.Userns.IsHost(),
 			Volumes:            volumes,
 			VolumesFrom:        volumesFrom,
+			ImageVolumes:       automountImages,
 			UtsNSIsHost:        p.UtsNs.IsHost(),
 		}
 		specGen, err := kube.ToSpecGen(ctx, &specgenOpts)
@@ -912,6 +967,11 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			labels[k] = v
 		}
 
+		automountImages, err := ic.prepareAutomountImages(ctx, container.Name, annotations)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		var volumesFrom []string
 		if list, err := prepareVolumesFrom(container.Name, podName, ctrNames, annotations); err != nil {
 			return nil, nil, err
@@ -934,12 +994,14 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 			PodInfraID:         podInfraID,
 			PodName:            podName,
 			PodSecurityContext: podYAML.Spec.SecurityContext,
+			RestartPolicy:      podSpec.PodSpecGen.RestartPolicy, // pass the restart policy to the container (https://github.com/containers/podman/issues/20903)
 			ReadOnly:           readOnly,
 			SeccompPaths:       seccompPaths,
 			SecretsManager:     secretsManager,
 			UserNSIsHost:       p.Userns.IsHost(),
 			Volumes:            volumes,
 			VolumesFrom:        volumesFrom,
+			ImageVolumes:       automountImages,
 			UtsNSIsHost:        p.UtsNs.IsHost(),
 		}
 
@@ -1109,7 +1171,7 @@ func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string,
 		} else {
 			if named, err := reference.ParseNamed(container.Image); err == nil {
 				tagged, isTagged := named.(reference.NamedTagged)
-				if isTagged && tagged.Tag() == "latest" {
+				if !isTagged || tagged.Tag() == "latest" {
 					// Make sure to always pull the latest image in case it got updated.
 					pullPolicy = config.PullPolicyNewer
 				}
@@ -1442,6 +1504,7 @@ func sortKubeKinds(documentList [][]byte) ([][]byte, error) {
 
 	return sortedDocumentList, nil
 }
+
 func imageNamePrefix(imageName string) string {
 	prefix := imageName
 	s := strings.Split(prefix, ":")
@@ -1464,7 +1527,7 @@ func getBuildFile(imageName string, cwd string) (string, error) {
 	containerfilePath := filepath.Join(cwd, buildDirName, "Containerfile")
 	dockerfilePath := filepath.Join(cwd, buildDirName, "Dockerfile")
 
-	_, err := os.Stat(containerfilePath)
+	err := fileutils.Exists(containerfilePath)
 	if err == nil {
 		logrus.Debugf("Building %s with %s", imageName, containerfilePath)
 		return containerfilePath, nil
@@ -1476,7 +1539,7 @@ func getBuildFile(imageName string, cwd string) (string, error) {
 		logrus.Error(err.Error())
 	}
 
-	_, err = os.Stat(dockerfilePath)
+	err = fileutils.Exists(dockerfilePath)
 	if err == nil {
 		logrus.Debugf("Building %s with %s", imageName, dockerfilePath)
 		return dockerfilePath, nil
@@ -1601,7 +1664,10 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 	}
 
 	// Add the reports
-	reports.StopReport, err = ic.PodStop(ctx, podNames, entities.PodStopOptions{Ignore: true})
+	reports.StopReport, err = ic.PodStop(ctx, podNames, entities.PodStopOptions{
+		Ignore:  true,
+		Timeout: -1,
+	})
 	if err != nil {
 		return nil, err
 	}

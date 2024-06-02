@@ -13,12 +13,12 @@ import (
 
 // ContainerCreateConfig is the parameter set to ContainerCreate()
 type ContainerCreateConfig struct {
-	Name             string
-	Config           *container.Config
-	HostConfig       *container.HostConfig
-	NetworkingConfig *network.NetworkingConfig
-	Platform         *ocispec.Platform
-	AdjustCPUShares  bool
+	Name                        string
+	Config                      *container.Config
+	HostConfig                  *container.HostConfig
+	NetworkingConfig            *network.NetworkingConfig
+	Platform                    *ocispec.Platform
+	DefaultReadOnlyNonRecursive bool
 }
 
 // ContainerRmConfig holds arguments for the container remove
@@ -90,7 +90,6 @@ type ContainerStatsConfig struct {
 	Stream    bool
 	OneShot   bool
 	OutStream io.Writer
-	Version   string
 }
 
 // ExecInspect holds information about a running process started
@@ -128,6 +127,13 @@ type CreateImageConfig struct {
 	Comment string
 	Config  *container.Config
 	Changes []string
+}
+
+// GetImageOpts holds parameters to retrieve image information
+// from the backend.
+type GetImageOpts struct {
+	Platform *ocispec.Platform
+	Details  bool
 }
 
 // CommitConfig is the configuration for creating an image as part of a build.

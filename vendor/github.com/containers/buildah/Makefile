@@ -16,18 +16,14 @@ BUILDFLAGS := -tags "$(BUILDTAGS)"
 BUILDAH := buildah
 SELINUXOPT ?= $(shell test -x /usr/sbin/selinuxenabled && selinuxenabled && echo -Z)
 SELINUXTYPE=container_runtime_exec_t
+AS ?= as
+STRIP ?= strip
 
 GO := go
 GO_LDFLAGS := $(shell if $(GO) version|grep -q gccgo; then echo "-gccgoflags"; else echo "-ldflags"; fi)
 GO_GCFLAGS := $(shell if $(GO) version|grep -q gccgo; then echo "-gccgoflags"; else echo "-gcflags"; fi)
-# test for go module support
-ifeq ($(shell $(GO) help mod >/dev/null 2>&1 && echo true), true)
-export GO_BUILD=GO111MODULE=on $(GO) build -mod=vendor
-export GO_TEST=GO111MODULE=on $(GO) test -mod=vendor
-else
 export GO_BUILD=$(GO) build
 export GO_TEST=$(GO) test
-endif
 RACEFLAGS := $(shell $(GO_TEST) -race ./pkg/dummy > /dev/null 2>&1 && echo -race)
 
 COMMIT_NO ?= $(shell git rev-parse HEAD 2> /dev/null || true)
@@ -45,7 +41,7 @@ LIBSECCOMP_COMMIT := release-2.3
 
 EXTRA_LDFLAGS ?=
 BUILDAH_LDFLAGS := $(GO_LDFLAGS) '-X main.GitCommit=$(GIT_COMMIT) -X main.buildInfo=$(SOURCE_DATE_EPOCH) -X main.cniVersion=$(CNI_COMMIT) $(EXTRA_LDFLAGS)'
-SOURCES=*.go imagebuildah/*.go bind/*.go chroot/*.go copier/*.go define/*.go docker/*.go internal/config/*.go internal/mkcw/*.go internal/mkcw/types/*.go internal/parse/*.go internal/sbom/*.go internal/source/*.go internal/tmpdir/*.go internal/util/*.go internal/volumes/*.go manifests/*.go pkg/chrootuser/*.go pkg/cli/*.go pkg/completion/*.go pkg/formats/*.go pkg/overlay/*.go pkg/parse/*.go pkg/rusage/*.go pkg/sshagent/*.go pkg/umask/*.go pkg/util/*.go util/*.go
+SOURCES=*.go imagebuildah/*.go bind/*.go chroot/*.go copier/*.go define/*.go docker/*.go internal/config/*.go internal/mkcw/*.go internal/mkcw/types/*.go internal/parse/*.go internal/sbom/*.go internal/source/*.go internal/tmpdir/*.go internal/*.go internal/util/*.go internal/volumes/*.go manifests/*.go pkg/chrootuser/*.go pkg/cli/*.go pkg/completion/*.go pkg/formats/*.go pkg/jail/*.go pkg/overlay/*.go pkg/parse/*.go pkg/rusage/*.go pkg/sshagent/*.go pkg/umask/*.go pkg/util/*.go pkg/volumes/*.go util/*.go
 
 LINTFLAGS ?=
 
@@ -79,14 +75,14 @@ bin/buildah: $(SOURCES) cmd/buildah/*.go internal/mkcw/embed/entrypoint_amd64.gz
 	$(GO_BUILD) $(BUILDAH_LDFLAGS) $(GO_GCFLAGS) "$(GOGCFLAGS)" -o $@ $(BUILDFLAGS) ./cmd/buildah
 	test -z "${SELINUXOPT}" || chcon --verbose -t $(SELINUXTYPE) $@
 
-ifneq ($(shell as --version | grep x86_64),)
+ifneq ($(shell $(AS) --version | grep x86_64),)
 internal/mkcw/embed/entrypoint_amd64.gz: internal/mkcw/embed/entrypoint_amd64
 	gzip -k9nf $^
 
 internal/mkcw/embed/entrypoint_amd64: internal/mkcw/embed/entrypoint_amd64.s
 	$(AS) -o $(patsubst %.s,%.o,$^) $^
 	$(LD) -o $@ $(patsubst %.s,%.o,$^)
-	strip $@
+	$(STRIP) $@
 endif
 
 
@@ -207,9 +203,10 @@ vendor-in-container:
 
 .PHONY: vendor
 vendor:
-	GO111MODULE=on $(GO) mod tidy
-	GO111MODULE=on $(GO) mod vendor
-	GO111MODULE=on $(GO) mod verify
+	$(GO) mod tidy
+	$(GO) mod vendor
+	$(GO) mod verify
+	if test -n "$(strip $(shell go env GOTOOLCHAIN))"; then go mod edit -toolchain none ; fi
 
 .PHONY: lint
 lint: install.tools
@@ -218,5 +215,13 @@ lint: install.tools
 # CAUTION: This is not a replacement for RPMs provided by your distro.
 # Only intended to build and test the latest unreleased changes.
 .PHONY: rpm
-rpm:
-	rpkg local
+rpm:  ## Build rpm packages
+	$(MAKE) -C rpm
+
+# Remember that rpms install exec to /usr/bin/buildah while a `make install`
+# installs them to /usr/local/bin/buildah which is likely before. Always use
+# a full path to test installed buildah or you risk to call another executable.
+.PHONY: rpm-install
+rpm-install: package  ## Install rpm packages
+	$(call err_if_empty,PKG_MANAGER) -y install rpm/RPMS/*/*.rpm
+	/usr/bin/buildah version

@@ -209,6 +209,9 @@ type ContainerState struct {
 	// healthcheck. The container will be restarted if this exceed a set
 	// number in the startup HC config.
 	StartupHCFailureCount int `json:"startupHCFailureCount,omitempty"`
+	// HCUnitName records the name of the healthcheck unit.
+	// Automatically generated when the healthcheck is started.
+	HCUnitName string `json:"hcUnitName,omitempty"`
 
 	// ExtensionStageHooks holds hooks which will be executed by libpod
 	// and not delegated to the OCI runtime.
@@ -275,6 +278,8 @@ type ContainerImageVolume struct {
 	Dest string `json:"dest"`
 	// ReadWrite sets the volume writable.
 	ReadWrite bool `json:"rw"`
+	// SubPath determines which part of the image will be mounted into the container.
+	SubPath string `json:"subPath,omitempty"`
 }
 
 // ContainerSecret is a secret that is mounted in a container

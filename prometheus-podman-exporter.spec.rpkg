@@ -18,7 +18,7 @@
 Name: prometheus-podman-exporter
 Version: 1.12.0
 Release: dev.1%{?dist}
-Summary: Prometheus exporter for podman v4.x
+Summary: Prometheus exporter for podman environment.
 License: ASL 2.0
 URL: %{git0}
 VCS: {{{ git_dir_vcs }}}
@@ -43,7 +43,8 @@ BuildRequires: shadow-utils-subid-devel
 %endif
 
 %description
-%{name} is a prometheus exporter for podman v4.x
+Prometheus exporter for podman environments exposing containers, pods, images,
+volumes and networks information.
 
 %prep
 {{{ git_dir_setup_macro }}}

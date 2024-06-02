@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -40,6 +41,7 @@ import (
 	"github.com/containers/common/pkg/subscriptions"
 	imageTypes "github.com/containers/image/v5/types"
 	"github.com/containers/storage"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/ioutils"
 	"github.com/containers/storage/pkg/lockfile"
@@ -1414,8 +1416,8 @@ func runSetupBuiltinVolumes(mountLabel, mountPoint, containerDir string, builtin
 		// If we need to, create the directory that we'll use to hold
 		// the volume contents.  If we do need to create it, then we'll
 		// need to populate it, too, so make a note of that.
-		if _, err := os.Stat(volumePath); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+		if err := fileutils.Exists(volumePath); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
 				return nil, err
 			}
 			logrus.Debugf("setting up built-in volume path at %q for %q", volumePath, volume)
@@ -1657,7 +1659,7 @@ func (b *Builder) getTmpfsMount(tokens []string, idMaps IDMaps) (*specs.Mount, e
 	return &volumes[0], nil
 }
 
-func (b *Builder) getSecretMount(tokens []string, secrets map[string]define.Secret, idMaps IDMaps, workdir string) (*specs.Mount, string, error) {
+func (b *Builder) getSecretMount(tokens []string, secrets map[string]define.Secret, idMaps IDMaps, workdir string) (_ *specs.Mount, _ string, retErr error) {
 	errInvalidSyntax := errors.New("secret should have syntax id=id[,target=path,required=bool,mode=uint,uid=uint,gid=uint")
 	if len(tokens) == 0 {
 		return nil, "", errInvalidSyntax
@@ -1737,6 +1739,11 @@ func (b *Builder) getSecretMount(tokens []string, secrets map[string]define.Secr
 		if err != nil {
 			return nil, "", err
 		}
+		defer func() {
+			if retErr != nil {
+				os.Remove(tmpFile.Name())
+			}
+		}()
 		envFile = tmpFile.Name()
 		ctrFileOnHost = tmpFile.Name()
 	case "file":

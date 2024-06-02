@@ -467,6 +467,9 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 
 	restartPolicy := new(define.InspectRestartPolicy)
 	restartPolicy.Name = c.config.RestartPolicy
+	if restartPolicy.Name == "" {
+		restartPolicy.Name = define.RestartPolicyNo
+	}
 	restartPolicy.MaximumRetryCount = c.config.RestartRetries
 	hostConfig.RestartPolicy = restartPolicy
 	if c.config.NoCgroups {
@@ -506,6 +509,10 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 
 	// Annotations
 	if ctrSpec.Annotations != nil {
+		if len(ctrSpec.Annotations) != 0 {
+			hostConfig.Annotations = ctrSpec.Annotations
+		}
+
 		hostConfig.ContainerIDFile = ctrSpec.Annotations[define.InspectAnnotationCIDFile]
 		if ctrSpec.Annotations[define.InspectAnnotationAutoremove] == define.InspectResponseTrue {
 			hostConfig.AutoRemove = true

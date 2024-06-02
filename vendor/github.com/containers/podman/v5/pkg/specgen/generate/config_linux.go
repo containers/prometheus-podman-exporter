@@ -14,6 +14,7 @@ import (
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/podman/v5/pkg/util"
+	"github.com/containers/storage/pkg/fileutils"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -25,14 +26,16 @@ import (
 // DevicesFromPath computes a list of devices
 func DevicesFromPath(g *generate.Generator, devicePath string) error {
 	if isCDIDevice(devicePath) {
-		registry := cdi.GetRegistry(
+		registry, err := cdi.NewCache(
 			cdi.WithAutoRefresh(false),
 		)
+		if err != nil {
+			return fmt.Errorf("creating CDI registry: %w", err)
+		}
 		if err := registry.Refresh(); err != nil {
 			logrus.Debugf("The following error was triggered when refreshing the CDI registry: %v", err)
 		}
-		_, err := registry.InjectDevices(g.Config, devicePath)
-		if err != nil {
+		if _, err := registry.InjectDevices(g.Config, devicePath); err != nil {
 			return fmt.Errorf("setting up CDI devices: %w", err)
 		}
 		return nil
@@ -131,7 +134,7 @@ func addDevice(g *generate.Generator, device string) error {
 		return fmt.Errorf("%s is not a valid device: %w", src, err)
 	}
 	if rootless.IsRootless() {
-		if _, err := os.Stat(src); err != nil {
+		if err := fileutils.Exists(src); err != nil {
 			return err
 		}
 		perm := "ro"

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,9 +14,11 @@ import (
 	"github.com/containers/common/libnetwork/pasta"
 	"github.com/containers/common/libnetwork/resolvconf"
 	"github.com/containers/common/libnetwork/slirp4netns"
+	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/netns"
 	"github.com/containers/common/pkg/systemd"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/homedir"
 	"github.com/containers/storage/pkg/lockfile"
 	"github.com/hashicorp/go-multierror"
@@ -50,6 +53,12 @@ type Netns struct {
 
 	// config contains containers.conf options.
 	config *config.Config
+
+	// ipAddresses used in the netns, this is needed to store
+	// the netns ips that are used by pasta. This is then handed
+	// back to the caller via IPAddresses() which then can make
+	// sure to not use them for host.containers.internal.
+	ipAddresses []net.IP
 }
 
 type rootlessNetnsError struct {
@@ -154,7 +163,7 @@ func (n *Netns) getOrCreateNetns() (ns.NetNS, bool, error) {
 }
 
 func (n *Netns) cleanup() error {
-	if _, err := os.Stat(n.dir); err != nil {
+	if err := fileutils.Exists(n.dir); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// dir does not exists no need for cleanup
 			return nil
@@ -337,7 +346,7 @@ func (n *Netns) setupMounts() error {
 	// 2. Also keep /run/systemd if it exists.
 	// Many files are symlinked into this dir, for example /dev/log.
 	runSystemd := "/run/systemd"
-	_, err = os.Stat(runSystemd)
+	err = fileutils.Exists(runSystemd)
 	if err == nil {
 		newRunSystemd := n.getPath(runSystemd)
 		err = mountAndMkdirDest(runSystemd, newRunSystemd, none, unix.MS_BIND|unix.MS_REC)
@@ -476,7 +485,7 @@ func (n *Netns) mountCNIVarDir() error {
 	// while we could always use /var there are cases where a user might store the cni
 	// configs under /var/custom and this would break
 	for {
-		if _, err := os.Stat(varTarget); err == nil {
+		if err := fileutils.Exists(varTarget); err == nil {
 			varDir = n.getPath(varTarget)
 			break
 		}
@@ -520,7 +529,24 @@ func (n *Netns) runInner(toRun func() error) (err error) {
 		if err := n.setupMounts(); err != nil {
 			return err
 		}
-		return toRun()
+		if err := toRun(); err != nil {
+			return err
+		}
+
+		// get the current active addresses in the netns, and store them
+		addrs, err := net.InterfaceAddrs()
+		if err != nil {
+			return err
+		}
+		ips := make([]net.IP, 0, len(addrs))
+		for _, addr := range addrs {
+			// make sure to skip localhost and other special addresses
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.IsGlobalUnicast() {
+				ips = append(ips, ipnet.IP)
+			}
+		}
+		n.ipAddresses = ips
+		return nil
 	})
 }
 
@@ -594,6 +620,14 @@ func (n *Netns) Run(lock *lockfile.LockFile, toRun func() error) error {
 	}
 
 	return inErr
+}
+
+// IPAddresses returns the currently used ip addresses in the netns
+// These should then not be assigned for the host.containers.internal entry.
+func (n *Netns) Info() *types.RootlessNetnsInfo {
+	return &types.RootlessNetnsInfo{
+		IPAddresses: n.ipAddresses,
+	}
 }
 
 func refCount(dir string, inc int) (int, error) {
