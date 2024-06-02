@@ -501,6 +501,7 @@ func createContainerOptions(rt *libpod.Runtime, s *specgen.SpecGenerator, pod *l
 				Dest:      v.Destination,
 				Source:    v.Source,
 				ReadWrite: v.ReadWrite,
+				SubPath:   v.SubPath,
 			})
 		}
 		options = append(options, libpod.WithImageVolumes(vols))
@@ -619,7 +620,12 @@ func createContainerOptions(rt *libpod.Runtime, s *specgen.SpecGenerator, pod *l
 		}
 		restartPolicy = s.RestartPolicy
 	}
-	options = append(options, libpod.WithRestartRetries(retries), libpod.WithRestartPolicy(restartPolicy))
+	if restartPolicy != "" {
+		options = append(options, libpod.WithRestartPolicy(restartPolicy))
+	}
+	if retries != 0 {
+		options = append(options, libpod.WithRestartRetries(retries))
+	}
 
 	healthCheckSet := false
 	if s.ContainerHealthCheckConfig.HealthConfig != nil {

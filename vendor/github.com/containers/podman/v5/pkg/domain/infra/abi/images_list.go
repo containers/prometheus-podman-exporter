@@ -3,11 +3,11 @@ package abi
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/containers/common/libimage"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
-	"golang.org/x/exp/slices"
 )
 
 func (ir *ImageEngine) List(ctx context.Context, opts entities.ImageListOptions) ([]*entities.ImageSummary, error) {
@@ -56,6 +56,21 @@ func (ir *ImageEngine) List(ctx context.Context, opts entities.ImageListOptions)
 				SharedSize:  0,
 				RepoTags:    img.Names(), // may include tags and digests
 				ParentId:    parentID,
+			}
+			if opts.ExtendedAttributes {
+				iml, err := img.IsManifestList(ctx)
+				if err != nil {
+					return nil, err
+				}
+				s.IsManifestList = &iml
+				if !iml {
+					imgData, err := img.Inspect(ctx, nil)
+					if err != nil {
+						return nil, err
+					}
+					s.Arch = imgData.Architecture
+					s.Os = imgData.Os
+				}
 			}
 			s.Labels, err = img.Labels(ctx)
 			if err != nil {

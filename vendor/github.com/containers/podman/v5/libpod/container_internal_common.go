@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -44,6 +46,7 @@ import (
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/containers/podman/v5/version"
 	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/lockfile"
 	"github.com/containers/storage/pkg/unshare"
@@ -55,7 +58,6 @@ import (
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/slices"
 	"golang.org/x/sys/unix"
 	cdi "tags.cncf.io/container-device-interface/pkg/cdi"
 )
@@ -457,11 +459,23 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 			return nil, nil, fmt.Errorf("failed to create TempDir in the %s directory: %w", c.config.StaticDir, err)
 		}
 
+		imagePath := mountPoint
+		if volume.SubPath != "" {
+			safeMount, err := c.safeMountSubPath(mountPoint, volume.SubPath)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			safeMounts = append(safeMounts, safeMount)
+
+			imagePath = safeMount.mountPoint
+		}
+
 		var overlayMount spec.Mount
 		if volume.ReadWrite {
-			overlayMount, err = overlay.Mount(contentDir, mountPoint, volume.Dest, c.RootUID(), c.RootGID(), c.runtime.store.GraphOptions())
+			overlayMount, err = overlay.Mount(contentDir, imagePath, volume.Dest, c.RootUID(), c.RootGID(), c.runtime.store.GraphOptions())
 		} else {
-			overlayMount, err = overlay.MountReadOnly(contentDir, mountPoint, volume.Dest, c.RootUID(), c.RootGID(), c.runtime.store.GraphOptions())
+			overlayMount, err = overlay.MountReadOnly(contentDir, imagePath, volume.Dest, c.RootUID(), c.RootGID(), c.runtime.store.GraphOptions())
 		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating overlay mount for image %q failed: %w", volume.Source, err)
@@ -564,14 +578,16 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 
 	// Warning: CDI may alter g.Config in place.
 	if len(c.config.CDIDevices) > 0 {
-		registry := cdi.GetRegistry(
+		registry, err := cdi.NewCache(
 			cdi.WithAutoRefresh(false),
 		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating CDI registry: %w", err)
+		}
 		if err := registry.Refresh(); err != nil {
 			logrus.Debugf("The following error was triggered when refreshing the CDI registry: %v", err)
 		}
-		_, err := registry.InjectDevices(g.Config, c.config.CDIDevices...)
-		if err != nil {
+		if _, err := registry.InjectDevices(g.Config, c.config.CDIDevices...); err != nil {
 			return nil, nil, fmt.Errorf("setting up CDI devices: %w", err)
 		}
 	}
@@ -722,7 +738,7 @@ func (c *Container) isWorkDirSymlink(resolvedPath string) bool {
 			}
 			if resolvedSymlinkWorkdir != "" {
 				resolvedPath = resolvedSymlinkWorkdir
-				_, err := os.Stat(resolvedSymlinkWorkdir)
+				err := fileutils.Exists(resolvedSymlinkWorkdir)
 				if err == nil {
 					// Symlink resolved successfully and resolved path exists on container,
 					// this is a valid use-case so return nil.
@@ -1420,7 +1436,7 @@ func (c *Container) restore(ctx context.Context, options ContainerCheckpointOpti
 
 	// Let's try to stat() CRIU's inventory file. If it does not exist, it makes
 	// no sense to try a restore. This is a minimal check if a checkpoint exists.
-	if _, err := os.Stat(filepath.Join(c.CheckpointPath(), "inventory.img")); os.IsNotExist(err) {
+	if err := fileutils.Exists(filepath.Join(c.CheckpointPath(), "inventory.img")); errors.Is(err, fs.ErrNotExist) {
 		return nil, 0, fmt.Errorf("a complete checkpoint for this container cannot be found, cannot restore: %w", err)
 	}
 
@@ -1630,7 +1646,7 @@ func (c *Container) restore(ctx context.Context, options ContainerCheckpointOpti
 	// Restore /dev/shm content
 	if c.config.ShmDir != "" && c.state.BindMounts["/dev/shm"] == c.config.ShmDir {
 		shmDirTarFileFullPath := filepath.Join(c.bundlePath(), metadata.DevShmCheckpointTar)
-		if _, err := os.Stat(shmDirTarFileFullPath); err != nil {
+		if err := fileutils.Exists(shmDirTarFileFullPath); err != nil {
 			logrus.Debug("Container checkpoint doesn't contain dev/shm: ", err.Error())
 		} else {
 			shmDirTarFile, err := os.Open(shmDirTarFileFullPath)
@@ -2283,6 +2299,15 @@ func (c *Container) addHosts() error {
 	var exclude []net.IP
 	if c.pastaResult != nil {
 		exclude = c.pastaResult.IPAddresses
+	} else if c.config.NetMode.IsBridge() {
+		// When running rootless we have to check the rootless netns ip addresses
+		// to not assign a ip that is already used in the rootless netns as it would
+		// not be routed to the host.
+		// https://github.com/containers/podman/issues/22653
+		info, err := c.runtime.network.RootlessNetnsInfo()
+		if err == nil {
+			exclude = info.IPAddresses
+		}
 	}
 
 	return etchosts.New(&etchosts.Params{
@@ -2676,13 +2701,13 @@ func (c *Container) generatePasswdAndGroup() (string, string, error) {
 	// do anything more.
 	if needPasswd {
 		passwdPath := filepath.Join(c.config.StaticDir, "passwd")
-		if _, err := os.Stat(passwdPath); err == nil {
+		if err := fileutils.Exists(passwdPath); err == nil {
 			needPasswd = false
 		}
 	}
 	if needGroup {
 		groupPath := filepath.Join(c.config.StaticDir, "group")
-		if _, err := os.Stat(groupPath); err == nil {
+		if err := fileutils.Exists(groupPath); err == nil {
 			needGroup = false
 		}
 	}
@@ -2801,7 +2826,7 @@ func (c *Container) cleanupOverlayMounts() error {
 // Creates and mounts an empty dir to mount secrets into, if it does not already exist
 func (c *Container) createSecretMountDir(runPath string) error {
 	src := filepath.Join(c.state.RunDir, "/run/secrets")
-	_, err := os.Stat(src)
+	err := fileutils.Exists(src)
 	if os.IsNotExist(err) {
 		if err := umask.MkdirAllIgnoreUmask(src, os.FileMode(0o755)); err != nil {
 			return err
@@ -2819,6 +2844,15 @@ func (c *Container) createSecretMountDir(runPath string) error {
 	return err
 }
 
+func hasIdmapOption(options []string) bool {
+	for _, o := range options {
+		if o == "idmap" || strings.HasPrefix(o, "idmap=") {
+			return true
+		}
+	}
+	return false
+}
+
 // Fix ownership and permissions of the specified volume if necessary.
 func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 	vol, err := c.runtime.state.Volume(v.Name)
@@ -2834,15 +2868,31 @@ func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 		return err
 	}
 
+	// If the volume is not empty, and it is not the first copy-up event -
+	// we should not do a chown.
+	if vol.state.NeedsChown && !vol.state.CopiedUp {
+		contents, err := os.ReadDir(vol.mountPoint())
+		if err != nil {
+			return fmt.Errorf("reading contents of volume %q: %w", vol.Name(), err)
+		}
+		// Not empty, do nothing and unset NeedsChown.
+		if len(contents) > 0 {
+			vol.state.NeedsChown = false
+			if err := vol.save(); err != nil {
+				return fmt.Errorf("saving volume %q state: %w", vol.Name(), err)
+			}
+			return nil
+		}
+	}
+
 	// Volumes owned by a volume driver are not chowned - we don't want to
 	// mess with a mount not managed by us.
 	if vol.state.NeedsChown && (!vol.UsesVolumeDriver() && vol.config.Driver != "image") {
-		vol.state.NeedsChown = false
-
 		uid := int(c.config.Spec.Process.User.UID)
 		gid := int(c.config.Spec.Process.User.GID)
 
-		if c.config.IDMappings.UIDMap != nil {
+		// if the volume is mounted with "idmap", leave the IDs in from the current environment.
+		if c.config.IDMappings.UIDMap != nil && !hasIdmapOption(v.Options) {
 			p := idtools.IDPair{
 				UID: uid,
 				GID: gid,
@@ -2856,6 +2906,10 @@ func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 			gid = newPair.GID
 		}
 
+		if vol.state.CopiedUp {
+			vol.state.NeedsChown = false
+		}
+		vol.state.CopiedUp = false
 		vol.state.UIDChowned = uid
 		vol.state.GIDChowned = gid
 
@@ -2872,8 +2926,13 @@ func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 			return err
 		}
 
-		// Make sure the new volume matches the permissions of the target directory.
+		// Make sure the new volume matches the permissions of the target directory unless 'U' is
+		// provided (since the volume was already chowned in this case).
 		// https://github.com/containers/podman/issues/10188
+		if slices.Contains(v.Options, "U") {
+			return nil
+		}
+
 		st, err := os.Lstat(filepath.Join(c.state.Mountpoint, v.Dest))
 		if err == nil {
 			if stat, ok := st.Sys().(*syscall.Stat_t); ok {
@@ -2894,6 +2953,16 @@ func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 
 				if err := idtools.SafeLchown(mountPoint, uid, gid); err != nil {
 					return err
+				}
+
+				// UID/GID 0 are sticky - if we chown to root,
+				// we stop chowning thereafter.
+				if uid == 0 && gid == 0 && vol.state.NeedsChown {
+					vol.state.NeedsChown = false
+
+					if err := vol.save(); err != nil {
+						return fmt.Errorf("saving volume %q state to database: %w", vol.Name(), err)
+					}
 				}
 			}
 			if err := os.Chmod(mountPoint, st.Mode()); err != nil {

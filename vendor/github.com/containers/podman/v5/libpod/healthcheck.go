@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/containers/podman/v5/libpod/define"
-	"github.com/containers/podman/v5/libpod/events"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -176,7 +176,9 @@ func (c *Container) runHealthCheck(ctx context.Context, isStartup bool) (define.
 	if hcResult == define.HealthCheckNotDefined || hcResult == define.HealthCheckInternalError {
 		return hcResult, logStatus, hcErr
 	}
-	c.newContainerEvent(events.HealthStatus)
+	if c.runtime.config.Engine.HealthcheckEvents {
+		c.newContainerHealthCheckEvent(logStatus)
+	}
 
 	return hcResult, logStatus, hcErr
 }
@@ -346,7 +348,7 @@ func newHealthCheckLog(start, end time.Time, exitCode int, log string) define.He
 	}
 }
 
-// updatedHealthCheckStatus updates the health status of the container
+// updateHealthStatus updates the health status of the container
 // in the healthcheck log
 func (c *Container) updateHealthStatus(status string) error {
 	healthCheck, err := c.getHealthCheckLog()
@@ -428,11 +430,12 @@ func (c *Container) healthCheckLogPath() string {
 // The caller should lock the container before this function is called.
 func (c *Container) getHealthCheckLog() (define.HealthCheckResults, error) {
 	var healthCheck define.HealthCheckResults
-	if _, err := os.Stat(c.healthCheckLogPath()); os.IsNotExist(err) {
-		return healthCheck, nil
-	}
 	b, err := os.ReadFile(c.healthCheckLogPath())
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// If the file does not exists just return empty healthcheck and no error.
+			return healthCheck, nil
+		}
 		return healthCheck, fmt.Errorf("failed to read health check log file: %w", err)
 	}
 	if err := json.Unmarshal(b, &healthCheck); err != nil {

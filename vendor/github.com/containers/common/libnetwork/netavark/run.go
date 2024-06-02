@@ -5,13 +5,13 @@ package netavark
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/containers/common/libnetwork/internal/util"
 	"github.com/containers/common/libnetwork/types"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/slices"
 )
 
 type netavarkOptions struct {
@@ -186,4 +186,11 @@ func (n *netavarkNetwork) RunInRootlessNetns(toRun func() error) error {
 		return types.ErrNotRootlessNetns
 	}
 	return n.rootlessNetns.Run(n.lock, toRun)
+}
+
+func (n *netavarkNetwork) RootlessNetnsInfo() (*types.RootlessNetnsInfo, error) {
+	if n.rootlessNetns == nil {
+		return nil, types.ErrNotRootlessNetns
+	}
+	return n.rootlessNetns.Info(), nil
 }
