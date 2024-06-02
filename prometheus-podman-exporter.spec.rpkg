@@ -16,8 +16,8 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.12.0
-Release: 1%{?dist}
+Version: 1.13.0
+Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman environment.
 License: ASL 2.0
 URL: %{git0}
@@ -92,6 +92,8 @@ popd
 
 
 %changelog
+* Sun Jun 02 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.13.0-dev-1
+
 * Sun Jun 02 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.12.0-1
 - Bump github.com/containers/podman from 5.0.3 to 5.1.0
 - Bump github.com/containers/image/v5 from 5.30.1 to 5.31.0
