@@ -5,9 +5,9 @@ go 1.21
 toolchain go1.21.0
 
 require (
-	github.com/containers/common v0.59.0
+	github.com/containers/common v0.59.1
 	github.com/containers/image/v5 v5.31.0
-	github.com/containers/podman/v5 v5.1.0
+	github.com/containers/podman/v5 v5.1.1
 	github.com/go-kit/log v0.2.1
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.33.1
