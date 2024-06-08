@@ -39,17 +39,23 @@ type Container struct {
 
 // ContainerStat implements container's stat.
 type ContainerStat struct {
-	ID          string
-	Name        string
-	PIDs        uint64
-	CPU         float64
-	CPUSystem   float64
-	MemUsage    uint64
-	MemLimit    uint64
-	NetInput    uint64
-	NetOutput   uint64
-	BlockInput  uint64
-	BlockOutput uint64
+	ID               string
+	Name             string
+	PIDs             uint64
+	CPU              float64
+	CPUSystem        float64
+	MemUsage         uint64
+	MemLimit         uint64
+	NetInput         uint64
+	NetOutput        uint64
+	NetInputDropped  uint64
+	NetInputErrors   uint64
+	NetInputPackets  uint64
+	NetOutputDropped uint64
+	NetOutputErrors  uint64
+	NetOutputPackets uint64
+	BlockInput       uint64
+	BlockOutput      uint64
 }
 
 type containerSizeCache struct {
@@ -156,27 +162,45 @@ func ContainersStats() ([]ContainerStat, error) {
 
 	for _, rep := range statReport {
 		var (
-			netInput  uint64
-			netOutput uint64
+			netInput         uint64
+			netInputDropped  uint64
+			netInputErrors   uint64
+			netInputPackets  uint64
+			netOutput        uint64
+			netOutputDropped uint64
+			netOutputErrors  uint64
+			netOutputPackets uint64
 		)
 
 		for _, net := range rep.Network {
 			netInput += net.RxBytes
+			netInputDropped += net.RxDropped
+			netInputErrors += net.RxErrors
+			netInputPackets += net.RxPackets
 			netOutput += net.TxBytes
+			netOutputDropped += net.TxDropped
+			netOutputErrors += net.TxErrors
+			netOutputPackets += net.TxPackets
 		}
 
 		stat = append(stat, ContainerStat{
-			ID:          getID(rep.ContainerID),
-			Name:        rep.Name,
-			PIDs:        rep.PIDs,
-			CPU:         float64(rep.CPUNano) / nano,
-			CPUSystem:   float64(rep.CPUSystemNano) / nano,
-			MemUsage:    rep.MemUsage,
-			MemLimit:    rep.MemLimit,
-			NetInput:    netInput,
-			NetOutput:   netOutput,
-			BlockInput:  rep.BlockInput,
-			BlockOutput: rep.BlockOutput,
+			ID:               getID(rep.ContainerID),
+			Name:             rep.Name,
+			PIDs:             rep.PIDs,
+			CPU:              float64(rep.CPUNano) / nano,
+			CPUSystem:        float64(rep.CPUSystemNano) / nano,
+			MemUsage:         rep.MemUsage,
+			MemLimit:         rep.MemLimit,
+			NetInput:         netInput,
+			NetInputDropped:  netInputDropped,
+			NetInputErrors:   netInputErrors,
+			NetInputPackets:  netInputPackets,
+			NetOutput:        netOutput,
+			NetOutputDropped: netOutputDropped,
+			NetOutputErrors:  netOutputErrors,
+			NetOutputPackets: netOutputPackets,
+			BlockInput:       rep.BlockInput,
+			BlockOutput:      rep.BlockOutput,
 		})
 	}
 
