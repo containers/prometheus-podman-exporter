@@ -10,7 +10,7 @@ require (
 	github.com/containers/podman/v5 v5.1.2
 	github.com/go-kit/log v0.2.1
 	github.com/onsi/ginkgo/v2 v2.19.0
-	github.com/onsi/gomega v1.33.1
+	github.com/onsi/gomega v1.34.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/common v0.55.0
