@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -40,17 +39,13 @@ const (
 	sqliteOptionForeignKeys = "&_foreign_keys=1"
 	// Make sure that transactions happen exclusively.
 	sqliteOptionTXLock = "&_txlock=exclusive"
-	// Make sure busy timeout is set to high value to keep retrying when the db is locked.
-	// Timeout is in ms, so set it to 100s to have enough time to retry the operations.
-	sqliteOptionBusyTimeout = "&_busy_timeout=100000"
 
 	// Assembled sqlite options used when opening the database.
 	sqliteOptions = "db.sql?" +
 		sqliteOptionLocation +
 		sqliteOptionSynchronous +
 		sqliteOptionForeignKeys +
-		sqliteOptionTXLock +
-		sqliteOptionBusyTimeout
+		sqliteOptionTXLock
 )
 
 // NewSqliteState creates a new SQLite-backed state database.
@@ -72,7 +67,18 @@ func NewSqliteState(runtime *Runtime) (_ State, defErr error) {
 		return nil, fmt.Errorf("creating root directory: %w", err)
 	}
 
-	conn, err := sql.Open("sqlite3", filepath.Join(basePath, sqliteOptions))
+	// Make sure busy timeout is set to high value to keep retrying when the db is locked.
+	// Timeout is in ms, so set it to 100s to have enough time to retry the operations.
+	// Some users might want to experiment with different timeout values (#23236)
+	// DO NOT DOCUMENT or recommend PODMAN_SQLITE_BUSY_TIMEOUT outside of testing.
+	busyTimeout := "100000"
+	if env, ok := os.LookupEnv("PODMAN_SQLITE_BUSY_TIMEOUT"); ok {
+		logrus.Debugf("PODMAN_SQLITE_BUSY_TIMEOUT is set to %s", env)
+		busyTimeout = env
+	}
+	sqliteOptionBusyTimeout := "&_busy_timeout=" + busyTimeout
+
+	conn, err := sql.Open("sqlite3", filepath.Join(basePath, sqliteOptions+sqliteOptionBusyTimeout))
 	if err != nil {
 		return nil, fmt.Errorf("initializing sqlite database: %w", err)
 	}
@@ -379,21 +385,24 @@ func (s *SQLiteState) ValidateDBConfig(runtime *Runtime) (defErr error) {
 
 	checkField := func(fieldName, dbVal, ourVal string, isPath bool) error {
 		if isPath {
-			// Evaluate symlinks. Ignore ENOENT. No guarantee all
-			// directories exist this early in Libpod init.
+			// Tolerate symlinks when possible - most relevant for OStree systems
+			// and rootless containers, where we want to put containers in /home,
+			// which is symlinked to /var/home.
+			// Ignore ENOENT as reasonable, as some paths may not exist in early Libpod
+			// init.
 			if dbVal != "" {
-				dbValClean, err := filepath.EvalSymlinks(dbVal)
-				if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				checkedVal, err := evalSymlinksIfExists(dbVal)
+				if err != nil {
 					return fmt.Errorf("cannot evaluate symlinks on DB %s path %q: %w", fieldName, dbVal, err)
 				}
-				dbVal = dbValClean
+				dbVal = checkedVal
 			}
 			if ourVal != "" {
-				ourValClean, err := filepath.EvalSymlinks(ourVal)
-				if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				checkedVal, err := evalSymlinksIfExists(ourVal)
+				if err != nil {
 					return fmt.Errorf("cannot evaluate symlinks on our %s path %q: %w", fieldName, ourVal, err)
 				}
-				ourVal = ourValClean
+				ourVal = checkedVal
 			}
 		}
 
@@ -1310,7 +1319,7 @@ func (s *SQLiteState) RewriteVolumeConfig(volume *Volume, newCfg *VolumeConfig) 
 		}
 	}()
 
-	results, err := tx.Exec("UPDATE VolumeConfig SET Name=?, JSON=? WHERE ID=?;", newCfg.Name, json, volume.Name())
+	results, err := tx.Exec("UPDATE VolumeConfig SET Name=?, JSON=? WHERE Name=?;", newCfg.Name, json, volume.Name())
 	if err != nil {
 		return fmt.Errorf("updating volume config table with new configuration for volume %s: %w", volume.Name(), err)
 	}

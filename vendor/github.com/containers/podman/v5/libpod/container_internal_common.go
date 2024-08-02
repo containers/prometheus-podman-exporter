@@ -565,8 +565,21 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 		return nil, nil, err
 	}
 
-	g.SetRootPath(c.state.Mountpoint)
+	rootPath, err := c.getRootPathForOCI()
+	if err != nil {
+		return nil, nil, err
+	}
+	g.SetRootPath(rootPath)
 	g.AddAnnotation("org.opencontainers.image.stopSignal", strconv.FormatUint(uint64(c.config.StopSignal), 10))
+
+	if c.config.StopSignal != 0 {
+		g.AddAnnotation("org.systemd.property.KillSignal", strconv.FormatUint(uint64(c.config.StopSignal), 10))
+	}
+
+	if c.config.StopTimeout != 0 {
+		annotation := fmt.Sprintf("uint64 %d", c.config.StopTimeout*1000000) // sec to usec
+		g.AddAnnotation("org.systemd.property.TimeoutStopUSec", annotation)
+	}
 
 	if _, exists := g.Config.Annotations[annotations.ContainerManager]; !exists {
 		g.AddAnnotation(annotations.ContainerManager, annotations.ContainerManagerLibpod)
@@ -1843,10 +1856,6 @@ func (c *Container) mountIntoRootDirs(mountName string, mountPath string) error 
 
 // Make standard bind mounts to include in the container
 func (c *Container) makeBindMounts() error {
-	if err := idtools.SafeChown(c.state.RunDir, c.RootUID(), c.RootGID()); err != nil {
-		return fmt.Errorf("cannot chown run directory: %w", err)
-	}
-
 	if c.state.BindMounts == nil {
 		c.state.BindMounts = make(map[string]string)
 	}
@@ -1924,15 +1933,6 @@ func (c *Container) makeBindMounts() error {
 				err = c.mountIntoRootDirs(config.DefaultHostsFile, hostsPath)
 				if err != nil {
 					return fmt.Errorf("assigning mounts to container %s: %w", c.ID(), err)
-				}
-			}
-
-			if !hasCurrentUserMapped(c) {
-				if err := makeAccessible(resolvPath, c.RootUID(), c.RootGID()); err != nil {
-					return err
-				}
-				if err := makeAccessible(hostsPath, c.RootUID(), c.RootGID()); err != nil {
-					return err
 				}
 			}
 		} else {

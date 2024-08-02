@@ -183,23 +183,11 @@ func hasCurrentUserMapped(ctr *Container) bool {
 
 // CreateContainer creates a container.
 func (r *ConmonOCIRuntime) CreateContainer(ctr *Container, restoreOptions *ContainerCheckpointOptions) (int64, error) {
-	// always make the run dir accessible to the current user so that the PID files can be read without
-	// being in the rootless user namespace.
-	if err := makeAccessible(ctr.state.RunDir, 0, 0); err != nil {
-		return 0, err
-	}
 	if !hasCurrentUserMapped(ctr) {
-		for _, i := range []string{ctr.state.RunDir, ctr.runtime.config.Engine.TmpDir, ctr.config.StaticDir, ctr.state.Mountpoint, ctr.runtime.config.Engine.VolumePath} {
-			if err := makeAccessible(i, ctr.RootUID(), ctr.RootGID()); err != nil {
-				return 0, err
-			}
-		}
-
 		// if we are running a non privileged container, be sure to umount some kernel paths so they are not
 		// bind mounted inside the container at all.
-		if !ctr.config.Privileged && !rootless.IsRootless() {
-			return r.createRootlessContainer(ctr, restoreOptions)
-		}
+		hideFiles := !ctr.config.Privileged && !rootless.IsRootless()
+		return r.createRootlessContainer(ctr, restoreOptions, hideFiles)
 	}
 	return r.createOCIContainer(ctr, restoreOptions)
 }
@@ -342,6 +330,7 @@ func generateResourceFile(res *spec.LinuxResources) (string, []string, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	defer f.Close()
 
 	j, err := json.Marshal(res)
 	if err != nil {
@@ -978,28 +967,6 @@ func (r *ConmonOCIRuntime) RuntimeInfo() (*define.ConmonInfo, *define.OCIRuntime
 	return &conmon, &ocirt, nil
 }
 
-// makeAccessible changes the path permission and each parent directory to have --x--x--x
-func makeAccessible(path string, uid, gid int) error {
-	for ; path != "/"; path = filepath.Dir(path) {
-		st, err := os.Stat(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
-		}
-		if int(st.Sys().(*syscall.Stat_t).Uid) == uid && int(st.Sys().(*syscall.Stat_t).Gid) == gid {
-			continue
-		}
-		if st.Mode()&0111 != 0111 {
-			if err := os.Chmod(path, st.Mode()|0111); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // Wait for a container which has been sent a signal to stop
 func waitContainerStop(ctr *Container, timeout time.Duration) error {
 	return waitPidStop(ctr.state.PID, timeout)
@@ -1249,17 +1216,22 @@ func (r *ConmonOCIRuntime) createOCIContainer(ctr *Container, restoreOptions *Co
 	cmd.Env = append(cmd.Env, conmonEnv...)
 	cmd.ExtraFiles = append(cmd.ExtraFiles, childSyncPipe, childStartPipe)
 
-	if r.reservePorts && !rootless.IsRootless() && !ctr.config.NetMode.IsSlirp4netns() {
-		ports, err := bindPorts(ctr.convertPortMappings())
+	if ctr.config.PostConfigureNetNS {
+		// netns was not setup yet but we have to bind ports now so we can leak the fd to conmon
+		ports, err := ctr.bindPorts()
 		if err != nil {
 			return 0, err
 		}
 		filesToClose = append(filesToClose, ports...)
-
 		// Leak the port we bound in the conmon process.  These fd's won't be used
 		// by the container and conmon will keep the ports busy so that another
 		// process cannot use them.
 		cmd.ExtraFiles = append(cmd.ExtraFiles, ports...)
+	} else {
+		// ports were bound in ctr.prepare() as we must do it before the netns setup
+		filesToClose = append(filesToClose, ctr.reservedPorts...)
+		cmd.ExtraFiles = append(cmd.ExtraFiles, ctr.reservedPorts...)
+		ctr.reservedPorts = nil
 	}
 
 	if ctr.config.NetMode.IsSlirp4netns() || rootless.IsRootless() {

@@ -71,9 +71,22 @@ func (c *Container) prepare() error {
 
 	go func() {
 		defer wg.Done()
+		if c.state.State == define.ContainerStateStopped {
+			// networking should not be reused after a stop
+			if err := c.cleanupNetwork(); err != nil {
+				createNetNSErr = err
+				return
+			}
+		}
+
 		// Set up network namespace if not already set up
 		noNetNS := c.state.NetNS == ""
 		if c.config.CreateNetNS && noNetNS && !c.config.PostConfigureNetNS {
+			c.reservedPorts, createNetNSErr = c.bindPorts()
+			if createNetNSErr != nil {
+				return
+			}
+
 			netNS, networkStatus, createNetNSErr = c.runtime.createNetNS(c)
 			if createNetNSErr != nil {
 				return
@@ -140,6 +153,11 @@ func (c *Container) prepare() error {
 	}
 
 	if createErr != nil {
+		for _, f := range c.reservedPorts {
+			// make sure to close all ports again on errors
+			f.Close()
+		}
+		c.reservedPorts = nil
 		return createErr
 	}
 
@@ -664,7 +682,7 @@ func (c *Container) makePlatformBindMounts() error {
 	// Make /etc/hostname
 	// This should never change, so no need to recreate if it exists
 	if _, ok := c.state.BindMounts["/etc/hostname"]; !ok {
-		hostnamePath, err := c.writeStringToRundir("hostname", c.Hostname())
+		hostnamePath, err := c.writeStringToRundir("hostname", c.Hostname()+"\n")
 		if err != nil {
 			return fmt.Errorf("creating hostname file for container %s: %w", c.ID(), err)
 		}

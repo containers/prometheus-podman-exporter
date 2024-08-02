@@ -13,7 +13,7 @@ func (ic *ContainerEngine) Info(ctx context.Context) (*define.Info, error) {
 	return system.Info(ic.ClientCtx, nil)
 }
 
-func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) error {
+func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool, cgroupMode string) error {
 	panic(errors.New("rootless engine mode is not supported when tunneling"))
 }
 
@@ -21,6 +21,15 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 func (ic *ContainerEngine) SystemPrune(ctx context.Context, opts entities.SystemPruneOptions) (*entities.SystemPruneReport, error) {
 	options := new(system.PruneOptions).WithAll(opts.All).WithVolumes(opts.Volume).WithFilters(opts.Filters).WithExternal(opts.External)
 	return system.Prune(ic.ClientCtx, options)
+}
+
+func (ic *ContainerEngine) SystemCheck(ctx context.Context, opts entities.SystemCheckOptions) (*entities.SystemCheckReport, error) {
+	options := new(system.CheckOptions).WithQuick(opts.Quick).WithRepair(opts.Repair).WithRepairLossy(opts.RepairLossy)
+	if opts.UnreferencedLayerMaximumAge != nil {
+		duration := *opts.UnreferencedLayerMaximumAge
+		options = options.WithUnreferencedLayerMaximumAge(duration.String())
+	}
+	return system.Check(ic.ClientCtx, options)
 }
 
 func (ic *ContainerEngine) Migrate(ctx context.Context, options entities.SystemMigrateOptions) error {
