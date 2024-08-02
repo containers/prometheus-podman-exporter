@@ -44,6 +44,7 @@ import (
 	"github.com/openshift/imagebuilder/dockerfile/command"
 	"github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 )
 
 // StageExecutor bundles up what we need to know when executing one stage of a
@@ -80,42 +81,22 @@ type StageExecutor struct {
 // Preserve informs the stage executor that from this point on, it needs to
 // ensure that only COPY and ADD instructions can modify the contents of this
 // directory or anything below it.
-// The StageExecutor handles this by caching the contents of directories which
-// have been marked this way before executing a RUN instruction, invalidating
-// that cache when an ADD or COPY instruction sets any location under the
-// directory as the destination, and using the cache to reset the contents of
-// the directory tree after processing each RUN instruction.
+// When CompatVolumes is enabled, the StageExecutor handles this by caching the
+// contents of directories which have been marked this way before executing a
+// RUN instruction, invalidating that cache when an ADD or COPY instruction
+// sets any location under the directory as the destination, and using the
+// cache to reset the contents of the directory tree after processing each RUN
+// instruction.
 // It would be simpler if we could just mark the directory as a read-only bind
 // mount of itself during Run(), but the directory is expected to be remain
 // writeable while the RUN instruction is being handled, even if any changes
 // made within the directory are ultimately discarded.
 func (s *StageExecutor) Preserve(path string) error {
-	logrus.Debugf("PRESERVE %q", path)
-	if s.volumes.Covers(path) {
-		// This path is already a subdirectory of a volume path that
-		// we're already preserving, so there's nothing new to be done
-		// except ensure that it exists.
-		createdDirPerms := os.FileMode(0755)
-		if err := copier.Mkdir(s.mountPoint, filepath.Join(s.mountPoint, path), copier.MkdirOptions{ChmodNew: &createdDirPerms}); err != nil {
-			return fmt.Errorf("ensuring volume path exists: %w", err)
-		}
-		if err := s.volumeCacheInvalidate(path); err != nil {
-			return fmt.Errorf("ensuring volume path %q is preserved: %w", filepath.Join(s.mountPoint, path), err)
-		}
-		return nil
-	}
-	// Figure out where the cache for this volume would be stored.
-	s.preserved++
-	cacheDir, err := s.executor.store.ContainerDirectory(s.builder.ContainerID)
-	if err != nil {
-		return fmt.Errorf("unable to locate temporary directory for container")
-	}
-	cacheFile := filepath.Join(cacheDir, fmt.Sprintf("volume%d.tar", s.preserved))
-	// Save info about the top level of the location that we'll be archiving.
-	var archivedPath string
+	logrus.Debugf("PRESERVE %q in %q", path, s.builder.ContainerID)
 
 	// Try and resolve the symlink (if one exists)
 	// Set archivedPath and path based on whether a symlink is found or not
+	var archivedPath string
 	if evaluated, err := copier.Eval(s.mountPoint, filepath.Join(s.mountPoint, path), copier.EvalOptions{}); err == nil {
 		symLink, err := filepath.Rel(s.mountPoint, evaluated)
 		if err != nil {
@@ -130,9 +111,55 @@ func (s *StageExecutor) Preserve(path string) error {
 		return fmt.Errorf("evaluating path %q: %w", path, err)
 	}
 
+	const createdDirPerms = os.FileMode(0o755)
+	if s.executor.compatVolumes != types.OptionalBoolTrue {
+		logrus.Debugf("ensuring volume path %q exists", path)
+		createdDirPerms := createdDirPerms
+		if err := copier.Mkdir(s.mountPoint, archivedPath, copier.MkdirOptions{ChmodNew: &createdDirPerms}); err != nil {
+			return fmt.Errorf("ensuring volume path exists: %w", err)
+		}
+		logrus.Debugf("not doing volume save-and-restore of %q in %q", path, s.builder.ContainerID)
+		return nil
+	}
+
+	if s.volumes.Covers(path) {
+		// This path is a subdirectory of a volume path that we're
+		// already preserving, so there's nothing new to be done except
+		// ensure that it exists.
+		st, err := os.Stat(archivedPath)
+		if errors.Is(err, os.ErrNotExist) {
+			// We do have to create it.  That means it's not in any
+			// cached copy of the path that covers it, so we have
+			// to invalidate such cached copy.
+			logrus.Debugf("have to create volume %q", path)
+			createdDirPerms := createdDirPerms
+			if err := copier.Mkdir(s.mountPoint, filepath.Join(s.mountPoint, path), copier.MkdirOptions{ChmodNew: &createdDirPerms}); err != nil {
+				return fmt.Errorf("ensuring volume path exists: %w", err)
+			}
+			if err := s.volumeCacheInvalidate(path); err != nil {
+				return fmt.Errorf("ensuring volume path %q is preserved: %w", filepath.Join(s.mountPoint, path), err)
+			}
+			if st, err = os.Stat(archivedPath); err != nil {
+				return fmt.Errorf("checking on just-created volume path: %w", err)
+			}
+		}
+		s.volumeCacheInfo[path] = st
+		return nil
+	}
+
+	// Figure out where the cache for this volume would be stored.
+	s.preserved++
+	cacheDir, err := s.executor.store.ContainerDirectory(s.builder.ContainerID)
+	if err != nil {
+		return fmt.Errorf("unable to locate temporary directory for container")
+	}
+	cacheFile := filepath.Join(cacheDir, fmt.Sprintf("volume%d.tar", s.preserved))
+
+	// Save info about the top level of the location that we'll be archiving.
 	st, err := os.Stat(archivedPath)
 	if errors.Is(err, os.ErrNotExist) {
-		createdDirPerms := os.FileMode(0755)
+		logrus.Debugf("have to create volume %q", path)
+		createdDirPerms := os.FileMode(0o755)
 		if err = copier.Mkdir(s.mountPoint, archivedPath, copier.MkdirOptions{ChmodNew: &createdDirPerms}); err != nil {
 			return fmt.Errorf("ensuring volume path exists: %w", err)
 		}
@@ -145,11 +172,13 @@ func (s *StageExecutor) Preserve(path string) error {
 	s.volumeCacheInfo[path] = st
 	if !s.volumes.Add(path) {
 		// This path is not a subdirectory of a volume path that we're
-		// already preserving, so adding it to the list should work.
+		// already preserving, so adding it to the list should have
+		// worked.
 		return fmt.Errorf("adding %q to the volume cache", path)
 	}
 	s.volumeCache[path] = cacheFile
-	// Now prune cache files for volumes that are now supplanted by this one.
+
+	// Now prune cache files for volumes that are newly supplanted by this one.
 	removed := []string{}
 	for cachedPath := range s.volumeCache {
 		// Walk our list of cached volumes, and check that they're
@@ -168,6 +197,7 @@ func (s *StageExecutor) Preserve(path string) error {
 			removed = append(removed, cachedPath)
 		}
 	}
+
 	// Actually remove the caches that we decided to remove.
 	for _, cachedPath := range removed {
 		archivedPath := filepath.Join(s.mountPoint, cachedPath)
@@ -274,7 +304,7 @@ func (s *StageExecutor) volumeCacheRestoreVFS() (err error) {
 		if err := copier.Remove(s.mountPoint, archivedPath, copier.RemoveOptions{All: true}); err != nil {
 			return err
 		}
-		createdDirPerms := os.FileMode(0755)
+		createdDirPerms := os.FileMode(0o755)
 		if err := copier.Mkdir(s.mountPoint, archivedPath, copier.MkdirOptions{ChmodNew: &createdDirPerms}); err != nil {
 			return err
 		}
@@ -349,6 +379,26 @@ func (s *StageExecutor) volumeCacheRestore() error {
 // Copy copies data into the working tree.  The "Download" field is how
 // imagebuilder tells us the instruction was "ADD" and not "COPY".
 func (s *StageExecutor) Copy(excludes []string, copies ...imagebuilder.Copy) error {
+	for _, cp := range copies {
+		if cp.KeepGitDir {
+			if cp.Download {
+				return errors.New("ADD --keep-git-dir is not supported")
+			}
+			return errors.New("COPY --keep-git-dir is not supported")
+		}
+		if cp.Link {
+			return errors.New("COPY --link is not supported")
+		}
+		if cp.Parents {
+			return errors.New("COPY --parents is not supported")
+		}
+		if len(cp.Excludes) > 0 {
+			if cp.Download {
+				return errors.New("ADD --excludes is not supported")
+			}
+			return errors.New("COPY --excludes is not supported")
+		}
+	}
 	s.builder.ContentDigester.Restart()
 	return s.performCopy(excludes, copies...)
 }
@@ -752,32 +802,33 @@ func (s *StageExecutor) Run(run imagebuilder.Run, config docker.Config) error {
 	}
 	namespaceOptions := append([]define.NamespaceOption{}, s.executor.namespaceOptions...)
 	options := buildah.RunOptions{
-		Args:             s.executor.runtimeArgs,
-		Cmd:              config.Cmd,
-		ContextDir:       s.executor.contextDir,
-		ConfigureNetwork: s.executor.configureNetwork,
-		Entrypoint:       config.Entrypoint,
-		Env:              config.Env,
-		Hostname:         config.Hostname,
-		Logger:           s.executor.logger,
-		Mounts:           s.executor.transientMounts,
-		NamespaceOptions: namespaceOptions,
-		NoHostname:       s.executor.noHostname,
-		NoHosts:          s.executor.noHosts,
-		NoPivot:          os.Getenv("BUILDAH_NOPIVOT") != "",
-		Quiet:            s.executor.quiet,
-		RunMounts:        run.Mounts,
-		Runtime:          s.executor.runtime,
-		Secrets:          s.executor.secrets,
-		SSHSources:       s.executor.sshsources,
-		StageMountPoints: stageMountPoints,
-		Stderr:           s.executor.err,
-		Stdin:            stdin,
-		Stdout:           s.executor.out,
-		SystemContext:    s.executor.systemContext,
-		Terminal:         buildah.WithoutTerminal,
-		User:             config.User,
-		WorkingDir:       config.WorkingDir,
+		Args:                 s.executor.runtimeArgs,
+		Cmd:                  config.Cmd,
+		ContextDir:           s.executor.contextDir,
+		ConfigureNetwork:     s.executor.configureNetwork,
+		Entrypoint:           config.Entrypoint,
+		Env:                  config.Env,
+		Hostname:             config.Hostname,
+		Logger:               s.executor.logger,
+		Mounts:               slices.Clone(s.executor.transientMounts),
+		NamespaceOptions:     namespaceOptions,
+		NoHostname:           s.executor.noHostname,
+		NoHosts:              s.executor.noHosts,
+		NoPivot:              os.Getenv("BUILDAH_NOPIVOT") != "",
+		Quiet:                s.executor.quiet,
+		CompatBuiltinVolumes: types.OptionalBoolFalse,
+		RunMounts:            run.Mounts,
+		Runtime:              s.executor.runtime,
+		Secrets:              s.executor.secrets,
+		SSHSources:           s.executor.sshsources,
+		StageMountPoints:     stageMountPoints,
+		Stderr:               s.executor.err,
+		Stdin:                stdin,
+		Stdout:               s.executor.out,
+		SystemContext:        s.executor.systemContext,
+		Terminal:             buildah.WithoutTerminal,
+		User:                 config.User,
+		WorkingDir:           config.WorkingDir,
 	}
 
 	// Honor `RUN --network=<>`.
@@ -804,20 +855,40 @@ func (s *StageExecutor) Run(run imagebuilder.Run, config docker.Config) error {
 			args = append([]string{"/bin/sh", "-c"}, args...)
 		}
 	}
-	mounts, err := s.volumeCacheSave()
-	if err != nil {
-		return err
+
+	if s.executor.compatVolumes == types.OptionalBoolTrue {
+		// Only bother with saving/restoring the contents of volumes if
+		// we've been specifically asked to.
+		mounts, err := s.volumeCacheSave()
+		if err != nil {
+			return err
+		}
+		options.Mounts = append(options.Mounts, mounts...)
 	}
-	options.Mounts = append(options.Mounts, mounts...)
+
+	// The list of built-in volumes isn't passed in via RunOptions, so make
+	// sure the builder's list of built-in volumes includes anything that
+	// the configuration thinks is a built-in volume.
+	s.builder.ClearVolumes()
+	for v := range config.Volumes {
+		s.builder.AddVolume(v)
+	}
+
 	if len(heredocMounts) > 0 {
 		options.Mounts = append(options.Mounts, heredocMounts...)
 	}
 	err = s.builder.Run(args, options)
-	if err2 := s.volumeCacheRestore(); err2 != nil {
-		if err == nil {
-			return err2
+
+	if s.executor.compatVolumes == types.OptionalBoolTrue {
+		// Only bother with saving/restoring the contents of volumes if
+		// we've been specifically asked to.
+		if err2 := s.volumeCacheRestore(); err2 != nil {
+			if err == nil {
+				return err2
+			}
 		}
 	}
+
 	return err
 }
 
@@ -860,12 +931,15 @@ func (s *StageExecutor) prepare(ctx context.Context, from string, initializeIBCo
 		from = base
 	}
 	displayFrom := from
+	if ib.Platform != "" {
+		displayFrom = "--platform=" + ib.Platform + " " + displayFrom
+	}
 
 	// stage.Name will be a numeric string for all stages without an "AS" clause
 	asImageName := stage.Name
 	if asImageName != "" {
 		if _, err := strconv.Atoi(asImageName); err != nil {
-			displayFrom = from + " AS " + asImageName
+			displayFrom += " AS " + asImageName
 		}
 	}
 
@@ -1004,6 +1078,14 @@ func (s *StageExecutor) prepare(ctx context.Context, from string, initializeIBCo
 		// Make this our "current" working container.
 		s.mountPoint = mountPoint
 		s.builder = builder
+		// Now that the rootfs is mounted, set up handling of volumes from the base image.
+		s.volumeCache = make(map[string]string)
+		s.volumeCacheInfo = make(map[string]os.FileInfo)
+		for _, v := range builder.Volumes() {
+			if err := s.Preserve(v); err != nil {
+				return nil, fmt.Errorf("marking base image volume %q for preservation: %w", v, err)
+			}
+		}
 	}
 	logrus.Debugln("Container ID:", builder.ContainerID)
 	return builder, nil
@@ -1992,6 +2074,12 @@ func (s *StageExecutor) pushCache(ctx context.Context, src, cacheKey string) err
 			MaxRetries:          s.executor.maxPullPushRetries,
 			RetryDelay:          s.executor.retryPullPushDelay,
 		}
+		if s.executor.cachePushSourceLookupReferenceFunc != nil {
+			options.SourceLookupReferenceFunc = s.executor.cachePushSourceLookupReferenceFunc(dest)
+		}
+		if s.executor.cachePushDestinationLookupReferenceFunc != nil {
+			options.DestinationLookupReferenceFunc = s.executor.cachePushDestinationLookupReferenceFunc
+		}
 		ref, digest, err := buildah.Push(ctx, src, dest, options)
 		if err != nil {
 			return fmt.Errorf("failed pushing cache to %q: %w", dest, err)
@@ -2013,7 +2101,8 @@ func (s *StageExecutor) pullCache(ctx context.Context, cacheKey string) (referen
 		return nil, "", err
 	}
 	for _, src := range srcList {
-		logrus.Debugf("trying to pull cache from remote repo: %+v", src.DockerReference())
+		srcDockerRef := src.DockerReference()
+		logrus.Debugf("trying to pull cache from remote repo: %+v", srcDockerRef)
 		options := buildah.PullOptions{
 			SignaturePolicyPath: s.executor.signaturePolicyPath,
 			Store:               s.executor.store,
@@ -2025,7 +2114,14 @@ func (s *StageExecutor) pullCache(ctx context.Context, cacheKey string) (referen
 			ReportWriter:        nil,
 			PullPolicy:          define.PullIfNewer,
 		}
-		id, err := buildah.Pull(ctx, src.DockerReference().String(), options)
+		if s.executor.cachePullSourceLookupReferenceFunc != nil {
+			options.SourceLookupReferenceFunc = s.executor.cachePullSourceLookupReferenceFunc
+		}
+		if s.executor.cachePullDestinationLookupReferenceFunc != nil {
+			options.DestinationLookupReferenceFunc = s.executor.cachePullDestinationLookupReferenceFunc(src)
+		}
+
+		id, err := buildah.Pull(ctx, srcDockerRef.String(), options)
 		if err != nil {
 			logrus.Debugf("failed pulling cache from source %s: %v", src, err)
 			continue // failed pulling this one try next
@@ -2179,11 +2275,12 @@ func (s *StageExecutor) commit(ctx context.Context, createdBy string, emptyLayer
 	s.builder.SetStopSignal(config.StopSignal)
 	if config.Healthcheck != nil {
 		s.builder.SetHealthcheck(&buildahdocker.HealthConfig{
-			Test:        append([]string{}, config.Healthcheck.Test...),
-			Interval:    config.Healthcheck.Interval,
-			Timeout:     config.Healthcheck.Timeout,
-			StartPeriod: config.Healthcheck.StartPeriod,
-			Retries:     config.Healthcheck.Retries,
+			Test:          append([]string{}, config.Healthcheck.Test...),
+			Interval:      config.Healthcheck.Interval,
+			Timeout:       config.Healthcheck.Timeout,
+			StartPeriod:   config.Healthcheck.StartPeriod,
+			StartInterval: config.Healthcheck.StartInterval,
+			Retries:       config.Healthcheck.Retries,
 		})
 	} else {
 		s.builder.SetHealthcheck(nil)
@@ -2237,6 +2334,7 @@ func (s *StageExecutor) commit(ctx context.Context, createdBy string, emptyLayer
 		RetryDelay:            s.executor.retryPullPushDelay,
 		HistoryTimestamp:      s.executor.timestamp,
 		Manifest:              s.executor.manifest,
+		CompatSetParent:       s.executor.compatSetParent,
 	}
 	if finalInstruction {
 		options.ConfidentialWorkloadOptions = s.executor.confidentialWorkload
@@ -2291,9 +2389,11 @@ func (s *StageExecutor) generateBuildOutput(buildOutputOpts define.BuildOutputOp
 }
 
 func (s *StageExecutor) EnsureContainerPath(path string) error {
+	logrus.Debugf("EnsureContainerPath %q in %q", path, s.builder.ContainerID)
 	return s.builder.EnsureContainerPathAs(path, "", nil)
 }
 
 func (s *StageExecutor) EnsureContainerPathAs(path, user string, mode *os.FileMode) error {
+	logrus.Debugf("EnsureContainerPath %q (owner %q, mode %o) in %q", path, user, mode, s.builder.ContainerID)
 	return s.builder.EnsureContainerPathAs(path, user, mode)
 }

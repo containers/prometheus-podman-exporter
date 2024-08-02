@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
@@ -332,10 +334,10 @@ func (c *Container) handleRestartPolicy(ctx context.Context) (_ bool, retErr err
 			return false, err
 		}
 	}
-	if err := c.start(ctx); err != nil {
+	if err := c.start(); err != nil {
 		return false, err
 	}
-	return true, nil
+	return true, c.waitForHealthy(ctx)
 }
 
 // Ensure that the container is in a specific state or state.
@@ -543,16 +545,6 @@ func (c *Container) setupStorage(ctx context.Context) error {
 	c.config.MountLabel = containerInfo.MountLabel
 	c.config.StaticDir = containerInfo.Dir
 	c.state.RunDir = containerInfo.RunDir
-
-	if len(c.config.IDMappings.UIDMap) != 0 || len(c.config.IDMappings.GIDMap) != 0 {
-		if err := idtools.SafeChown(containerInfo.RunDir, c.RootUID(), c.RootGID()); err != nil {
-			return err
-		}
-
-		if err := idtools.SafeChown(containerInfo.Dir, c.RootUID(), c.RootGID()); err != nil {
-			return err
-		}
-	}
 
 	// Set the default Entrypoint and Command
 	if containerInfo.Config != nil {
@@ -829,6 +821,11 @@ func (c *Container) save() error {
 func (c *Container) prepareToStart(ctx context.Context, recursive bool) (retErr error) {
 	// Container must be created or stopped to be started
 	if !c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated, define.ContainerStateStopped, define.ContainerStateExited) {
+		// Special case: Let the caller know that is is already running,
+		// the caller can then decide to ignore/handle the error the way it needs.
+		if c.state.State == define.ContainerStateRunning {
+			return fmt.Errorf("container %s: %w", c.ID(), define.ErrCtrStateRunning)
+		}
 		return fmt.Errorf("container %s must be in Created or Stopped state to be started: %w", c.ID(), define.ErrCtrStateInvalid)
 	}
 
@@ -1210,7 +1207,7 @@ func (c *Container) reinit(ctx context.Context, retainRetries bool) error {
 
 // Initialize (if necessary) and start a container
 // Performs all necessary steps to start a container that is not running
-// Does not lock or check validity
+// Does not lock or check validity, requires to run on the same thread that holds the lock for the container.
 func (c *Container) initAndStart(ctx context.Context) (retErr error) {
 	// If we are ContainerStateUnknown, throw an error
 	if c.state.State == define.ContainerStateUnknown {
@@ -1255,11 +1252,14 @@ func (c *Container) initAndStart(ctx context.Context) (retErr error) {
 	}
 
 	// Now start the container
-	return c.start(ctx)
+	if err := c.start(); err != nil {
+		return err
+	}
+	return c.waitForHealthy(ctx)
 }
 
 // Internal, non-locking function to start a container
-func (c *Container) start(ctx context.Context) error {
+func (c *Container) start() error {
 	if c.config.Spec.Process != nil {
 		logrus.Debugf("Starting container %s with command %v", c.ID(), c.config.Spec.Process.Args)
 	}
@@ -1300,10 +1300,14 @@ func (c *Container) start(ctx context.Context) error {
 
 	c.newContainerEvent(events.Start)
 
-	if err := c.save(); err != nil {
-		return err
-	}
+	return c.save()
+}
 
+// waitForHealthy, when sdNotifyMode == SdNotifyModeHealthy, waits up to the DefaultWaitInterval
+// for the container to get into the healthy state and reports the status to the notify socket.
+// The function unlocks the container lock, so it must be called from the same thread that locks
+// the container.
+func (c *Container) waitForHealthy(ctx context.Context) error {
 	if c.config.SdNotifyMode != define.SdNotifyModeHealthy {
 		return nil
 	}
@@ -1317,6 +1321,9 @@ func (c *Container) start(ctx context.Context) error {
 	}
 
 	if _, err := c.WaitForConditionWithInterval(ctx, DefaultWaitInterval, define.HealthCheckHealthy); err != nil {
+		if errors.Is(err, define.ErrNoSuchCtr) {
+			return nil
+		}
 		return err
 	}
 
@@ -1568,6 +1575,7 @@ func (c *Container) unpause() error {
 }
 
 // Internal, non-locking function to restart a container
+// It requires to run on the same thread that holds the lock.
 func (c *Container) restartWithTimeout(ctx context.Context, timeout uint) (retErr error) {
 	if !c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated, define.ContainerStateRunning, define.ContainerStateStopped, define.ContainerStateExited) {
 		return fmt.Errorf("unable to restart a container in a paused or unknown state: %w", define.ErrCtrStateInvalid)
@@ -1617,7 +1625,10 @@ func (c *Container) restartWithTimeout(ctx context.Context, timeout uint) (retEr
 			return err
 		}
 	}
-	return c.start(ctx)
+	if err := c.start(); err != nil {
+		return err
+	}
+	return c.waitForHealthy(ctx)
 }
 
 // mountStorage sets up the container's root filesystem
@@ -2356,6 +2367,75 @@ func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[s
 	}
 
 	return allHooks, nil
+}
+
+// getRootPathForOCI returns the root path to use for the OCI runtime.
+// If the current user is mapped in the container user namespace, then it returns
+// the container's mountpoint directly from the storage.
+// Otherwise, it returns an intermediate mountpoint that is accessible to anyone.
+func (c *Container) getRootPathForOCI() (string, error) {
+	if hasCurrentUserMapped(c) {
+		return c.state.Mountpoint, nil
+	}
+	return c.getIntermediateMountpointUser()
+}
+
+var (
+	intermediateMountPoint     string
+	intermediateMountPointErr  error
+	intermediateMountPointSync sync.Mutex
+)
+
+// getIntermediateMountpointUser returns a path that is accessible to everyone.  It must be on TMPDIR since
+// the runroot/tmpdir used by libpod are accessible only to the owner.
+// To avoid TOCTOU issues, the path must be owned by the current user's UID and GID.
+// The path can be used by different containers, so a mount must be created only in a private mount namespace.
+func (c *Container) recreateIntermediateMountpointUser() (string, error) {
+	uid := os.Geteuid()
+	gid := os.Getegid()
+	for i := 0; ; i++ {
+		tmpDir := os.Getenv("TMPDIR")
+		if tmpDir == "" {
+			tmpDir = "/tmp"
+		}
+		dir := filepath.Join(tmpDir, fmt.Sprintf("intermediate-mountpoint-%d.%d", rootless.GetRootlessUID(), i))
+		err := os.Mkdir(dir, 0755)
+		if err != nil {
+			if !errors.Is(err, os.ErrExist) {
+				return "", err
+			}
+			st, err2 := os.Stat(dir)
+			if err2 != nil {
+				return "", err
+			}
+			sys := st.Sys().(*syscall.Stat_t)
+			if !st.IsDir() || sys.Uid != uint32(uid) || sys.Gid != uint32(gid) {
+				continue
+			}
+		}
+		return dir, nil
+	}
+}
+
+// getIntermediateMountpointUser returns a path that is accessible to everyone.
+// To avoid TOCTOU issues, the path must be owned by the current user's UID and GID.
+// The path can be used by different containers, so a mount must be created only in a private mount namespace.
+func (c *Container) getIntermediateMountpointUser() (string, error) {
+	intermediateMountPointSync.Lock()
+	defer intermediateMountPointSync.Unlock()
+
+	if intermediateMountPoint == "" || fileutils.Exists(intermediateMountPoint) != nil {
+		return c.recreateIntermediateMountpointUser()
+	}
+
+	// update the timestamp to prevent systemd-tmpfiles from removing it
+	now := time.Now()
+	if err := os.Chtimes(intermediateMountPoint, now, now); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return c.recreateIntermediateMountpointUser()
+		}
+	}
+	return intermediateMountPoint, intermediateMountPointErr
 }
 
 // mount mounts the container's root filesystem

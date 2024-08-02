@@ -15,7 +15,6 @@ import (
 	"github.com/containers/common/pkg/resize"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
-	"github.com/containers/podman/v5/pkg/signal"
 	"github.com/containers/storage/pkg/archive"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -115,7 +114,10 @@ func (c *Container) Start(ctx context.Context, recursive bool) (finalErr error) 
 	}
 
 	// Start the container
-	return c.start(ctx)
+	if err := c.start(); err != nil {
+		return err
+	}
+	return c.waitForHealthy(ctx)
 }
 
 // Update updates the given container.
@@ -139,13 +141,12 @@ func (c *Container) Update(resources *spec.LinuxResources, restartPolicy *string
 	return c.update(resources, restartPolicy, restartRetries)
 }
 
-// StartAndAttach starts a container and attaches to it.
-// This acts as a combination of the Start and Attach APIs, ensuring proper
+// Attach to a container.
+// The last parameter "start" can be used to also start the container.
+// This will then Start and Attach APIs, ensuring proper
 // ordering of the two such that no output from the container is lost (e.g. the
 // Attach call occurs before Start).
-// In overall functionality, it is identical to the Start call, with the added
-// side effect that an attach session will also be started.
-func (c *Container) StartAndAttach(ctx context.Context, streams *define.AttachStreams, keys string, resize <-chan resize.TerminalSize, recursive bool) (retChan <-chan error, finalErr error) {
+func (c *Container) Attach(ctx context.Context, streams *define.AttachStreams, keys string, resize <-chan resize.TerminalSize, start bool) (retChan <-chan error, finalErr error) {
 	defer func() {
 		if finalErr != nil {
 			// Have to re-lock.
@@ -172,9 +173,27 @@ func (c *Container) StartAndAttach(ctx context.Context, streams *define.AttachSt
 		}
 	}
 
-	if err := c.prepareToStart(ctx, recursive); err != nil {
-		return nil, err
+	if c.state.State != define.ContainerStateRunning {
+		if !start {
+			return nil, errors.New("you can only attach to running containers")
+		}
+
+		if err := c.prepareToStart(ctx, true); err != nil {
+			return nil, err
+		}
 	}
+
+	if !start {
+		// A bit awkward, technically passthrough never supports attach. We only pretend
+		// it does as we leak the stdio fds down into the container but that of course only
+		// works if we are the process that started conmon with the right fds.
+		if c.LogDriver() == define.PassthroughLogging {
+			return nil, fmt.Errorf("this container is using the 'passthrough' log driver, cannot attach: %w", define.ErrNoLogs)
+		} else if c.LogDriver() == define.PassthroughTTYLogging {
+			return nil, fmt.Errorf("this container is using the 'passthrough-tty' log driver, cannot attach: %w", define.ErrNoLogs)
+		}
+	}
+
 	attachChan := make(chan error)
 
 	// We need to ensure that we don't return until start() fired in attach.
@@ -191,9 +210,12 @@ func (c *Container) StartAndAttach(ctx context.Context, streams *define.AttachSt
 		opts := new(AttachOptions)
 		opts.Streams = streams
 		opts.DetachKeys = &keys
-		opts.Start = true
+		opts.Start = start
 		opts.Started = startedChan
 
+		// attach and start the container on a different thread.  waitForHealthy must
+		// be done later, as it requires to run on the same thread that holds the lock
+		// for the container.
 		if err := c.ociRuntime.Attach(c, opts); err != nil {
 			attachChan <- err
 		}
@@ -205,6 +227,12 @@ func (c *Container) StartAndAttach(ctx context.Context, streams *define.AttachSt
 		return nil, err
 	case <-startedChan:
 		c.newContainerEvent(events.Attach)
+	}
+
+	if start {
+		if err := c.waitForHealthy(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	return attachChan, nil
@@ -307,61 +335,6 @@ func (c *Container) Kill(signal uint) error {
 	}
 
 	return c.save()
-}
-
-// Attach attaches to a container.
-// This function returns when the attach finishes. It does not hold the lock for
-// the duration of its runtime, only using it at the beginning to verify state.
-func (c *Container) Attach(streams *define.AttachStreams, keys string, resize <-chan resize.TerminalSize) error {
-	if c.LogDriver() == define.PassthroughLogging {
-		return fmt.Errorf("this container is using the 'passthrough' log driver, cannot attach: %w", define.ErrNoLogs)
-	}
-	if c.LogDriver() == define.PassthroughTTYLogging {
-		return fmt.Errorf("this container is using the 'passthrough-tty' log driver, cannot attach: %w", define.ErrNoLogs)
-	}
-	if !c.batched {
-		c.lock.Lock()
-		if err := c.syncContainer(); err != nil {
-			c.lock.Unlock()
-			return err
-		}
-		// We are NOT holding the lock for the duration of the function.
-		c.lock.Unlock()
-	}
-
-	if !c.ensureState(define.ContainerStateCreated, define.ContainerStateRunning) {
-		return fmt.Errorf("can only attach to created or running containers: %w", define.ErrCtrStateInvalid)
-	}
-
-	// HACK: This is really gross, but there isn't a better way without
-	// splitting attach into separate versions for StartAndAttach and normal
-	// attaching, and I really do not want to do that right now.
-	// Send a SIGWINCH after attach succeeds so that most programs will
-	// redraw the screen for the new attach session.
-	attachRdy := make(chan bool, 1)
-	if c.Terminal() {
-		go func() {
-			<-attachRdy
-			c.lock.Lock()
-			defer c.lock.Unlock()
-			if err := c.ociRuntime.KillContainer(c, uint(signal.SIGWINCH), false); err != nil {
-				logrus.Warnf("Unable to send SIGWINCH to container %s after attach: %v", c.ID(), err)
-			}
-		}()
-	}
-
-	// Start resizing
-	if c.LogDriver() != define.PassthroughLogging && c.LogDriver() != define.PassthroughTTYLogging {
-		registerResizeFunc(resize, c.bundlePath())
-	}
-
-	opts := new(AttachOptions)
-	opts.Streams = streams
-	opts.DetachKeys = &keys
-	opts.AttachReady = attachRdy
-
-	c.newContainerEvent(events.Attach)
-	return c.ociRuntime.Attach(c, opts)
 }
 
 // HTTPAttach forwards an attach session over a hijacked HTTP session.
@@ -575,11 +548,16 @@ func (c *Container) Wait(ctx context.Context) (int32, error) {
 // WaitForExit blocks until the container exits and returns its exit code. The
 // argument is the interval at which checks the container's status.
 func (c *Container) WaitForExit(ctx context.Context, pollInterval time.Duration) (int32, error) {
+	id := c.ID()
 	if !c.valid {
+		// if the container is not valid at this point as it was deleted,
+		// check if the exit code was recorded in the db.
+		exitCode, err := c.runtime.state.GetContainerExitCode(id)
+		if err == nil {
+			return exitCode, nil
+		}
 		return -1, define.ErrCtrRemoved
 	}
-
-	id := c.ID()
 	var conmonTimer time.Timer
 	conmonTimerSet := false
 
@@ -761,7 +739,7 @@ func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeou
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
+			stoppedCount := 0
 			for {
 				if len(wantedStates) > 0 {
 					state, err := c.State()
@@ -775,6 +753,21 @@ func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeou
 					}
 				}
 				if len(wantedHealthStates) > 0 {
+					// even if we are interested only in the health check
+					// check that the container is still running to avoid
+					// waiting until the timeout expires.
+					if stoppedCount > 0 {
+						stoppedCount++
+					} else {
+						state, err := c.State()
+						if err != nil {
+							trySend(-1, err)
+							return
+						}
+						if state != define.ContainerStateCreated && state != define.ContainerStateRunning && state != define.ContainerStatePaused {
+							stoppedCount++
+						}
+					}
 					status, err := c.HealthCheckStatus()
 					if err != nil {
 						trySend(-1, err)
@@ -782,6 +775,12 @@ func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeou
 					}
 					if _, found := wantedHealthStates[status]; found {
 						trySend(-1, nil)
+						return
+					}
+					// wait for another waitTimeout interval to give the health check process some time
+					// to record the healthy status.
+					if stoppedCount > 1 {
+						trySend(-1, define.ErrCtrStopped)
 						return
 					}
 				}

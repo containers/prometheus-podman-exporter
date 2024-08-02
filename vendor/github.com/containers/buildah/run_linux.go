@@ -423,7 +423,7 @@ func (b *Builder) Run(command []string, options RunOptions) error {
 		// Only add entries here if we do not have to do setup network,
 		// if we do we have to do it much later after the network setup.
 		if !configureNetwork {
-			err = b.addResolvConfEntries(resolvFile, nil, spec.Linux.Namespaces, false, true)
+			err = b.addResolvConfEntries(resolvFile, nil, spec, false, true)
 			if err != nil {
 				return err
 			}
@@ -475,7 +475,7 @@ rootless=%d
 		SystemContext:    options.SystemContext,
 	}
 
-	runArtifacts, err := b.setupMounts(mountPoint, spec, path, options.Mounts, bindFiles, volumes, b.CommonBuildOpts.Volumes, options.RunMounts, runMountInfo)
+	runArtifacts, err := b.setupMounts(mountPoint, spec, path, options.Mounts, bindFiles, volumes, options.CompatBuiltinVolumes, b.CommonBuildOpts.Volumes, options.RunMounts, runMountInfo)
 	if err != nil {
 		return fmt.Errorf("resolving mountpoints for container %q: %w", b.ContainerID, err)
 	}

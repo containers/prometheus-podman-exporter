@@ -17,7 +17,7 @@ import (
 // Default path for system runtime state
 const defaultRunPath = "/run"
 
-func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) error {
+func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool, cgroupMode string) error {
 	runsUnderSystemd := systemd.RunsOnSystemd()
 	if !runsUnderSystemd {
 		isPid1 := os.Getpid() == 1
@@ -30,26 +30,30 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 		}
 	}
 
-	// do it only after podman has already re-execed and running with uid==0.
 	hasCapSysAdmin, err := unshare.HasCapSysAdmin()
 	if err != nil {
 		return err
 	}
+
 	// check for both euid == 0 and CAP_SYS_ADMIN because we may be running in a container with CAP_SYS_ADMIN set.
 	if os.Geteuid() == 0 && hasCapSysAdmin {
-		ownsCgroup, err := cgroups.UserOwnsCurrentSystemdCgroup()
-		if err != nil {
-			logrus.Infof("Failed to detect the owner for the current cgroup: %v", err)
-		}
-		if !ownsCgroup {
-			conf, err := ic.Config(context.Background())
+		// do it only after podman has already re-execed and running with uid==0.
+		configureCgroup := cgroupMode != "disabled"
+		if configureCgroup {
+			ownsCgroup, err := cgroups.UserOwnsCurrentSystemdCgroup()
 			if err != nil {
-				return err
+				logrus.Infof("Failed to detect the owner for the current cgroup: %v", err)
 			}
-			unitName := fmt.Sprintf("podman-%d.scope", os.Getpid())
-			if runsUnderSystemd || conf.Engine.CgroupManager == config.SystemdCgroupsManager {
-				if err := systemd.RunUnderSystemdScope(os.Getpid(), "user.slice", unitName); err != nil {
-					logrus.Debugf("Failed to add podman to systemd sandbox cgroup: %v", err)
+			if !ownsCgroup {
+				conf, err := ic.Config(context.Background())
+				if err != nil {
+					return err
+				}
+				unitName := fmt.Sprintf("podman-%d.scope", os.Getpid())
+				if runsUnderSystemd || conf.Engine.CgroupManager == config.SystemdCgroupsManager {
+					if err := systemd.RunUnderSystemdScope(os.Getpid(), "user.slice", unitName); err != nil {
+						logrus.Debugf("Failed to add podman to systemd sandbox cgroup: %v", err)
+					}
 				}
 			}
 		}
@@ -85,7 +89,7 @@ func (ic *ContainerEngine) SetupRootless(_ context.Context, noMoveProcess bool) 
 	}
 
 	if len(paths) > 0 {
-		became, ret, err = rootless.TryJoinFromFilePaths(pausePidPath, true, paths)
+		became, ret, err = rootless.TryJoinFromFilePaths(pausePidPath, paths)
 	} else {
 		became, ret, err = rootless.BecomeRootInUserNS(pausePidPath)
 		if err == nil {

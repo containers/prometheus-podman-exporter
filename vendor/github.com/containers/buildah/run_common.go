@@ -39,6 +39,7 @@ import (
 	netUtil "github.com/containers/common/libnetwork/util"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/subscriptions"
+	"github.com/containers/image/v5/types"
 	imageTypes "github.com/containers/image/v5/types"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/fileutils"
@@ -53,6 +54,7 @@ import (
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -83,10 +85,15 @@ func (b *Builder) createResolvConf(rdir string, chownOpts *idtools.IDPair) (stri
 
 // addResolvConf copies files from host and sets them up to bind mount into container
 func (b *Builder) addResolvConfEntries(file string, networkNameServer []string,
-	namespaces []specs.LinuxNamespace, keepHostServers, ipv6 bool) error {
+	spec *specs.Spec, keepHostServers, ipv6 bool) error {
 	defaultConfig, err := config.Default()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
+	}
+
+	var namespaces []specs.LinuxNamespace
+	if spec.Linux != nil {
+		namespaces = spec.Linux.Namespaces
 	}
 
 	dnsServers, dnsSearch, dnsOptions := b.CommonBuildOpts.DNSServers, b.CommonBuildOpts.DNSSearch, b.CommonBuildOpts.DNSOptions
@@ -540,7 +547,7 @@ func runUsingRuntime(options RunOptions, configureNetwork bool, moreCreateArgs [
 		}
 	}
 
-	runtimeArgs := options.Args[:]
+	runtimeArgs := slices.Clone(options.Args)
 	if options.CgroupManager == config.SystemdCgroupsManager {
 		runtimeArgs = append(runtimeArgs, "--systemd-cgroup")
 	}
@@ -1253,7 +1260,7 @@ func (b *Builder) runUsingRuntimeSubproc(isolation define.Isolation, options Run
 			}
 
 			if resolvFile != "" {
-				err = b.addResolvConfEntries(resolvFile, netResult.dnsServers, spec.Linux.Namespaces, netResult.keepHostResolvers, netResult.ipv6)
+				err = b.addResolvConfEntries(resolvFile, netResult.dnsServers, spec, netResult.keepHostResolvers, netResult.ipv6)
 				if err != nil {
 					return err
 				}
@@ -1298,7 +1305,7 @@ func init() {
 }
 
 // If this succeeds, the caller must call cleanupMounts().
-func (b *Builder) setupMounts(mountPoint string, spec *specs.Spec, bundlePath string, optionMounts []specs.Mount, bindFiles map[string]string, builtinVolumes, volumeMounts []string, runFileMounts []string, runMountInfo runMountInfo) (*runMountArtifacts, error) {
+func (b *Builder) setupMounts(mountPoint string, spec *specs.Spec, bundlePath string, optionMounts []specs.Mount, bindFiles map[string]string, builtinVolumes []string, compatBuiltinVolumes types.OptionalBool, volumeMounts []string, runFileMounts []string, runMountInfo runMountInfo) (*runMountArtifacts, error) {
 	// Start building a new list of mounts.
 	var mounts []specs.Mount
 	haveMount := func(destination string) bool {
@@ -1368,7 +1375,7 @@ func (b *Builder) setupMounts(mountPoint string, spec *specs.Spec, bundlePath st
 	}()
 	// Add temporary copies of the contents of volume locations at the
 	// volume locations, unless we already have something there.
-	builtins, err := runSetupBuiltinVolumes(b.MountLabel, mountPoint, cdir, builtinVolumes, int(rootUID), int(rootGID))
+	builtins, err := runSetupBuiltinVolumes(b.MountLabel, mountPoint, cdir, builtinVolumes, compatBuiltinVolumes, int(rootUID), int(rootGID))
 	if err != nil {
 		return nil, err
 	}
@@ -1405,17 +1412,31 @@ func (b *Builder) setupMounts(mountPoint string, spec *specs.Spec, bundlePath st
 	return mountArtifacts, nil
 }
 
-func runSetupBuiltinVolumes(mountLabel, mountPoint, containerDir string, builtinVolumes []string, rootUID, rootGID int) ([]specs.Mount, error) {
+func runSetupBuiltinVolumes(mountLabel, mountPoint, containerDir string, builtinVolumes []string, compatBuiltinVolumes types.OptionalBool, rootUID, rootGID int) ([]specs.Mount, error) {
 	var mounts []specs.Mount
 	hostOwner := idtools.IDPair{UID: rootUID, GID: rootGID}
 	// Add temporary copies of the contents of volume locations at the
 	// volume locations, unless we already have something there.
 	for _, volume := range builtinVolumes {
-		volumePath := filepath.Join(containerDir, "buildah-volumes", digest.Canonical.FromString(volume).Hex())
-		initializeVolume := false
+		// Make sure the volume exists in the rootfs.
+		createDirPerms := os.FileMode(0o755)
+		err := copier.Mkdir(mountPoint, filepath.Join(mountPoint, volume), copier.MkdirOptions{
+			ChownNew: &hostOwner,
+			ChmodNew: &createDirPerms,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ensuring volume path %q: %w", filepath.Join(mountPoint, volume), err)
+		}
+		// If we're not being asked to bind mount anonymous volumes
+		// onto the volume paths, we're done here.
+		if compatBuiltinVolumes != types.OptionalBoolTrue {
+			continue
+		}
 		// If we need to, create the directory that we'll use to hold
 		// the volume contents.  If we do need to create it, then we'll
 		// need to populate it, too, so make a note of that.
+		volumePath := filepath.Join(containerDir, "buildah-volumes", digest.Canonical.FromString(volume).Hex())
+		initializeVolume := false
 		if err := fileutils.Exists(volumePath); err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				return nil, err
@@ -1429,15 +1450,7 @@ func runSetupBuiltinVolumes(mountLabel, mountPoint, containerDir string, builtin
 			}
 			initializeVolume = true
 		}
-		// Make sure the volume exists in the rootfs and read its attributes.
-		createDirPerms := os.FileMode(0755)
-		err := copier.Mkdir(mountPoint, filepath.Join(mountPoint, volume), copier.MkdirOptions{
-			ChownNew: &hostOwner,
-			ChmodNew: &createDirPerms,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("ensuring volume path %q: %w", filepath.Join(mountPoint, volume), err)
-		}
+		// Read the attributes of the volume's location in the rootfs.
 		srcPath, err := copier.Eval(mountPoint, filepath.Join(mountPoint, volume), copier.EvalOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("evaluating path %q: %w", srcPath, err)
