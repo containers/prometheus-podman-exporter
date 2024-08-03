@@ -17,7 +17,7 @@
 
 Name: prometheus-podman-exporter
 Version: 1.13.0
-Release: dev.1%{?dist}
+Release: 1%{?dist}
 Summary: Prometheus exporter for podman environment.
 License: ASL 2.0
 URL: %{git0}
@@ -92,7 +92,18 @@ popd
 
 
 %changelog
-* Sun Jun 02 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.13.0-dev-1
+* Sat Aug 03 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.13.0-1
+- New metric - container network dropped,errors,packets
+- README.md update
+- Go version 1.21.0
+- Vagrant update to fedora 40
+- Bump github.com/containers/podman/v5 from 5.1.0 to 5.2.0
+- Bump github.com/containers/common from 0.59.1 to 0.59.2
+- Bump github.com/containers/image/v5 from 5.31.0 to 5.31.1
+- Bump github.com/prometheus/common from 0.53.0 to 0.55.0
+- Bump github.com/spf13/cobra from 1.8.0 to 1.8.1
+- Bump github.com/onsi/ginkgo/v2 from 2.19.0 to 2.19.1
+- Bump github.com/onsi/gomega from 1.33.1 to 1.34.1
 
 * Sun Jun 02 2024 Navid Yaghoobi <navidys@fedoraproject.org> 1.12.0-1
 - Bump github.com/containers/podman from 5.0.3 to 5.1.0
