@@ -7,7 +7,7 @@ require (
 	github.com/containers/image/v5 v5.32.2
 	github.com/containers/podman/v5 v5.2.2
 	github.com/go-kit/log v0.2.1
-	github.com/onsi/ginkgo/v2 v2.20.0
+	github.com/onsi/ginkgo/v2 v2.20.1
 	github.com/onsi/gomega v1.34.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.0
