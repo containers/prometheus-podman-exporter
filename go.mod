@@ -3,9 +3,9 @@ module github.com/containers/prometheus-podman-exporter
 go 1.21.0
 
 require (
-	github.com/containers/common v0.60.2
+	github.com/containers/common v0.60.3
 	github.com/containers/image/v5 v5.32.2
-	github.com/containers/podman/v5 v5.2.2
+	github.com/containers/podman/v5 v5.2.3
 	github.com/go-kit/log v0.2.1
 	github.com/onsi/ginkgo/v2 v2.20.1
 	github.com/onsi/gomega v1.34.1
@@ -41,7 +41,7 @@ require (
 	github.com/containerd/typeurl/v2 v2.1.1 // indirect
 	github.com/containernetworking/cni v1.2.3 // indirect
 	github.com/containernetworking/plugins v1.5.1 // indirect
-	github.com/containers/buildah v1.37.2 // indirect
+	github.com/containers/buildah v1.37.3 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20240618143119-a8846e21c08c // indirect
@@ -116,7 +116,7 @@ require (
 	github.com/moby/patternmatcher v0.6.0 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
-	github.com/moby/sys/user v0.2.0 // indirect
+	github.com/moby/sys/user v0.3.0 // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
