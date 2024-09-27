@@ -1,6 +1,6 @@
 module github.com/containers/prometheus-podman-exporter
 
-go 1.21.0
+go 1.22.6
 
 require (
 	github.com/containers/common v0.60.3
