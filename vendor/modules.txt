@@ -113,7 +113,7 @@ github.com/containernetworking/cni/pkg/version
 # github.com/containernetworking/plugins v1.5.1
 ## explicit; go 1.20
 github.com/containernetworking/plugins/pkg/ns
-# github.com/containers/buildah v1.37.4
+# github.com/containers/buildah v1.37.5
 ## explicit; go 1.21.0
 github.com/containers/buildah
 github.com/containers/buildah/bind
@@ -297,7 +297,7 @@ github.com/containers/ocicrypt/keywrap/pkcs7
 github.com/containers/ocicrypt/spec
 github.com/containers/ocicrypt/utils
 github.com/containers/ocicrypt/utils/keyprovider
-# github.com/containers/podman/v5 v5.2.4
+# github.com/containers/podman/v5 v5.2.5
 ## explicit; go 1.21.0
 github.com/containers/podman/v5/cmd/podman/parse
 github.com/containers/podman/v5/cmd/podman/registry
@@ -393,7 +393,7 @@ github.com/containers/psgo/internal/dev
 github.com/containers/psgo/internal/host
 github.com/containers/psgo/internal/proc
 github.com/containers/psgo/internal/process
-# github.com/containers/storage v1.55.0
+# github.com/containers/storage v1.55.1
 ## explicit; go 1.21
 github.com/containers/storage
 github.com/containers/storage/drivers
