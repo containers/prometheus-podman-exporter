@@ -96,7 +96,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 	level.Info(logger).Log("msg", "Listening on", "address", cmdOptions.webListen)
 
 	server := &http.Server{
-		ReadHeaderTimeout: 3 * time.Second, //nolint:gomnd
+		ReadHeaderTimeout: 3 * time.Second, //nolint:mnd
 	}
 	serverSystemd := false
 	serverWebListen := []string{cmdOptions.webListen}

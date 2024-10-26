@@ -154,8 +154,8 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 		cntStat := getContainerStat(rep.ID, statReports)
 
 		ch <- c.info.mustNewConstMetric(1, cntLabelsInfo.labelsValue...)
-		c.updateInfo(ch, &rep, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics)           //nolint:gosec
-		c.updateStats(ch, &rep, cntStat, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics) //nolint:gosec
+		c.updateInfo(ch, &rep, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics)
+		c.updateStats(ch, &rep, cntStat, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics)
 	}
 
 	return nil
