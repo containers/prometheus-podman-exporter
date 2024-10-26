@@ -8,8 +8,7 @@ import (
 
 	"github.com/containers/prometheus-podman-exporter/collector"
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log/level"
-	"github.com/prometheus/common/promlog"
+	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/spf13/cobra"
@@ -42,7 +41,7 @@ type exporterOptions struct {
 func Start(cmd *cobra.Command, _ []string) error {
 	// setup exporter
 	logLevel := "info"
-	promlogConfig := &promlog.Config{Level: &promlog.AllowedLevel{}}
+	promlogConfig := &promslog.Config{Level: &promslog.AllowedLevel{}}
 
 	cmdOptions, err := parseOptions(cmd)
 	if err != nil {
@@ -57,16 +56,16 @@ func Start(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	logger := promlog.New(promlogConfig)
+	logger := promslog.New(promlogConfig)
 
 	if err := setEnabledCollectors(cmdOptions); err != nil {
-		level.Error(logger).Log("msg", "cannot set enabled collectors", "err", err)
+		logger.Error("cannot set enabled collectors", "err", err)
 
 		return err
 	}
 
-	level.Info(logger).Log("msg", "Starting podman-prometheus-exporter", "version", version.Info())
-	level.Info(logger).Log("msg", "metrics", "enhanced", cmdOptions.enhanceMetrics)
+	logger.Info("starting podman-prometheus-exporter", "version", version.Info())
+	logger.Info("metrics", "enhanced", cmdOptions.enhanceMetrics)
 
 	http.Handle(
 		cmdOptions.webTelemetryPath,
@@ -93,7 +92,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 	pdcs.StartEventStreamer(logger, updateImages)
 	pdcs.StartCacheSizeTicker(logger, cmdOptions.cacheDuration)
 
-	level.Info(logger).Log("msg", "Listening on", "address", cmdOptions.webListen)
+	logger.Info("Listening on", "address", cmdOptions.webListen)
 
 	server := &http.Server{
 		ReadHeaderTimeout: 3 * time.Second, //nolint:mnd

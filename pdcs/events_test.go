@@ -7,7 +7,7 @@ import (
 	"github.com/containers/prometheus-podman-exporter/pdcs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/prometheus/common/promlog"
+	"github.com/prometheus/common/promslog"
 )
 
 var _ = Describe("Pdcs/Events", func() {
@@ -16,7 +16,7 @@ var _ = Describe("Pdcs/Events", func() {
 		Expect(err).To(BeNil())
 
 		imageCount01 := len(podmanImages)
-		logger := promlog.New(&promlog.Config{})
+		logger := promslog.New(&promslog.Config{})
 		pdcs.StartEventStreamer(logger, true)
 
 		testImage := "quay.io/libpod/alpine"

@@ -2,11 +2,10 @@ package collector
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -37,7 +36,7 @@ const (
 )
 
 var (
-	factories              = make(map[string]func(logger log.Logger) (Collector, error))
+	factories              = make(map[string]func(logger *slog.Logger) (Collector, error))
 	initiatedCollectorsMtx = sync.Mutex{}
 	initiatedCollectors    = make(map[string]Collector)
 	collectorState         = make(map[string]bool)
@@ -57,11 +56,11 @@ type typedDesc struct {
 // PodmanCollector implements the prometheus.Collector interface.
 type PodmanCollector struct {
 	Collectors map[string]Collector
-	logger     log.Logger
+	logger     *slog.Logger
 }
 
 // NewPodmanCollector creates a new PodmanCollector.
-func NewPodmanCollector(logger log.Logger) (*PodmanCollector, error) {
+func NewPodmanCollector(logger *slog.Logger) (*PodmanCollector, error) {
 	collectors := make(map[string]Collector)
 
 	initiatedCollectorsMtx.Lock()
@@ -75,7 +74,7 @@ func NewPodmanCollector(logger log.Logger) (*PodmanCollector, error) {
 		if collector, ok := initiatedCollectors[key]; ok {
 			collectors[key] = collector
 		} else {
-			collector, err := factories[key](log.With(logger, "collector", key))
+			collector, err := factories[key](logger)
 			if err != nil {
 				return nil, err
 			}
@@ -109,7 +108,7 @@ func (p PodmanCollector) Collect(ch chan<- prometheus.Metric) {
 	wg.Wait()
 }
 
-func execute(name string, c Collector, ch chan<- prometheus.Metric, logger log.Logger) {
+func execute(name string, c Collector, ch chan<- prometheus.Metric, logger *slog.Logger) {
 	var success float64
 
 	begin := time.Now()
@@ -118,13 +117,13 @@ func execute(name string, c Collector, ch chan<- prometheus.Metric, logger log.L
 
 	if err != nil {
 		if IsNoDataError(err) {
-			level.Debug(logger).Log("msg", "collector returned no data", "name",
+			logger.Debug("collector returned no data", "name",
 				name,
 				"duration_seconds",
 				duration.Seconds(),
 				"err", err)
 		} else {
-			level.Error(logger).Log("msg", "collector failed", "name",
+			logger.Error("collector failed", "name",
 				name,
 				"duration_seconds",
 				duration.Seconds(),
@@ -133,7 +132,7 @@ func execute(name string, c Collector, ch chan<- prometheus.Metric, logger log.L
 
 		success = 0
 	} else {
-		level.Debug(logger).Log("msg", "collector succeeded", "name",
+		logger.Debug("collector succeeded", "name",
 			name,
 			"duration_seconds",
 			duration.Seconds())
@@ -154,7 +153,7 @@ func (d *typedDesc) mustNewConstMetric(value float64, labels ...string) promethe
 	return prometheus.MustNewConstMetric(d.desc, d.valueType, value, labels...)
 }
 
-func registerCollector(collector string, enabledByDefault bool, factory func(logger log.Logger) (Collector, error)) {
+func registerCollector(collector string, enabledByDefault bool, factory func(logger *slog.Logger) (Collector, error)) {
 	collectorState[collector] = enabledByDefault
 	factories[collector] = factory
 }

@@ -1,8 +1,9 @@
 package collector
 
 import (
+	"log/slog"
+
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -10,7 +11,7 @@ type imageCollector struct {
 	info    typedDesc
 	size    typedDesc
 	created typedDesc
-	logger  log.Logger
+	logger  *slog.Logger
 }
 
 type imageDescLabels struct {
@@ -23,7 +24,7 @@ func init() {
 }
 
 // NewImageStatsCollector returns a Collector exposing image stats information.
-func NewImageStatsCollector(logger log.Logger) (Collector, error) {
+func NewImageStatsCollector(logger *slog.Logger) (Collector, error) {
 	return &imageCollector{
 		info: typedDesc{
 			nil, prometheus.GaugeValue,
