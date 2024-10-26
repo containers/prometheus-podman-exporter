@@ -2,14 +2,13 @@ package pdcs
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/containers/podman/v5/cmd/podman/registry"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
-	klog "github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 )
 
 const (
@@ -236,9 +235,10 @@ func updateContainerSize() {
 }
 
 // StartCacheSizeTicker starts container cache refresh routine.
-func StartCacheSizeTicker(logger klog.Logger, duration int64) {
-	level.Debug(logger).Log("msg", "starting container size cache ticker", "duration", duration)
-	level.Debug(logger).Log("msg", "update container size cache")
+func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
+	logger.Info("starting container size cache ticker", "duration", duration)
+	logger.Info("update container size cache")
+
 	updateContainerSize()
 
 	ticker := time.NewTicker(time.Duration(duration) * time.Second)
@@ -246,7 +246,7 @@ func StartCacheSizeTicker(logger klog.Logger, duration int64) {
 	go func() {
 		for {
 			<-ticker.C
-			level.Debug(logger).Log("msg", "update container size cache")
+			logger.Info("update container size cache")
 			updateContainerSize()
 		}
 	}()

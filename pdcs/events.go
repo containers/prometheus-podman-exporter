@@ -3,21 +3,20 @@ package pdcs
 import (
 	"context"
 	"log"
+	"log/slog"
 
 	"github.com/containers/podman/v5/cmd/podman/registry"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/pkg/domain/entities"
-	klog "github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 )
 
-func StartEventStreamer(logger klog.Logger, updateImage bool) {
+func StartEventStreamer(logger *slog.Logger, updateImage bool) {
 	var eventOptions entities.EventsOptions
 
-	level.Debug(logger).Log("msg", "starting podman event streamer")
+	logger.Info("starting podman event streamer")
 
 	if updateImage {
-		level.Debug(logger).Log("msg", "update images")
+		logger.Debug("update images")
 		updateImages()
 	}
 
@@ -39,13 +38,13 @@ func StartEventStreamer(logger klog.Logger, updateImage bool) {
 			select {
 			case event, ok := <-eventChannel:
 				if !ok {
-					level.Error(logger).Log("msg", "podman received event not ok")
+					logger.Error("podman received event not ok")
 
 					continue
 				}
 
 				if updateImage && event.Type == events.Image {
-					level.Debug(logger).Log("msg", "update images")
+					logger.Debug("update images")
 					updateImages()
 				}
 			case err := <-errChannel:

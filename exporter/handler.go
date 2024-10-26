@@ -2,13 +2,11 @@ package exporter
 
 import (
 	"fmt"
-	stdlog "log"
+	"log/slog"
 	"net/http"
 	"sort"
 
 	"github.com/containers/prometheus-podman-exporter/collector"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
@@ -25,13 +23,13 @@ type handler struct {
 	disableExporterMetrics  bool
 	exporterMetricsRegistry *prometheus.Registry
 	maxRequests             int
-	logger                  log.Logger
+	logger                  *slog.Logger
 }
 
 // ServeHTTP implements http.Handler.
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	filters := r.URL.Query()["collect[]"]
-	level.Debug(h.logger).Log("msg", "collect query:", "filters", fmt.Sprintf("%v", filters))
+	h.logger.Debug("collect query:", "filters", fmt.Sprintf("%v", filters))
 
 	if len(filters) == 0 {
 		// No filters, use the prepared unfiltered handler.
@@ -42,7 +40,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// To serve filtered metrics, we create a filtering handler on the fly.
 	filteredHandler, err := h.innerHandler(filters...)
 	if err != nil {
-		level.Warn(h.logger).Log("msg", "couldn't create filtered metrics handler:", "err", err)
+		h.logger.Warn("couldn't create filtered metrics handler:", "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(fmt.Sprintf("couldn't create filtered metrics handler: %s", err)))
 
@@ -52,7 +50,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	filteredHandler.ServeHTTP(w, r)
 }
 
-func newHandler(disableExporterMetrics bool, maxRequests int, logger log.Logger) *handler {
+func newHandler(disableExporterMetrics bool, maxRequests int, logger *slog.Logger) *handler {
 	h := &handler{
 		exporterMetricsRegistry: prometheus.NewRegistry(),
 		maxRequests:             maxRequests,
@@ -91,7 +89,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	// Only log the creation of an unfiltered handler, which should happen
 	// only once upon startup.
 	if len(filters) == 0 {
-		level.Info(h.logger).Log("msg", "enabled collectors")
+		h.logger.Info("enabled collectors")
 
 		collectors := []string{}
 
@@ -102,7 +100,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 		sort.Strings(collectors)
 
 		for _, c := range collectors {
-			level.Info(h.logger).Log("collector", c)
+			h.logger.Info("collector", "name", c)
 		}
 	}
 
@@ -116,7 +114,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	handler := promhttp.HandlerFor(
 		prometheus.Gatherers{h.exporterMetricsRegistry, r},
 		promhttp.HandlerOpts{
-			ErrorLog:            stdlog.New(log.NewStdlibAdapter(level.Error(h.logger)), "", 0),
+			ErrorLog:            slog.NewLogLogger(h.logger.Handler(), slog.LevelError),
 			ErrorHandling:       promhttp.ContinueOnError,
 			MaxRequestsInFlight: h.maxRequests,
 			Registry:            h.exporterMetricsRegistry,

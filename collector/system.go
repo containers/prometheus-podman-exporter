@@ -1,8 +1,9 @@
 package collector
 
 import (
+	"log/slog"
+
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -11,7 +12,7 @@ type systemCollector struct {
 	runtimeVer typedDesc
 	conmonVer  typedDesc
 	buildahVer typedDesc
-	logger     log.Logger
+	logger     *slog.Logger
 }
 
 func init() {
@@ -19,7 +20,7 @@ func init() {
 }
 
 // NewSystemCollector returns a Collector exposing podman system information.
-func NewSystemCollector(logger log.Logger) (Collector, error) {
+func NewSystemCollector(logger *slog.Logger) (Collector, error) {
 	return &systemCollector{
 		podmanVer: typedDesc{
 			prometheus.NewDesc(

@@ -1,15 +1,16 @@
 package collector
 
 import (
+	"log/slog"
+
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 type volumeCollector struct {
 	info    typedDesc
 	created typedDesc
-	logger  log.Logger
+	logger  *slog.Logger
 }
 
 var volumeDefaultLAbels = []string{"name", "driver", "mount_point"}
@@ -19,7 +20,7 @@ func init() {
 }
 
 // NewVolumeStatsCollector returns a Collector exposing volume stats information.
-func NewVolumeStatsCollector(logger log.Logger) (Collector, error) {
+func NewVolumeStatsCollector(logger *slog.Logger) (Collector, error) {
 	createdLabels := []string{"name"}
 
 	if enhanceAllMetrics {

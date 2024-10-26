@@ -1,8 +1,9 @@
 package collector
 
 import (
+	"log/slog"
+
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -31,7 +32,7 @@ type containerCollector struct {
 	blockOutput      typedDesc
 	rwSize           typedDesc
 	rootFsSize       typedDesc
-	logger           log.Logger
+	logger           *slog.Logger
 }
 
 type containerDescLabels struct {
@@ -44,7 +45,7 @@ func init() {
 }
 
 // NewContainerStatsCollector returns a Collector exposing containers stats information.
-func NewContainerStatsCollector(logger log.Logger) (Collector, error) {
+func NewContainerStatsCollector(logger *slog.Logger) (Collector, error) {
 	return &containerCollector{
 		info: typedDesc{
 			nil, prometheus.GaugeValue,

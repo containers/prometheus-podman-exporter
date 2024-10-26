@@ -1,8 +1,9 @@
 package collector
 
 import (
+	"log/slog"
+
 	"github.com/containers/prometheus-podman-exporter/pdcs"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -11,7 +12,7 @@ type podCollector struct {
 	state           typedDesc
 	numOfContainers typedDesc
 	created         typedDesc
-	logger          log.Logger
+	logger          *slog.Logger
 }
 
 type podDescLabels struct {
@@ -24,7 +25,7 @@ func init() {
 }
 
 // NewPodStatsCollector returns a Collector exposing pod stats information.
-func NewPodStatsCollector(logger log.Logger) (Collector, error) {
+func NewPodStatsCollector(logger *slog.Logger) (Collector, error) {
 	return &podCollector{
 		info: typedDesc{
 			nil, prometheus.GaugeValue,
