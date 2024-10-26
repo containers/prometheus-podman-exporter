@@ -61,7 +61,7 @@ func updateImages() {
 
 	for _, rep := range reports {
 		if len(rep.RepoTags) > 0 {
-			for i := 0; i < len(rep.RepoTags); i++ {
+			for i := range len(rep.RepoTags) {
 				repository, tag := repoTagDecompose(rep.RepoTags[i])
 
 				images = append(images, Image{

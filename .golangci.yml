@@ -1,7 +1,6 @@
 run:
+  timeout: 10m
   deadline: 5m
-  skip-files:
-    - ".*_test.go"
 linters:
   enable-all: true
   disable:
@@ -11,28 +10,19 @@ linters:
     - exhaustruct
     - ireturn
     - gochecknoglobals
-    - exhaustivestruct
     - funlen
-    - golint
     - forbidigo
-    - maligned
-    - interfacer
-    - scopelint
     - gomoddirectives
     - depguard
     # deprecated
-    - varcheck
-    - deadcode
-    - ifshort
-    - nosnakecase
-    - structcheck
+    - execinquery
+    - gomnd
+    - exportloopref
     - rowserrcheck
-    - structcheck
     - wastedassign
 linters-settings:
   errcheck:
     check-blank: false
-    ignore: fmt:.*
     exclude-functions:
       # Used in HTTP handlers, any error is handled by the server itself.
       - (net/http.ResponseWriter).Write
@@ -40,3 +30,7 @@ linters-settings:
       - (github.com/go-kit/log.Logger).Log
   nolintlint:
     require-specific: true
+
+issues:
+  exclude-files:
+    - ".*_test.go"
