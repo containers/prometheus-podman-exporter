@@ -218,11 +218,6 @@ func newRuntimeFromConfig(ctx context.Context, conf *config.Config, options ...R
 		if runtime.store != nil {
 			_, _ = runtime.store.Shutdown(false)
 		}
-		// For `systemctl stop podman.service` support, exit code should be 0
-		if sig == syscall.SIGTERM {
-			os.Exit(0)
-		}
-		os.Exit(1)
 		return nil
 	}); err != nil && !errors.Is(err, shutdown.ErrHandlerExists) {
 		logrus.Errorf("Registering shutdown handler for libpod: %v", err)
@@ -1397,4 +1392,8 @@ func (r *Runtime) SystemCheck(ctx context.Context, options entities.SystemCheckO
 	}
 
 	return report, err
+}
+
+func (r *Runtime) GetContainerExitCode(id string) (int32, error) {
+	return r.state.GetContainerExitCode(id)
 }

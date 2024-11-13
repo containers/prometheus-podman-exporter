@@ -671,18 +671,18 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 			return nil, nil, err
 		}
 	}
-	if isRootless {
-		for _, rlimit := range c.config.Spec.Process.Rlimits {
-			if rlimit.Type == "RLIMIT_NOFILE" {
-				nofileSet = true
-			}
-			if rlimit.Type == "RLIMIT_NPROC" {
-				nprocSet = true
-			}
+	for _, rlimit := range c.config.Spec.Process.Rlimits {
+		if rlimit.Type == "RLIMIT_NOFILE" {
+			nofileSet = true
 		}
-		if !nofileSet {
-			max := rlimT(define.RLimitDefaultValue)
-			current := rlimT(define.RLimitDefaultValue)
+		if rlimit.Type == "RLIMIT_NPROC" {
+			nprocSet = true
+		}
+	}
+	if !nofileSet {
+		max := rlimT(define.RLimitDefaultValue)
+		current := rlimT(define.RLimitDefaultValue)
+		if isRootless {
 			var rlimit unix.Rlimit
 			if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rlimit); err != nil {
 				logrus.Warnf("Failed to return RLIMIT_NOFILE ulimit %q", err)
@@ -693,11 +693,13 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 			if rlimT(rlimit.Max) < max {
 				max = rlimT(rlimit.Max)
 			}
-			g.AddProcessRlimits("RLIMIT_NOFILE", uint64(max), uint64(current))
 		}
-		if !nprocSet {
-			max := rlimT(define.RLimitDefaultValue)
-			current := rlimT(define.RLimitDefaultValue)
+		g.AddProcessRlimits("RLIMIT_NOFILE", uint64(max), uint64(current))
+	}
+	if !nprocSet {
+		max := rlimT(define.RLimitDefaultValue)
+		current := rlimT(define.RLimitDefaultValue)
+		if isRootless {
 			var rlimit unix.Rlimit
 			if err := unix.Getrlimit(unix.RLIMIT_NPROC, &rlimit); err != nil {
 				logrus.Warnf("Failed to return RLIMIT_NPROC ulimit %q", err)
@@ -708,8 +710,8 @@ func (c *Container) generateSpec(ctx context.Context) (s *spec.Spec, cleanupFunc
 			if rlimT(rlimit.Max) < max {
 				max = rlimT(rlimit.Max)
 			}
-			g.AddProcessRlimits("RLIMIT_NPROC", uint64(max), uint64(current))
 		}
+		g.AddProcessRlimits("RLIMIT_NPROC", uint64(max), uint64(current))
 	}
 
 	c.addMaskedPaths(&g)
@@ -2139,11 +2141,13 @@ func (c *Container) addResolvConf() error {
 		if len(networkNameServers) == 0 || networkBackend != string(types.Netavark) {
 			keepHostServers = true
 		}
-		// first add the nameservers from the networks status
-		nameservers = networkNameServers
-
-		// pasta and slirp4netns have a built in DNS forwarder.
-		nameservers = c.addSpecialDNS(nameservers)
+		if len(networkNameServers) > 0 {
+			// add the nameservers from the networks status
+			nameservers = networkNameServers
+		} else {
+			// pasta and slirp4netns have a built in DNS forwarder.
+			nameservers = c.addSpecialDNS(nameservers)
+		}
 	}
 
 	// Set DNS search domains
@@ -2306,8 +2310,13 @@ func (c *Container) addHosts() error {
 	}
 
 	var exclude []net.IP
+	var preferIP string
 	if c.pastaResult != nil {
 		exclude = c.pastaResult.IPAddresses
+		if len(c.pastaResult.MapGuestAddrIPs) > 0 {
+			// we used --map-guest-addr to setup pasta so prefer this address
+			preferIP = c.pastaResult.MapGuestAddrIPs[0]
+		}
 	} else if c.config.NetMode.IsBridge() {
 		// When running rootless we have to check the rootless netns ip addresses
 		// to not assign a ip that is already used in the rootless netns as it would
@@ -2316,16 +2325,27 @@ func (c *Container) addHosts() error {
 		info, err := c.runtime.network.RootlessNetnsInfo()
 		if err == nil {
 			exclude = info.IPAddresses
+			if len(info.MapGuestIps) > 0 {
+				// we used --map-guest-addr to setup pasta so prefer this address
+				preferIP = info.MapGuestIps[0]
+			}
 		}
 	}
 
+	hostContainersInternalIP := etchosts.GetHostContainersInternalIP(etchosts.HostContainersInternalOptions{
+		Conf:             c.runtime.config,
+		NetStatus:        c.state.NetworkStatus,
+		NetworkInterface: c.runtime.network,
+		Exclude:          exclude,
+		PreferIP:         preferIP,
+	})
+
 	return etchosts.New(&etchosts.Params{
-		BaseFile:     baseHostFile,
-		ExtraHosts:   c.config.HostAdd,
-		ContainerIPs: containerIPsEntries,
-		HostContainersInternalIP: etchosts.GetHostContainersInternalIPExcluding(
-			c.runtime.config, c.state.NetworkStatus, c.runtime.network, exclude),
-		TargetFile: targetFile,
+		BaseFile:                 baseHostFile,
+		ExtraHosts:               c.config.HostAdd,
+		ContainerIPs:             containerIPsEntries,
+		HostContainersInternalIP: hostContainersInternalIP,
+		TargetFile:               targetFile,
 	})
 }
 

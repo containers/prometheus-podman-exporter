@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -1065,7 +1067,7 @@ func WithDependencyCtrs(ctrs []*Container) CtrCreateOption {
 // namespace with a minimal configuration.
 // An optional array of port mappings can be provided.
 // Conflicts with WithNetNSFrom().
-func WithNetNS(portMappings []nettypes.PortMapping, exposedPorts map[uint16][]string, postConfigureNetNS bool, netmode string, networks map[string]nettypes.PerNetworkOptions) CtrCreateOption {
+func WithNetNS(portMappings []nettypes.PortMapping, postConfigureNetNS bool, netmode string, networks map[string]nettypes.PerNetworkOptions) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
 			return define.ErrCtrFinalized
@@ -1075,12 +1077,25 @@ func WithNetNS(portMappings []nettypes.PortMapping, exposedPorts map[uint16][]st
 		ctr.config.NetMode = namespaces.NetworkMode(netmode)
 		ctr.config.CreateNetNS = true
 		ctr.config.PortMappings = portMappings
-		ctr.config.ExposedPorts = exposedPorts
 
 		if !ctr.config.NetMode.IsBridge() && len(networks) > 0 {
 			return errors.New("cannot use networks when network mode is not bridge")
 		}
 		ctr.config.Networks = networks
+
+		return nil
+	}
+}
+
+// WithExposedPorts includes a set of ports that were exposed by the image in
+// the container config, e.g. for display when the container is inspected.
+func WithExposedPorts(exposedPorts map[uint16][]string) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+
+		ctr.config.ExposedPorts = exposedPorts
 
 		return nil
 	}
@@ -1496,6 +1511,57 @@ func WithHealthCheck(healthCheck *manifest.Schema2HealthConfig) CtrCreateOption 
 			return define.ErrCtrFinalized
 		}
 		ctr.config.HealthCheckConfig = healthCheck
+		return nil
+	}
+}
+
+// WithHealthCheckLogDestination adds the healthLogDestination to the container config
+func WithHealthCheckLogDestination(destination string) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		switch destination {
+		case define.HealthCheckEventsLoggerDestination, define.DefaultHealthCheckLocalDestination:
+			ctr.config.HealthLogDestination = destination
+		default:
+			fileInfo, err := os.Stat(destination)
+			if err != nil {
+				return fmt.Errorf("HealthCheck Log '%s' destination error: %w", destination, err)
+			}
+			mode := fileInfo.Mode()
+			if !mode.IsDir() {
+				return fmt.Errorf("HealthCheck Log '%s' destination must be directory", destination)
+			}
+
+			absPath, err := filepath.Abs(destination)
+			if err != nil {
+				return err
+			}
+			ctr.config.HealthLogDestination = absPath
+		}
+		return nil
+	}
+}
+
+// WithHealthCheckMaxLogCount adds the healthMaxLogCount to the container config
+func WithHealthCheckMaxLogCount(maxLogCount uint) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.HealthMaxLogCount = maxLogCount
+		return nil
+	}
+}
+
+// WithHealthCheckMaxLogSize adds the healthMaxLogSize to the container config
+func WithHealthCheckMaxLogSize(maxLogSize uint) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.HealthMaxLogSize = maxLogSize
 		return nil
 	}
 }

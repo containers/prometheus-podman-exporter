@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sync"
 
+	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/sirupsen/logrus"
 )
@@ -28,27 +28,37 @@ func (r *Runtime) newEventer() (events.Eventer, error) {
 
 // newContainerEvent creates a new event based on a container
 func (c *Container) newContainerEvent(status events.Status) {
-	if err := c.newContainerEventWithInspectData(status, "", false); err != nil {
+	if err := c.newContainerEventWithInspectData(status, define.HealthCheckResults{}, false); err != nil {
 		logrus.Errorf("Unable to write container event: %v", err)
 	}
 }
 
 // newContainerHealthCheckEvent creates a new healthcheck event with the given status
-func (c *Container) newContainerHealthCheckEvent(healthStatus string) {
-	if err := c.newContainerEventWithInspectData(events.HealthStatus, healthStatus, false); err != nil {
+func (c *Container) newContainerHealthCheckEvent(healthCheckResult define.HealthCheckResults) {
+	if err := c.newContainerEventWithInspectData(events.HealthStatus, healthCheckResult, false); err != nil {
 		logrus.Errorf("Unable to write container event: %v", err)
 	}
 }
 
 // newContainerEventWithInspectData creates a new event and sets the
 // ContainerInspectData field if inspectData is set.
-func (c *Container) newContainerEventWithInspectData(status events.Status, healthStatus string, inspectData bool) error {
+func (c *Container) newContainerEventWithInspectData(status events.Status, healthCheckResult define.HealthCheckResults, inspectData bool) error {
 	e := events.NewEvent(status)
 	e.ID = c.ID()
 	e.Name = c.Name()
 	e.Image = c.config.RootfsImageName
 	e.Type = events.Container
-	e.HealthStatus = healthStatus
+	e.HealthStatus = healthCheckResult.Status
+	if c.config.HealthLogDestination == define.HealthCheckEventsLoggerDestination {
+		if len(healthCheckResult.Log) > 0 {
+			logData, err := json.Marshal(healthCheckResult.Log[len(healthCheckResult.Log)-1])
+			if err != nil {
+				return fmt.Errorf("unable to marshall healthcheck log for writing: %w", err)
+			}
+			e.HealthLog = string(logData)
+		}
+	}
+	e.HealthFailingStreak = healthCheckResult.FailingStreak
 
 	e.Details = events.Details{
 		PodID:      c.PodID(),
@@ -176,7 +186,7 @@ func (r *Runtime) Events(ctx context.Context, options events.ReadOptions) error 
 
 // GetEvents reads the event log and returns events based on input filters
 func (r *Runtime) GetEvents(ctx context.Context, filters []string) ([]*events.Event, error) {
-	eventChannel := make(chan *events.Event)
+	eventChannel := make(chan events.ReadResult)
 	options := events.ReadOptions{
 		EventChannel: eventChannel,
 		Filters:      filters,
@@ -184,45 +194,21 @@ func (r *Runtime) GetEvents(ctx context.Context, filters []string) ([]*events.Ev
 		Stream:       false,
 	}
 
-	logEvents := make([]*events.Event, 0, len(eventChannel))
-	readLock := sync.Mutex{}
-	readLock.Lock()
-	go func() {
-		for e := range eventChannel {
-			logEvents = append(logEvents, e)
-		}
-		readLock.Unlock()
-	}()
-
-	readErr := r.eventer.Read(ctx, options)
-	readLock.Lock() // Wait for the events to be consumed.
-	return logEvents, readErr
-}
-
-// GetLastContainerEvent takes a container name or ID and an event status and returns
-// the last occurrence of the container event
-func (r *Runtime) GetLastContainerEvent(ctx context.Context, nameOrID string, containerEvent events.Status) (*events.Event, error) {
-	// FIXME: events should be read in reverse order!
-	// https://github.com/containers/podman/issues/14579
-
-	// check to make sure the event.Status is valid
-	if _, err := events.StringToStatus(containerEvent.String()); err != nil {
-		return nil, err
-	}
-	filters := []string{
-		fmt.Sprintf("container=%s", nameOrID),
-		fmt.Sprintf("event=%s", containerEvent),
-		"type=container",
-	}
-	containerEvents, err := r.GetEvents(ctx, filters)
+	err := r.eventer.Read(ctx, options)
 	if err != nil {
 		return nil, err
 	}
-	if len(containerEvents) < 1 {
-		return nil, fmt.Errorf("%s not found: %w", containerEvent.String(), events.ErrEventNotFound)
+
+	logEvents := make([]*events.Event, 0, len(eventChannel))
+	for evt := range eventChannel {
+		// we ignore any error here, this is only used on the backup
+		// GetExecDiedEvent() died path as best effort anyway
+		if evt.Error == nil {
+			logEvents = append(logEvents, evt.Event)
+		}
 	}
-	// return the last element in the slice
-	return containerEvents[len(containerEvents)-1], nil
+
+	return logEvents, nil
 }
 
 // GetExecDiedEvent takes a container name or ID, exec session ID, and returns
