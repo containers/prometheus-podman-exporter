@@ -84,8 +84,11 @@ func (ic *ContainerEngine) createServiceContainer(ctx context.Context, name stri
 		ReadOnly:         true,
 		ReadWriteTmpFS:   false,
 		// No need to spin up slirp etc.
-		Net:         &entities.NetOptions{Network: specgen.Namespace{NSMode: specgen.NoNetwork}},
-		StopTimeout: rtc.Engine.StopTimeout,
+		Net:                  &entities.NetOptions{Network: specgen.Namespace{NSMode: specgen.NoNetwork}},
+		StopTimeout:          rtc.Engine.StopTimeout,
+		HealthLogDestination: define.DefaultHealthCheckLocalDestination,
+		HealthMaxLogCount:    define.DefaultHealthMaxLogCount,
+		HealthMaxLogSize:     define.DefaultHealthMaxLogSize,
 	}
 
 	// Create and fill out the runtime spec.
@@ -394,6 +397,22 @@ func (ic *ContainerEngine) PlayKube(ctx context.Context, body io.Reader, options
 			report.Pods = append(report.Pods, r.Pods...)
 			validKinds++
 			ranContainers = true
+		case "Job":
+			var jobYAML v1.Job
+
+			if err := yaml.Unmarshal(document, &jobYAML); err != nil {
+				return nil, fmt.Errorf("unable to read YAML as Kube Job: %w", err)
+			}
+
+			r, proxies, err := ic.playKubeJob(ctx, &jobYAML, options, &ipIndex, configMaps, serviceContainer)
+			if err != nil {
+				return nil, err
+			}
+			notifyProxies = append(notifyProxies, proxies...)
+
+			report.Pods = append(report.Pods, r.Pods...)
+			validKinds++
+			ranContainers = true
 		case "PersistentVolumeClaim":
 			var pvcYAML v1.PersistentVolumeClaim
 
@@ -549,7 +568,35 @@ func (ic *ContainerEngine) playKubeDeployment(ctx context.Context, deploymentYAM
 	return &report, proxies, nil
 }
 
+func (ic *ContainerEngine) playKubeJob(ctx context.Context, jobYAML *v1.Job, options entities.PlayKubeOptions, ipIndex *int, configMaps []v1.ConfigMap, serviceContainer *libpod.Container) (*entities.PlayKubeReport, []*notifyproxy.NotifyProxy, error) {
+	var (
+		jobName string
+		podSpec v1.PodTemplateSpec
+		report  entities.PlayKubeReport
+	)
+
+	jobName = jobYAML.ObjectMeta.Name
+	if jobName == "" {
+		return nil, nil, errors.New("job does not have a name")
+	}
+	podSpec = jobYAML.Spec.Template
+
+	podName := fmt.Sprintf("%s-pod", jobName)
+	podReport, proxies, err := ic.playKubePod(ctx, podName, &podSpec, options, ipIndex, jobYAML.Annotations, configMaps, serviceContainer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encountered while bringing up pod %s: %w", podName, err)
+	}
+	report.Pods = podReport.Pods
+
+	return &report, proxies, nil
+}
+
 func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podYAML *v1.PodTemplateSpec, options entities.PlayKubeOptions, ipIndex *int, annotations map[string]string, configMaps []v1.ConfigMap, serviceContainer *libpod.Container) (*entities.PlayKubeReport, []*notifyproxy.NotifyProxy, error) {
+	cfg, err := ic.Libpod.GetConfigNoCopy()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var (
 		writer      io.Writer
 		playKubePod entities.PlayKubePod
@@ -605,10 +652,15 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 	if options.Userns == "" {
 		if v, ok := annotations[define.UserNsAnnotation]; ok {
 			options.Userns = v
+		} else if v, ok := annotations[define.UserNsAnnotation+"/"+podName]; ok {
+			options.Userns = v
+		} else if podYAML.Spec.HostUsers != nil && !*podYAML.Spec.HostUsers {
+			options.Userns = "auto"
 		} else {
 			options.Userns = "host"
 		}
-		if podYAML.Spec.HostUsers != nil && !*podYAML.Spec.HostUsers {
+		// FIXME: how to deal with explicit mappings?
+		if options.Userns == "private" {
 			options.Userns = "auto"
 		}
 	} else if podYAML.Spec.HostUsers != nil {
@@ -751,6 +803,21 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 					return nil, nil, err
 				}
 			}
+		} else if v.Type == kube.KubeVolumeTypeImage {
+			var cwd string
+			if options.ContextDir != "" {
+				cwd = options.ContextDir
+			} else {
+				cwd, err = os.Getwd()
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+
+			_, err := ic.buildOrPullImage(ctx, cwd, writer, v.Source, v.ImagePullPolicy, options)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 
@@ -772,7 +839,7 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 	}
 
 	if podOpt.Infra {
-		infraImage := util.DefaultContainerConfig().Engine.InfraImage
+		infraImage := cfg.Engine.InfraImage
 		infraOptions := entities.NewInfraContainerCreateOptions()
 		infraOptions.Hostname = podSpec.PodSpecGen.PodBasicConfig.Hostname
 		infraOptions.ReadOnly = true
@@ -843,11 +910,6 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 		if err != nil {
 			return nil, nil, err
 		}
-	}
-
-	cfg, err := ic.Libpod.GetConfigNoCopy()
-	if err != nil {
-		return nil, nil, err
 	}
 
 	var readOnly types.OptionalBool
@@ -1124,19 +1186,18 @@ func (ic *ContainerEngine) playKubePod(ctx context.Context, podName string, podY
 	return &report, sdNotifyProxies, nil
 }
 
-// getImageAndLabelInfo returns the image information and how the image should be pulled plus as well as labels to be used for the container in the pod.
-// Moved this to a separate function so that it can be used for both init and regular containers when playing a kube yaml.
-func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string, annotations map[string]string, writer io.Writer, container v1.Container, options entities.PlayKubeOptions) (*libimage.Image, map[string]string, error) {
-	// Contains all labels obtained from kube
-	labels := make(map[string]string)
-	var pulledImage *libimage.Image
-	buildFile, err := getBuildFile(container.Image, cwd)
+// buildImageFromContainerfile builds the container image and returns its details if these conditions are met:
+//   - A folder with the name of the image exists in current directory
+//   - A Dockerfile or Containerfile exists in that folder
+//   - The image doesn't exist locally OR the user explicitly provided the option `--build`
+func (ic *ContainerEngine) buildImageFromContainerfile(ctx context.Context, cwd string, writer io.Writer, image string, options entities.PlayKubeOptions) (*libimage.Image, error) {
+	buildFile, err := getBuildFile(image, cwd)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	existsLocally, err := ic.Libpod.LibimageRuntime().Exists(container.Image)
+	existsLocally, err := ic.Libpod.LibimageRuntime().Exists(image)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if (len(buildFile) > 0) && ((!existsLocally && options.Build != types.OptionalBoolFalse) || (options.Build == types.OptionalBoolTrue)) {
 		buildOpts := new(buildahDefine.BuildOptions)
@@ -1144,56 +1205,91 @@ func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string,
 		buildOpts.ConfigureNetwork = buildahDefine.NetworkDefault
 		isolation, err := bparse.IsolationOption("")
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		buildOpts.Isolation = isolation
 		buildOpts.CommonBuildOpts = commonOpts
 		buildOpts.SystemContext = options.SystemContext
-		buildOpts.Output = container.Image
+		buildOpts.Output = image
 		buildOpts.ContextDirectory = filepath.Dir(buildFile)
 		buildOpts.ReportWriter = writer
 		if _, _, err := ic.Libpod.Build(ctx, *buildOpts, []string{buildFile}...); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		i, _, err := ic.Libpod.LibimageRuntime().LookupImage(container.Image, new(libimage.LookupImageOptions))
+		builtImage, _, err := ic.Libpod.LibimageRuntime().LookupImage(image, new(libimage.LookupImageOptions))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		pulledImage = i
-	} else {
-		pullPolicy := config.PullPolicyMissing
-		if len(container.ImagePullPolicy) > 0 {
-			// Make sure to lower the strings since K8s pull policy
-			// may be capitalized (see bugzilla.redhat.com/show_bug.cgi?id=1985905).
-			rawPolicy := string(container.ImagePullPolicy)
-			pullPolicy, err = config.ParsePullPolicy(strings.ToLower(rawPolicy))
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			if named, err := reference.ParseNamed(container.Image); err == nil {
-				tagged, isTagged := named.(reference.NamedTagged)
-				if !isTagged || tagged.Tag() == "latest" {
-					// Make sure to always pull the latest image in case it got updated.
-					pullPolicy = config.PullPolicyNewer
-				}
-			}
-		}
-		// This ensures the image is the image store
-		pullOptions := &libimage.PullOptions{}
-		pullOptions.AuthFilePath = options.Authfile
-		pullOptions.CertDirPath = options.CertDir
-		pullOptions.SignaturePolicyPath = options.SignaturePolicy
-		pullOptions.Writer = writer
-		pullOptions.Username = options.Username
-		pullOptions.Password = options.Password
-		pullOptions.InsecureSkipTLSVerify = options.SkipTLSVerify
+		return builtImage, nil
+	}
+	return nil, nil
+}
 
-		pulledImages, err := ic.Libpod.LibimageRuntime().Pull(ctx, container.Image, pullPolicy, pullOptions)
+// pullImageWithPolicy invokes libimage.Pull() to pull an image with the given PullPolicy.
+// If the PullPolicy is not set:
+// - use PullPolicyNewer if the image tag is set to "latest" or is not set
+// - use PullPolicyMissing the policy is set to PullPolicyNewer.
+func (ic *ContainerEngine) pullImageWithPolicy(ctx context.Context, writer io.Writer, image string, policy v1.PullPolicy, options entities.PlayKubeOptions) (*libimage.Image, error) {
+	pullPolicy := config.PullPolicyMissing
+	if len(policy) > 0 {
+		// Make sure to lower the strings since K8s pull policy
+		// may be capitalized (see bugzilla.redhat.com/show_bug.cgi?id=1985905).
+		rawPolicy := string(policy)
+		parsedPolicy, err := config.ParsePullPolicy(strings.ToLower(rawPolicy))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		pulledImage = pulledImages[0]
+		pullPolicy = parsedPolicy
+	} else {
+		if named, err := reference.ParseNamed(image); err == nil {
+			tagged, isTagged := named.(reference.NamedTagged)
+			if !isTagged || tagged.Tag() == "latest" {
+				// Make sure to always pull the latest image in case it got updated.
+				pullPolicy = config.PullPolicyNewer
+			}
+		}
+	}
+	// This ensures the image is the image store
+	pullOptions := &libimage.PullOptions{}
+	pullOptions.AuthFilePath = options.Authfile
+	pullOptions.CertDirPath = options.CertDir
+	pullOptions.SignaturePolicyPath = options.SignaturePolicy
+	pullOptions.Writer = writer
+	pullOptions.Username = options.Username
+	pullOptions.Password = options.Password
+	pullOptions.InsecureSkipTLSVerify = options.SkipTLSVerify
+
+	pulledImages, err := ic.Libpod.LibimageRuntime().Pull(ctx, image, pullPolicy, pullOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pulledImages[0], err
+}
+
+// buildOrPullImage builds the image if a Containerfile is present in a directory
+// with the name of the image. It pulls the image otherwise. It returns the image
+// details.
+func (ic *ContainerEngine) buildOrPullImage(ctx context.Context, cwd string, writer io.Writer, image string, policy v1.PullPolicy, options entities.PlayKubeOptions) (*libimage.Image, error) {
+	buildImage, err := ic.buildImageFromContainerfile(ctx, cwd, writer, image, options)
+	if err != nil {
+		return nil, err
+	}
+	if buildImage != nil {
+		return buildImage, nil
+	} else {
+		return ic.pullImageWithPolicy(ctx, writer, image, policy, options)
+	}
+}
+
+// getImageAndLabelInfo returns the image information and how the image should be pulled plus as well as labels to be used for the container in the pod.
+// Moved this to a separate function so that it can be used for both init and regular containers when playing a kube yaml.
+func (ic *ContainerEngine) getImageAndLabelInfo(ctx context.Context, cwd string, annotations map[string]string, writer io.Writer, container v1.Container, options entities.PlayKubeOptions) (*libimage.Image, map[string]string, error) {
+	// Contains all labels obtained from kube
+	labels := make(map[string]string)
+
+	pulledImage, err := ic.buildOrPullImage(ctx, cwd, writer, container.Image, container.ImagePullPolicy, options)
+	if err != nil {
+		return nil, labels, err
 	}
 
 	// Handle kube annotations
@@ -1497,7 +1593,7 @@ func sortKubeKinds(documentList [][]byte) ([][]byte, error) {
 		}
 
 		switch kind {
-		case "Pod", "Deployment", "DaemonSet":
+		case "Pod", "Deployment", "DaemonSet", "Job":
 			sortedDocumentList = append(sortedDocumentList, document)
 		default:
 			sortedDocumentList = append([][]byte{document}, sortedDocumentList...)
@@ -1627,6 +1723,15 @@ func (ic *ContainerEngine) PlayKubeDown(ctx context.Context, body io.Reader, opt
 				logrus.Warnf("Limiting replica count to 1, more than one replica is not supported by Podman")
 			}
 			podName := fmt.Sprintf("%s-pod", deploymentName)
+			podNames = append(podNames, podName)
+		case "Job":
+			var jobYAML v1.Job
+
+			if err := yaml.Unmarshal(document, &jobYAML); err != nil {
+				return nil, fmt.Errorf("unable to read YAML as Kube Job: %w", err)
+			}
+			jobName := jobYAML.ObjectMeta.Name
+			podName := fmt.Sprintf("%s-pod", jobName)
 			podNames = append(podNames, podName)
 		case "PersistentVolumeClaim":
 			var pvcYAML v1.PersistentVolumeClaim

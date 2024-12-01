@@ -12,7 +12,6 @@ import (
 	bdefine "github.com/containers/buildah/define"
 	"github.com/containers/common/libimage/filter"
 	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/ssh"
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v5/libpod/define"
@@ -102,7 +101,7 @@ func (ir *ImageEngine) Prune(ctx context.Context, opts entities.ImagePruneOption
 		f := strings.Split(filter, "=")
 		filters[f[0]] = f[1:]
 	}
-	options := new(images.PruneOptions).WithAll(opts.All).WithFilters(filters).WithExternal(opts.External)
+	options := new(images.PruneOptions).WithAll(opts.All).WithFilters(filters).WithExternal(opts.External).WithBuildCache(opts.BuildCache)
 	reports, err := images.Prune(ir.ClientCtx, options)
 	if err != nil {
 		return nil, err
@@ -415,22 +414,22 @@ func (ir *ImageEngine) Sign(ctx context.Context, names []string, options entitie
 	return nil, errors.New("not implemented yet")
 }
 
-func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, parentFlags []string, quiet bool, sshMode ssh.EngineMode) error {
+func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, opts entities.ImageScpOptions) (*entities.ImageScpReport, error) {
 	options := new(images.ScpOptions)
 
 	var destination *string
 	if len(dst) > 1 {
 		destination = &dst
 	}
-	options.Quiet = &quiet
+	options.Quiet = &opts.Quiet
 	options.Destination = destination
 
 	rep, err := images.Scp(ir.ClientCtx, &src, destination, *options)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	fmt.Println("Loaded Image(s):", rep.Id)
 
-	return nil
+	return &entities.ImageScpReport{}, nil
 }
