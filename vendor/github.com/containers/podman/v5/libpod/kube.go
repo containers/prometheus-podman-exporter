@@ -233,6 +233,61 @@ func GenerateForKubeDeployment(ctx context.Context, pod *YAMLPod, options entiti
 	return &dep, nil
 }
 
+// GenerateForKubeJob returns a YAMLDeployment from a YAMLPod that is then used to create a kubernetes Job
+// kind YAML.
+func GenerateForKubeJob(ctx context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLJob, error) {
+	// Restart policy for Job cannot be set to Always
+	if options.Type == define.K8sKindJob && pod.Spec.RestartPolicy == v1.RestartPolicyAlways {
+		return nil, fmt.Errorf("k8s Jobs can not have restartPolicy set to Always; only Never and OnFailure policies allowed")
+	}
+
+	// Create label map that will be added to podSpec and Job metadata
+	// The matching label lets the job know which pods to manage
+	appKey := "app"
+	matchLabels := map[string]string{appKey: pod.Name}
+	// Add the key:value (app:pod-name) to the podSpec labels
+	if pod.Labels == nil {
+		pod.Labels = matchLabels
+	} else {
+		pod.Labels[appKey] = pod.Name
+	}
+
+	jobSpec := YAMLJobSpec{
+		Template: &YAMLPodTemplateSpec{
+			PodTemplateSpec: v1.PodTemplateSpec{
+				ObjectMeta: pod.ObjectMeta,
+			},
+			Spec: pod.Spec,
+		},
+	}
+
+	// Set the completions and parallelism to 1 by default for the Job
+	completions, parallelism := int32(1), int32(1)
+	jobSpec.Completions = &completions
+	jobSpec.Parallelism = &parallelism
+	// Set the restart policy to never as k8s requires a job to have a restart policy
+	// of onFailure or never set in the kube yaml
+	jobSpec.Template.Spec.RestartPolicy = v1.RestartPolicyNever
+
+	// Create the Deployment object
+	job := YAMLJob{
+		Job: v1.Job{
+			ObjectMeta: v12.ObjectMeta{
+				Name:              pod.Name + "-job",
+				CreationTimestamp: pod.CreationTimestamp,
+				Labels:            pod.Labels,
+			},
+			TypeMeta: v12.TypeMeta{
+				Kind:       "Job",
+				APIVersion: "batch/v1",
+			},
+		},
+		Spec: &jobSpec,
+	}
+
+	return &job, nil
+}
+
 // GenerateForKube generates a v1.PersistentVolumeClaim from a libpod volume.
 func (v *Volume) GenerateForKube() *v1.PersistentVolumeClaim {
 	annotations := make(map[string]string)
@@ -328,6 +383,15 @@ type YAMLDaemonSetSpec struct {
 	Strategy *v1.DaemonSetUpdateStrategy `json:"strategy,omitempty"`
 }
 
+// YAMLJobSpec represents the same k8s API core JobSpec with a small
+// change and that is having Template as a pointer to YAMLPodTemplateSpec
+// because Go doesn't omit empty struct and we want to omit Strategy and any fields in the Pod YAML
+// if it's empty.
+type YAMLJobSpec struct {
+	v1.JobSpec
+	Template *YAMLPodTemplateSpec `json:"template,omitempty"`
+}
+
 // YAMLDaemonSet represents the same k8s API core DaemonSet with a small change
 // and that is having Spec as a pointer to YAMLDaemonSetSpec and Status as a pointer to
 // k8s API core DaemonSetStatus.
@@ -348,6 +412,12 @@ type YAMLDeployment struct {
 	v1.Deployment
 	Spec   *YAMLDeploymentSpec  `json:"spec,omitempty"`
 	Status *v1.DeploymentStatus `json:"status,omitempty"`
+}
+
+type YAMLJob struct {
+	v1.Job
+	Spec   *YAMLJobSpec  `json:"spec,omitempty"`
+	Status *v1.JobStatus `json:"status,omitempty"`
 }
 
 // YAMLService represents the same k8s API core Service struct with a small
@@ -507,12 +577,42 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 		stopTimeout *uint
 	)
 
+	cfg, err := config.Default()
+	if err != nil {
+		return nil, err
+	}
+
 	// Let's sort the containers in order of created time
 	// This will ensure that the init containers are defined in the correct order in the kube yaml
 	sort.Slice(containers, func(i, j int) bool { return containers[i].CreatedTime().Before(containers[j].CreatedTime()) })
 
 	for _, ctr := range containers {
-		if !ctr.IsInfra() {
+		if ctr.IsInfra() {
+			// If there is an user namespace for the infra container, then register it for the entire pod.
+			if v, found := ctr.config.Spec.Annotations[define.UserNsAnnotation]; found {
+				podAnnotations[define.UserNsAnnotation] = v
+			}
+			_, _, infraDNS, _, err := containerToV1Container(ctx, ctr, getService)
+			if err != nil {
+				return nil, err
+			}
+			if infraDNS != nil {
+				if servers := infraDNS.Nameservers; len(servers) > 0 {
+					dnsInfo.Nameservers = servers
+				}
+				if searches := infraDNS.Searches; len(searches) > 0 {
+					dnsInfo.Searches = searches
+				}
+				if options := infraDNS.Options; len(options) > 0 {
+					dnsInfo.Options = options
+				}
+			}
+			// If the infraName is not the podID-infra, that means the user set another infra name using
+			// --infra-name during pod creation
+			if infraName != "" && infraName != p.ID()[:12]+"-infra" {
+				podAnnotations[define.InfraNameAnnotation] = infraName
+			}
+		} else {
 			for k, v := range ctr.config.Spec.Annotations {
 				if !podmanOnly && (define.IsReservedAnnotation(k)) {
 					continue
@@ -535,7 +635,7 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 
 			// Pick the first container that has a stop-timeout set and use that value
 			// Ignore podman's default
-			if ctr.config.StopTimeout != util.DefaultContainerConfig().Engine.StopTimeout && stopTimeout == nil {
+			if ctr.config.StopTimeout != cfg.Engine.StopTimeout && stopTimeout == nil {
 				stopTimeout = &ctr.config.StopTimeout
 			}
 
@@ -571,29 +671,7 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 			// Deduplicate volumes, so if containers in the pod share a volume, it's only
 			// listed in the volumes section once
 			for _, vol := range volumes {
-				vol := vol
 				deDupPodVolumes[vol.Name] = &vol
-			}
-		} else {
-			_, _, infraDNS, _, err := containerToV1Container(ctx, ctr, getService)
-			if err != nil {
-				return nil, err
-			}
-			if infraDNS != nil {
-				if servers := infraDNS.Nameservers; len(servers) > 0 {
-					dnsInfo.Nameservers = servers
-				}
-				if searches := infraDNS.Searches; len(searches) > 0 {
-					dnsInfo.Searches = searches
-				}
-				if options := infraDNS.Options; len(options) > 0 {
-					dnsInfo.Options = options
-				}
-			}
-			// If the infraName is not the podID-infra, that means the user set another infra name using
-			// --infra-name during pod creation
-			if infraName != "" && infraName != p.ID()[:12]+"-infra" {
-				podAnnotations[define.InfraNameAnnotation] = infraName
 			}
 		}
 	}
@@ -663,6 +741,11 @@ func newPodObject(podName string, annotations map[string]string, initCtrs, conta
 // simplePodWithV1Containers is a function used by inspect when kube yaml needs to be generated
 // for a single container.  we "insert" that container description in a pod.
 func simplePodWithV1Containers(ctx context.Context, ctrs []*Container, getService, podmanOnly bool) (*v1.Pod, error) {
+	cfg, err := config.Default()
+	if err != nil {
+		return nil, err
+	}
+
 	kubeCtrs := make([]v1.Container, 0, len(ctrs))
 	kubeInitCtrs := []v1.Container{}
 	kubeVolumes := make([]v1.Volume, 0)
@@ -702,7 +785,7 @@ func simplePodWithV1Containers(ctx context.Context, ctrs []*Container, getServic
 
 		// Pick the first container that has a stop-timeout set and use that value
 		// Ignore podman's default
-		if ctr.config.StopTimeout != util.DefaultContainerConfig().Engine.StopTimeout && stopTimeout == nil {
+		if ctr.config.StopTimeout != cfg.Engine.StopTimeout && stopTimeout == nil {
 			stopTimeout = &ctr.config.StopTimeout
 		}
 
@@ -713,7 +796,7 @@ func simplePodWithV1Containers(ctx context.Context, ctrs []*Container, getServic
 
 		if ctr.config.Spec.Process != nil {
 			var ulimitArr []string
-			defaultUlimits := util.DefaultContainerConfig().Ulimits()
+			defaultUlimits := cfg.Ulimits()
 			for _, ulimit := range ctr.config.Spec.Process.Rlimits {
 				finalUlimit := strings.ToLower(strings.ReplaceAll(ulimit.Type, "RLIMIT_", "")) + "=" + strconv.Itoa(int(ulimit.Soft)) + ":" + strconv.Itoa(int(ulimit.Hard))
 				// compare ulimit with default list so we don't add it twice

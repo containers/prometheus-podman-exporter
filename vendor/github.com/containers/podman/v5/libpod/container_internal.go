@@ -1123,10 +1123,9 @@ func (c *Container) init(ctx context.Context, retainRetries bool) error {
 	// bugzilla.redhat.com/show_bug.cgi?id=2144754:
 	// In case of a restart, make sure to remove the healthcheck log to
 	// have a clean state.
-	if path := c.healthCheckLogPath(); path != "" {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logrus.Error(err)
-		}
+	err = c.writeHealthCheckLog(define.HealthCheckResults{Status: define.HealthCheckReset})
+	if err != nil {
+		return err
 	}
 
 	if err := c.save(); err != nil {
@@ -1925,6 +1924,11 @@ func (c *Container) mountNamedVolume(v *ContainerNamedVolume, mountpoint string)
 			getOptions := copier.GetOptions{
 				KeepDirectoryNames: false,
 			}
+			// If the volume is idmapped, we need to "undo" the idmapping
+			if slices.Contains(v.Options, "idmap") {
+				getOptions.UIDMap = c.config.IDMappings.UIDMap
+				getOptions.GIDMap = c.config.IDMappings.GIDMap
+			}
 			errChan <- copier.Get(srcDir, "", getOptions, []string{"/."}, writer)
 		}()
 
@@ -1932,6 +1936,8 @@ func (c *Container) mountNamedVolume(v *ContainerNamedVolume, mountpoint string)
 		// the volume.
 		copyOpts := copier.PutOptions{}
 		if err := copier.Put(volMount, "", copyOpts, reader); err != nil {
+			// consume the reader otherwise the goroutine will block
+			_, _ = io.Copy(io.Discard, reader)
 			err2 := <-errChan
 			if err2 != nil {
 				logrus.Errorf("Streaming contents of container %s directory for volume copy-up: %v", c.ID(), err2)
@@ -2049,6 +2055,11 @@ func (c *Container) cleanup(ctx context.Context) error {
 
 	logrus.Debugf("Cleaning up container %s", c.ID())
 
+	// Ensure we are not killed half way through cleanup
+	// which can leave us in a bad state.
+	shutdown.Inhibit()
+	defer shutdown.Uninhibit()
+
 	// Remove healthcheck unit/timer file if it execs
 	if c.config.HealthCheckConfig != nil {
 		if err := c.removeTransientFiles(ctx,
@@ -2151,6 +2162,11 @@ func (c *Container) stopPodIfNeeded(ctx context.Context) error {
 		return nil
 	}
 
+	// Never try to stop the pod when a init container stopped
+	if c.IsInitCtr() {
+		return nil
+	}
+
 	pod, err := c.runtime.state.Pod(c.config.Pod)
 	if err != nil {
 		return fmt.Errorf("container %s is in pod %s, but pod cannot be retrieved: %w", c.ID(), c.config.Pod, err)
@@ -2210,7 +2226,6 @@ func (c *Container) postDeleteHooks(ctx context.Context) error {
 				return err
 			}
 			for i, hook := range extensionHooks {
-				hook := hook
 				logrus.Debugf("container %s: invoke poststop hook %d, path %s", c.ID(), i, hook.Path)
 				var stderr, stdout bytes.Buffer
 				hookErr, err := exec.RunWithOptions(
@@ -2377,7 +2392,7 @@ func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[s
 // the container's mountpoint directly from the storage.
 // Otherwise, it returns an intermediate mountpoint that is accessible to anyone.
 func (c *Container) getRootPathForOCI() (string, error) {
-	if hasCurrentUserMapped(c) {
+	if hasCurrentUserMapped(c) || c.config.RootfsMapping != nil {
 		return c.state.Mountpoint, nil
 	}
 	return c.getIntermediateMountpointUser()

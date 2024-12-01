@@ -2,14 +2,13 @@ package volumes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"errors"
 
 	"github.com/containers/buildah/copier"
 	"github.com/containers/buildah/define"
@@ -231,7 +230,7 @@ func GetBindMount(ctx *types.SystemContext, args []string, contextDir string, st
 // GetCacheMount parses a single cache mount entry from the --mount flag.
 //
 // If this function succeeds and returns a non-nil *lockfile.LockFile, the caller must unlock it (when??).
-func GetCacheMount(args []string, store storage.Store, imageMountLabel string, additionalMountPoints map[string]internal.StageMountDetails, workDir string) (specs.Mount, *lockfile.LockFile, error) {
+func GetCacheMount(args []string, _ storage.Store, _ string, additionalMountPoints map[string]internal.StageMountDetails, workDir string) (specs.Mount, *lockfile.LockFile, error) {
 	var err error
 	var mode uint64
 	var buildahLockFilesDir string
@@ -247,7 +246,7 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 	}
 	// if id is set a new subdirectory with `id` will be created under /host-temp/buildah-build-cache/id
 	id := ""
-	// buildkit parity: cache directory defaults to 755
+	// buildkit parity: cache directory defaults to 0o755
 	mode = 0o755
 	// buildkit parity: cache directory defaults to uid 0 if not specified
 	uid := 0
@@ -359,8 +358,9 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 	}
 
 	if fromStage != "" {
-		// do not create cache on host
-		// instead use read-only mounted stage as cache
+		// do not create and use a cache directory on the host,
+		// instead use the location in the mounted stage or
+		// temporary directory as the cache
 		mountPoint := ""
 		if additionalMountPoints != nil {
 			if val, ok := additionalMountPoints[fromStage]; ok {
@@ -369,8 +369,8 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 				}
 			}
 		}
-		// Cache does not supports using image so if not stage found
-		// return with error
+		// Cache does not support using an image so if there's no such
+		// stage or temporary directory, return an error
 		if mountPoint == "" {
 			return newMount, nil, fmt.Errorf("no stage found with name %s", fromStage)
 		}
@@ -381,16 +381,16 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 		}
 		newMount.Source = evaluated
 	} else {
-		// we need to create cache on host if no image is being used
+		// we need to create the cache directory on the host if no image is being used
 
-		// since type is cache and cache can be reused by consecutive builds
+		// since type is cache and a cache can be reused by consecutive builds
 		// create a common cache directory, which persists on hosts within temp lifecycle
 		// add subdirectory if specified
 
 		// cache parent directory: creates separate cache parent for each user.
 		cacheParent := CacheParent()
 		// create cache on host if not present
-		err = os.MkdirAll(cacheParent, os.FileMode(0755))
+		err = os.MkdirAll(cacheParent, os.FileMode(0o755))
 		if err != nil {
 			return newMount, nil, fmt.Errorf("unable to create build cache directory: %w", err)
 		}
@@ -410,7 +410,7 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 			UID: uid,
 			GID: gid,
 		}
-		// buildkit parity: change uid and gid if specified otheriwise keep `0`
+		// buildkit parity: change uid and gid if specified, otherwise keep `0`
 		err = idtools.MkdirAllAndChownNew(newMount.Source, os.FileMode(mode), idPair)
 		if err != nil {
 			return newMount, nil, fmt.Errorf("unable to change uid,gid of cache directory: %w", err)
@@ -418,7 +418,7 @@ func GetCacheMount(args []string, store storage.Store, imageMountLabel string, a
 
 		// create a subdirectory inside `cacheParent` just to store lockfiles
 		buildahLockFilesDir = filepath.Join(cacheParent, buildahLockFilesDir)
-		err = os.MkdirAll(buildahLockFilesDir, os.FileMode(0700))
+		err = os.MkdirAll(buildahLockFilesDir, os.FileMode(0o700))
 		if err != nil {
 			return newMount, nil, fmt.Errorf("unable to create build cache lockfiles directory: %w", err)
 		}
@@ -531,6 +531,7 @@ func GetVolumes(ctx *types.SystemContext, store storage.Store, volumes []string,
 // getMounts takes user-provided input from the --mount flag and creates OCI
 // spec mounts.
 // buildah run --mount type=bind,src=/etc/resolv.conf,target=/etc/resolv.conf ...
+// buildah run --mount type=cache,target=/var/cache ...
 // buildah run --mount type=tmpfs,target=/dev/shm ...
 //
 // If this function succeeds, the caller must unlock the returned *lockfile.LockFile s if any (when??).
@@ -590,7 +591,7 @@ func getMounts(ctx *types.SystemContext, store storage.Store, mounts []string, c
 			}
 			finalMounts[mount.Destination] = mount
 		case TypeTmpfs:
-			mount, err := GetTmpfsMount(tokens)
+			mount, err := GetTmpfsMount(tokens, workDir)
 			if err != nil {
 				return nil, mountedImages, nil, err
 			}
@@ -608,7 +609,7 @@ func getMounts(ctx *types.SystemContext, store storage.Store, mounts []string, c
 }
 
 // GetTmpfsMount parses a single tmpfs mount entry from the --mount flag
-func GetTmpfsMount(args []string) (specs.Mount, error) {
+func GetTmpfsMount(args []string, workDir string) (specs.Mount, error) {
 	newMount := specs.Mount{
 		Type:   TypeTmpfs,
 		Source: TypeTmpfs,
@@ -646,10 +647,14 @@ func GetTmpfsMount(args []string) (specs.Mount, error) {
 			if !hasArgValue {
 				return newMount, fmt.Errorf("%v: %w", argName, errBadOptionArg)
 			}
-			if err := parse.ValidateVolumeCtrDir(argValue); err != nil {
+			targetPath := argValue
+			if !path.IsAbs(targetPath) {
+				targetPath = filepath.Join(workDir, targetPath)
+			}
+			if err := parse.ValidateVolumeCtrDir(targetPath); err != nil {
 				return newMount, err
 			}
-			newMount.Destination = argValue
+			newMount.Destination = targetPath
 			setDest = true
 		default:
 			return newMount, fmt.Errorf("%v: %w", argName, errBadMntOption)
