@@ -195,7 +195,7 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 	// inspect status should be set to nil.
 	if c.config.HealthCheckConfig != nil && !(len(c.config.HealthCheckConfig.Test) == 1 && c.config.HealthCheckConfig.Test[0] == "NONE") {
 		// This container has a healthcheck defined in it; we need to add its state
-		healthCheckState, err := c.getHealthCheckLog()
+		healthCheckState, err := c.readHealthCheckLog()
 		if err != nil {
 			// An error here is not considered fatal; no health state will be displayed
 			logrus.Error(err)
@@ -211,6 +211,11 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 		return nil, err
 	}
 	data.NetworkSettings = networkConfig
+	// Ports in NetworkSettings includes exposed ports for network modes that are not host,
+	// and not container.
+	if !(c.config.NetNsCtr != "" || c.NetworkMode() == "host") {
+		addInspectPortsExpose(c.config.ExposedPorts, data.NetworkSettings.Ports)
+	}
 
 	inspectConfig := c.generateInspectContainerConfig(ctrSpec)
 	data.Config = inspectConfig
@@ -253,6 +258,7 @@ func (c *Container) GetMounts(namedVolumes []*ContainerNamedVolume, imageVolumes
 		mountStruct.Type = "volume"
 		mountStruct.Destination = volume.Dest
 		mountStruct.Name = volume.Name
+		mountStruct.SubPath = volume.SubPath
 
 		// For src and driver, we need to look up the named
 		// volume.
@@ -279,6 +285,7 @@ func (c *Container) GetMounts(namedVolumes []*ContainerNamedVolume, imageVolumes
 		mountStruct.Destination = volume.Dest
 		mountStruct.Source = volume.Source
 		mountStruct.RW = volume.ReadWrite
+		mountStruct.SubPath = volume.SubPath
 
 		inspectMounts = append(inspectMounts, mountStruct)
 	}
@@ -372,6 +379,20 @@ func (c *Container) generateInspectContainerConfig(spec *spec.Spec) *define.Insp
 	if spec.Process != nil {
 		ctrConfig.Tty = spec.Process.Terminal
 		ctrConfig.Env = append([]string{}, spec.Process.Env...)
+
+		// finds all secrets mounted as env variables and hides the value
+		// the inspect command should not display it
+		envSecrets := c.config.EnvSecrets
+		for envIndex, envValue := range ctrConfig.Env {
+			// env variables come in the style `name=value`
+			envName := strings.Split(envValue, "=")[0]
+
+			envSecret, ok := envSecrets[envName]
+			if ok {
+				ctrConfig.Env[envIndex] = envSecret.Name + "=*******"
+			}
+		}
+
 		ctrConfig.WorkingDir = spec.Process.Cwd
 	}
 
@@ -408,9 +429,17 @@ func (c *Container) generateInspectContainerConfig(spec *spec.Spec) *define.Insp
 	ctrConfig.StopSignal = signal.ToDockerFormat(c.config.StopSignal)
 	// TODO: should JSON deep copy this to ensure internal pointers don't
 	// leak.
+	ctrConfig.StartupHealthCheck = c.config.StartupHealthCheckConfig
+
 	ctrConfig.Healthcheck = c.config.HealthCheckConfig
 
 	ctrConfig.HealthcheckOnFailureAction = c.config.HealthCheckOnFailureAction.String()
+
+	ctrConfig.HealthLogDestination = c.config.HealthLogDestination
+
+	ctrConfig.HealthMaxLogCount = c.config.HealthMaxLogCount
+
+	ctrConfig.HealthMaxLogSize = c.config.HealthMaxLogSize
 
 	ctrConfig.CreateCommand = c.config.CreateCommand
 
@@ -438,6 +467,25 @@ func (c *Container) generateInspectContainerConfig(spec *spec.Spec) *define.Insp
 
 	ctrConfig.SdNotifyMode = c.config.SdNotifyMode
 	ctrConfig.SdNotifySocket = c.config.SdNotifySocket
+
+	// Exosed ports consists of all exposed ports and all port mappings for
+	// this container. It does *NOT* follow to another container if we share
+	// the network namespace.
+	exposedPorts := make(map[string]struct{})
+	for port, protocols := range c.config.ExposedPorts {
+		for _, proto := range protocols {
+			exposedPorts[fmt.Sprintf("%d/%s", port, proto)] = struct{}{}
+		}
+	}
+	for _, mapping := range c.config.PortMappings {
+		for i := range mapping.Range {
+			exposedPorts[fmt.Sprintf("%d/%s", mapping.ContainerPort+i, mapping.Protocol)] = struct{}{}
+		}
+	}
+	if len(exposedPorts) > 0 {
+		ctrConfig.ExposedPorts = exposedPorts
+	}
+
 	return ctrConfig
 }
 
@@ -516,6 +564,9 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 		hostConfig.ContainerIDFile = ctrSpec.Annotations[define.InspectAnnotationCIDFile]
 		if ctrSpec.Annotations[define.InspectAnnotationAutoremove] == define.InspectResponseTrue {
 			hostConfig.AutoRemove = true
+		}
+		if ctrSpec.Annotations[define.InspectAnnotationAutoremoveImage] == define.InspectResponseTrue {
+			hostConfig.AutoRemoveImage = true
 		}
 		if ctrs, ok := ctrSpec.Annotations[define.VolumesFromAnnotation]; ok {
 			hostConfig.VolumesFrom = strings.Split(ctrs, ";")

@@ -1,5 +1,4 @@
 //go:build linux || freebsd
-// +build linux freebsd
 
 package chroot
 
@@ -74,7 +73,7 @@ func RunUsingChroot(spec *specs.Spec, bundlePath, homeDir string, stdin io.Reade
 	if err != nil {
 		return err
 	}
-	if err = ioutils.AtomicWriteFile(filepath.Join(bundlePath, "config.json"), specbytes, 0600); err != nil {
+	if err = ioutils.AtomicWriteFile(filepath.Join(bundlePath, "config.json"), specbytes, 0o600); err != nil {
 		return fmt.Errorf("storing runtime configuration: %w", err)
 	}
 	logrus.Debugf("config = %v", string(specbytes))
@@ -266,7 +265,7 @@ func runUsingChrootMain() {
 			logrus.Warnf("error %s ownership of container PTY %sto %d/%d: %v", op, from, rootUID, rootGID, err)
 		}
 		// Set permissions on the PTY.
-		if err = ctty.Chmod(0620); err != nil {
+		if err = ctty.Chmod(0o620); err != nil {
 			logrus.Errorf("error setting permissions of container PTY: %v", err)
 			os.Exit(1)
 		}
@@ -499,7 +498,7 @@ func runUsingChroot(spec *specs.Spec, bundlePath string, ctty *os.File, stdin io
 		BundlePath: bundlePath,
 	})
 	if conferr != nil {
-		fmt.Fprintf(os.Stderr, "error re-encoding configuration for %q", runUsingChrootExecCommand)
+		fmt.Fprintf(os.Stderr, "error re-encoding configuration for %q\n", runUsingChrootExecCommand)
 		os.Exit(1)
 	}
 
@@ -526,7 +525,6 @@ func runUsingChroot(spec *specs.Spec, bundlePath string, ctty *os.File, stdin io
 	cmd.ExtraFiles = append([]*os.File{preader}, cmd.ExtraFiles...)
 	if err := setPlatformUnshareOptions(spec, cmd); err != nil {
 		return 1, fmt.Errorf("setting platform unshare options: %w", err)
-
 	}
 	interrupted := make(chan os.Signal, 100)
 	cmd.Hook = func(int) error {
@@ -569,7 +567,7 @@ func runUsingChroot(spec *specs.Spec, bundlePath string, ctty *os.File, stdin io
 				}
 			}
 		}
-		fmt.Fprintf(os.Stderr, "process exited with error: %v", err)
+		fmt.Fprintf(os.Stderr, "process exited with error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -697,7 +695,7 @@ func runUsingChrootExecMain() {
 		}
 		logrus.Debugf("setting supplemental groups")
 		if err = syscall.Setgroups(gids); err != nil {
-			fmt.Fprintf(os.Stderr, "error setting supplemental groups list: %v", err)
+			fmt.Fprintf(os.Stderr, "error setting supplemental groups list: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
@@ -705,7 +703,7 @@ func runUsingChrootExecMain() {
 		if strings.Trim(string(setgroups), "\n") != "deny" {
 			logrus.Debugf("clearing supplemental groups")
 			if err = syscall.Setgroups([]int{}); err != nil {
-				fmt.Fprintf(os.Stderr, "error clearing supplemental groups list: %v", err)
+				fmt.Fprintf(os.Stderr, "error clearing supplemental groups list: %v\n", err)
 				os.Exit(1)
 			}
 		}
@@ -713,7 +711,7 @@ func runUsingChrootExecMain() {
 
 	logrus.Debugf("setting gid")
 	if err = unix.Setresgid(int(user.GID), int(user.GID), int(user.GID)); err != nil {
-		fmt.Fprintf(os.Stderr, "error setting GID: %v", err)
+		fmt.Fprintf(os.Stderr, "error setting GID: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -734,7 +732,7 @@ func runUsingChrootExecMain() {
 
 	logrus.Debugf("setting uid")
 	if err = unix.Setresuid(int(user.UID), int(user.UID), int(user.UID)); err != nil {
-		fmt.Fprintf(os.Stderr, "error setting UID: %v", err)
+		fmt.Fprintf(os.Stderr, "error setting UID: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -747,7 +745,7 @@ func runUsingChrootExecMain() {
 	logrus.Debugf("Running %#v (PATH = %q)", cmd, os.Getenv("PATH"))
 	interrupted := make(chan os.Signal, 100)
 	if err = cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "process failed to start with error: %v", err)
+		fmt.Fprintf(os.Stderr, "process failed to start with error: %v\n", err)
 	}
 	go func() {
 		for range interrupted {
@@ -774,7 +772,7 @@ func runUsingChrootExecMain() {
 				}
 			}
 		}
-		fmt.Fprintf(os.Stderr, "process exited with error: %v", err)
+		fmt.Fprintf(os.Stderr, "process exited with error: %v\n", err)
 		os.Exit(1)
 	}
 }

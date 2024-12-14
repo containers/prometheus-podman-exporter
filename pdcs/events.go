@@ -20,7 +20,7 @@ func StartEventStreamer(logger *slog.Logger, updateImage bool) {
 		updateImages()
 	}
 
-	eventChannel := make(chan *events.Event, 1)
+	eventChannel := make(chan events.ReadResult, 1)
 	eventOptions.EventChan = eventChannel
 	eventOptions.Stream = true
 	eventOptions.Filter = []string{}
@@ -43,7 +43,7 @@ func StartEventStreamer(logger *slog.Logger, updateImage bool) {
 					continue
 				}
 
-				if updateImage && event.Type == events.Image {
+				if updateImage && event.Event.Type == events.Image {
 					logger.Debug("update images")
 					updateImages()
 				}
