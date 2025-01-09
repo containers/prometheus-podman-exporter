@@ -39,7 +39,7 @@ func SystemInfo() (System, error) {
 func (r reportInfo) runtimeVersion() string {
 	runtime := strings.Split(r.Host.OCIRuntime.Version, ":")[0]
 	runtime = strings.ReplaceAll(runtime, "commit", "")
-	runtime = strings.Trim(runtime, "\n")
+	runtime = strings.Split(runtime, "\n")[0]
 
 	return runtime
 }
