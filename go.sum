@@ -66,12 +66,12 @@ github.com/containernetworking/plugins v1.5.1 h1:T5ji+LPYjjgW0QM+KyrigZbLsZ8jaX+
 github.com/containernetworking/plugins v1.5.1/go.mod h1:MIQfgMayGuHYs0XdNudf31cLLAC+i242hNm6KuDGqCM=
 github.com/containers/buildah v1.38.0 h1:FmciZMwzhdcvtWj+8IE+61+lfTG2JfgrbZ2DUnEMnTE=
 github.com/containers/buildah v1.38.0/go.mod h1:tUsHC2bcgR5Q/R76qZUn7x0FRglqPFry2g5KhWfH4LI=
-github.com/containers/common v0.61.0 h1:j/84PTqZIKKYy42OEJsZmjZ4g4Kq2ERuC3tqp2yWdh4=
-github.com/containers/common v0.61.0/go.mod h1:NGRISq2vTFPSbhNqj6MLwyes4tWSlCnqbJg7R77B8xc=
+github.com/containers/common v0.61.1 h1:jpk385ZFEx3MAX+sjwOoTZElvpgsGi0YJHuRmrhF/j8=
+github.com/containers/common v0.61.1/go.mod h1:C+TfkhTV+ADp1Hu+BMIAYPvSFix21swYo9PZuCKoSUM=
 github.com/containers/conmon v2.0.20+incompatible h1:YbCVSFSCqFjjVwHTPINGdMX1F6JXHGTUje2ZYobNrkg=
 github.com/containers/conmon v2.0.20+incompatible/go.mod h1:hgwZ2mtuDrppv78a/cOBNiCm6O0UMWGx1mu7P00nu5I=
-github.com/containers/image/v5 v5.33.0 h1:6oPEFwTurf7pDTGw7TghqGs8K0+OvPtY/UyzU0B2DfE=
-github.com/containers/image/v5 v5.33.0/go.mod h1:T7HpASmvnp2H1u4cyckMvCzLuYgpD18dSmabSw0AcHk=
+github.com/containers/image/v5 v5.33.1 h1:nTWKwxAlY0aJrilvvhssqssJVnley6VqxkLiLzTEYIs=
+github.com/containers/image/v5 v5.33.1/go.mod h1:/FJiLlvVbeBxWNMPVPPIWJxHTAzwBoFvyN0a51zo1CE=
 github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 h1:Qzk5C6cYglewc+UyGf6lc8Mj2UaPTHy/iF2De0/77CA=
 github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01/go.mod h1:9rfv8iPl1ZP7aqh9YA68wnZv2NUDbXdcdPHVz0pFbPY=
 github.com/containers/luksy v0.0.0-20241007190014-e2530d691420 h1:57rxgU2wdI3lZMDZtao09WjCWmxBKOxI/Sj37IpCV50=
@@ -82,8 +82,8 @@ github.com/containers/podman/v5 v5.3.1 h1:KuhrhsuLerfzklxZmCf40QA/DLtsuFJs+RTVUN
 github.com/containers/podman/v5 v5.3.1/go.mod h1:xUbIlPCLXYMmjs1FHVtNbYWYlDONCFxzZK8MaHMcFlI=
 github.com/containers/psgo v1.9.0 h1:eJ74jzSaCHnWt26OlKZROSyUyRcGDf+gYBdXnxrMW4g=
 github.com/containers/psgo v1.9.0/go.mod h1:0YoluUm43Mz2UnBIh1P+6V6NWcbpTL5uRtXyOcH0B5A=
-github.com/containers/storage v1.56.0 h1:DZ9KSkj6M2tvj/4bBoaJu3QDHRl35BwsZ4kmLJS97ZI=
-github.com/containers/storage v1.56.0/go.mod h1:c6WKowcAlED/DkWGNuL9bvGYqIWCVy7isRMdCSKWNjk=
+github.com/containers/storage v1.56.1 h1:gDZj/S6Zxus4Xx42X6iNB3ODXuh0qoOdH/BABfrvcKo=
+github.com/containers/storage v1.56.1/go.mod h1:c6WKowcAlED/DkWGNuL9bvGYqIWCVy7isRMdCSKWNjk=
 github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f h1:JOrtw2xFKzlg+cbHpyrpLDmnN1HqhBfnX7WDiW7eG2c=
 github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
 github.com/coreos/go-systemd/v22 v22.5.1-0.20231103132048-7d375ecc2b09 h1:OoRAFlvDGCUqDLampLQjk0yeeSGdF9zzst/3G9IkBbc=
