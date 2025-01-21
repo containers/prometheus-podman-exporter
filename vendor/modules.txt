@@ -116,7 +116,7 @@ github.com/containernetworking/cni/pkg/version
 # github.com/containernetworking/plugins v1.5.1
 ## explicit; go 1.20
 github.com/containernetworking/plugins/pkg/ns
-# github.com/containers/buildah v1.38.0
+# github.com/containers/buildah v1.38.1
 ## explicit; go 1.22.6
 github.com/containers/buildah
 github.com/containers/buildah/bind
@@ -129,6 +129,7 @@ github.com/containers/buildah/internal
 github.com/containers/buildah/internal/config
 github.com/containers/buildah/internal/mkcw
 github.com/containers/buildah/internal/mkcw/types
+github.com/containers/buildah/internal/open
 github.com/containers/buildah/internal/parse
 github.com/containers/buildah/internal/sbom
 github.com/containers/buildah/internal/tmpdir
@@ -145,7 +146,7 @@ github.com/containers/buildah/pkg/sshagent
 github.com/containers/buildah/pkg/util
 github.com/containers/buildah/pkg/volumes
 github.com/containers/buildah/util
-# github.com/containers/common v0.61.0
+# github.com/containers/common v0.61.1
 ## explicit; go 1.22.6
 github.com/containers/common/internal
 github.com/containers/common/internal/attributedstring
@@ -212,7 +213,7 @@ github.com/containers/common/version
 # github.com/containers/conmon v2.0.20+incompatible
 ## explicit
 github.com/containers/conmon/runner/config
-# github.com/containers/image/v5 v5.33.0
+# github.com/containers/image/v5 v5.33.1
 ## explicit; go 1.22.6
 github.com/containers/image/v5/copy
 github.com/containers/image/v5/directory
@@ -302,7 +303,7 @@ github.com/containers/ocicrypt/keywrap/pkcs7
 github.com/containers/ocicrypt/spec
 github.com/containers/ocicrypt/utils
 github.com/containers/ocicrypt/utils/keyprovider
-# github.com/containers/podman/v5 v5.3.1
+# github.com/containers/podman/v5 v5.3.2
 ## explicit; go 1.22.6
 github.com/containers/podman/v5/cmd/podman/parse
 github.com/containers/podman/v5/cmd/podman/registry
@@ -398,7 +399,7 @@ github.com/containers/psgo/internal/dev
 github.com/containers/psgo/internal/host
 github.com/containers/psgo/internal/proc
 github.com/containers/psgo/internal/process
-# github.com/containers/storage v1.56.0
+# github.com/containers/storage v1.56.1
 ## explicit; go 1.22.0
 github.com/containers/storage
 github.com/containers/storage/drivers
