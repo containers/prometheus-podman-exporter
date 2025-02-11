@@ -61,16 +61,16 @@ func (ic *ContainerEngine) Info(ctx context.Context) (*define.Info, error) {
 	return info, nil
 }
 
-// SystemPrune removes unused data from the system. Pruning pods, containers, networks, volumes and images.
+// SystemPrune removes unused data from the system. Pruning pods, containers, build container, networks, volumes and images.
 func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.SystemPruneOptions) (*entities.SystemPruneReport, error) {
 	var systemPruneReport = new(entities.SystemPruneReport)
 
 	if options.External {
-		if options.All || options.Volume || len(options.Filters) > 0 {
+		if options.All || options.Volume || len(options.Filters) > 0 || options.Build {
 			return nil, fmt.Errorf("system prune --external cannot be combined with other options")
 		}
-		err := ic.Libpod.GarbageCollect()
-		if err != nil {
+
+		if err := ic.Libpod.GarbageCollect(); err != nil {
 			return nil, err
 		}
 		return systemPruneReport, nil
@@ -81,6 +81,17 @@ func (ic *ContainerEngine) SystemPrune(ctx context.Context, options entities.Sys
 		filters = append(filters, fmt.Sprintf("%s=%s", k, v[0]))
 	}
 	reclaimedSpace := (uint64)(0)
+
+	// Prune Build Containers
+	if options.Build {
+		stageContainersPruneReports, err := ic.Libpod.PruneBuildContainers()
+		if err != nil {
+			return nil, err
+		}
+		reclaimedSpace += reports.PruneReportsSize(stageContainersPruneReports)
+		systemPruneReport.ContainerPruneReports = append(systemPruneReport.ContainerPruneReports, stageContainersPruneReports...)
+	}
+
 	found := true
 	for found {
 		found = false
@@ -324,7 +335,7 @@ func (ic *ContainerEngine) Unshare(ctx context.Context, args []string, options e
 	return unshare()
 }
 
-func (ic ContainerEngine) Version(ctx context.Context) (*entities.SystemVersionReport, error) {
+func (ic *ContainerEngine) Version(ctx context.Context) (*entities.SystemVersionReport, error) {
 	var report entities.SystemVersionReport
 	v, err := define.GetVersion()
 	if err != nil {
@@ -334,7 +345,7 @@ func (ic ContainerEngine) Version(ctx context.Context) (*entities.SystemVersionR
 	return &report, err
 }
 
-func (ic ContainerEngine) Locks(ctx context.Context) (*entities.LocksReport, error) {
+func (ic *ContainerEngine) Locks(ctx context.Context) (*entities.LocksReport, error) {
 	var report entities.LocksReport
 	conflicts, held, err := ic.Libpod.LockConflicts()
 	if err != nil {
@@ -345,7 +356,7 @@ func (ic ContainerEngine) Locks(ctx context.Context) (*entities.LocksReport, err
 	return &report, nil
 }
 
-func (ic ContainerEngine) SystemCheck(ctx context.Context, options entities.SystemCheckOptions) (*entities.SystemCheckReport, error) {
+func (ic *ContainerEngine) SystemCheck(ctx context.Context, options entities.SystemCheckOptions) (*entities.SystemCheckReport, error) {
 	report, err := ic.Libpod.SystemCheck(ctx, options)
 	if err != nil {
 		return nil, err

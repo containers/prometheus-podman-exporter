@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +35,6 @@ import (
 	"github.com/openshift/imagebuilder"
 	"github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/slices"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -163,6 +162,7 @@ type Executor struct {
 	compatSetParent                         types.OptionalBool
 	compatVolumes                           types.OptionalBool
 	compatScratchConfig                     types.OptionalBool
+	noPivotRoot                             bool
 }
 
 type imageTypeAndHistoryAndDiffIDs struct {
@@ -322,6 +322,7 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		compatSetParent:                         options.CompatSetParent,
 		compatVolumes:                           options.CompatVolumes,
 		compatScratchConfig:                     options.CompatScratchConfig,
+		noPivotRoot:                             options.NoPivotRoot,
 	}
 	if exec.err == nil {
 		exec.err = os.Stderr
@@ -1013,7 +1014,7 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 		for k := range b.unusedArgs {
 			unusedList = append(unusedList, k)
 		}
-		sort.Strings(unusedList)
+		slices.Sort(unusedList)
 		fmt.Fprintf(b.out, "[Warning] one or more build args were not consumed: %v\n", unusedList)
 	}
 
