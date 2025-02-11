@@ -286,15 +286,17 @@ type ContainerNetworkConfig struct {
 	// DNS options to be set in container resolv.conf
 	// With override options in host resolv if set
 	DNSOption []string `json:"dnsOption,omitempty"`
+	// UseImageHostname indicates that /etc/hostname should not be
+	// bind-mounted inside the container.
+	UseImageHostname bool `json:"useImageHostname"`
 	// UseImageHosts indicates that /etc/hosts should not be
 	// bind-mounted inside the container.
 	// Conflicts with HostAdd.
 	UseImageHosts bool
-	// BaseHostsFile is the path to a hosts file, the entries from this file
-	// are added to the containers hosts file. As special value "image" is
-	// allowed which uses the /etc/hosts file from within the image and "none"
-	// which uses no base file at all. If it is empty we should default
-	// to the base_hosts_file configuration in containers.conf.
+	// BaseHostsFile is the base file to create the `/etc/hosts` file inside the container.
+	// This must either be an absolute path to a file on the host system, or one of the
+	// special flags `image` or `none`.
+	// If it is empty it defaults to the base_hosts_file configuration in containers.conf.
 	BaseHostsFile string `json:"baseHostsFile,omitempty"`
 	// Hosts to add in container
 	// Will be appended to host's host file
@@ -473,6 +475,8 @@ type InfraInherit struct {
 	Volumes            []*specgen.NamedVolume   `json:"volumes,omitempty"`
 	ShmSize            *int64                   `json:"shm_size"`
 	ShmSizeSystemd     *int64                   `json:"shm_size_systemd"`
+	UseImageHosts      bool                     `json:"use_image_hosts"`
+	UseImageHostname   bool                     `json:"use_image_hostname"`
 }
 
 // IsDefaultShmSize determines if the user actually set the shm in the parent ctr or if it has been set to the default size
