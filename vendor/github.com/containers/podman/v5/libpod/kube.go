@@ -1188,14 +1188,15 @@ func generateKubePersistentVolumeClaim(v *ContainerNamedVolume) (v1.VolumeMount,
 	ro := slices.Contains(v.Options, "ro")
 
 	// To avoid naming conflicts with any host path mounts, add a unique suffix to the volume's name.
-	name := v.Name + "-pvc"
+	vName := fixKubeVolumeName(v.Name)
+	name := vName + "-pvc"
 
 	vm := v1.VolumeMount{}
 	vm.Name = name
 	vm.MountPath = v.Dest
 	vm.ReadOnly = ro
 
-	pvc := v1.PersistentVolumeClaimVolumeSource{ClaimName: v.Name, ReadOnly: ro}
+	pvc := v1.PersistentVolumeClaimVolumeSource{ClaimName: vName, ReadOnly: ro}
 	vs := v1.VolumeSource{}
 	vs.PersistentVolumeClaim = &pvc
 	vo := v1.Volume{Name: name, VolumeSource: vs}
@@ -1261,6 +1262,15 @@ func isHostPathDirectory(hostPathSource string) (bool, error) {
 	return info.Mode().IsDir(), nil
 }
 
+func fixKubeVolumeName(source string) string {
+	// Trim trailing slashes,
+	// Replace slashes with dashes.
+	// Replace underscores with dashes.
+	// Force all letters to lower case
+	// Thus, /mnt/data/ will become mnt-data
+	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.Trim(source, "/"), "/", "-"), "_", "-"))
+}
+
 func convertVolumePathToName(hostSourcePath string) (string, error) {
 	if len(hostSourcePath) == 0 {
 		return "", errors.New("hostSourcePath must be specified to generate volume name")
@@ -1272,9 +1282,7 @@ func convertVolumePathToName(hostSourcePath string) (string, error) {
 		// add special case name
 		return "root", nil
 	}
-	// First, trim trailing slashes, then replace slashes with dashes.
-	// Thus, /mnt/data/ will become mnt-data
-	return strings.ReplaceAll(strings.Trim(hostSourcePath, "/"), "/", "-"), nil
+	return fixKubeVolumeName(hostSourcePath), nil
 }
 
 func determineCapAddDropFromCapabilities(defaultCaps, containerCaps []string) *v1.Capabilities {
