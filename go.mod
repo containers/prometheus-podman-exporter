@@ -4,7 +4,7 @@ go 1.22.8
 
 require (
 	github.com/containers/common v0.62.0
-	github.com/containers/image/v5 v5.34.0
+	github.com/containers/image/v5 v5.34.1
 	github.com/containers/podman/v5 v5.4.0
 	github.com/onsi/ginkgo/v2 v2.22.2
 	github.com/onsi/gomega v1.36.2
