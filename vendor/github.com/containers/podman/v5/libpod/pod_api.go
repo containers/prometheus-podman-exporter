@@ -677,6 +677,7 @@ func (p *Pod) Inspect() (*define.InspectPodData, error) {
 		infraConfig.HostNetwork = p.NetworkMode() == "host"
 		infraConfig.StaticIP = infra.config.ContainerNetworkConfig.StaticIP
 		infraConfig.NoManageResolvConf = infra.config.UseImageResolvConf
+		infraConfig.NoManageHostname = infra.config.UseImageHostname
 		infraConfig.NoManageHosts = infra.config.UseImageHosts
 		infraConfig.CPUPeriod = p.CPUPeriod()
 		infraConfig.CPUQuota = p.CPUQuota()
@@ -708,6 +709,9 @@ func (p *Pod) Inspect() (*define.InspectPodData, error) {
 		if len(infra.config.HostAdd) > 0 {
 			infraConfig.HostAdd = make([]string, 0, len(infra.config.HostAdd))
 			infraConfig.HostAdd = append(infraConfig.HostAdd, infra.config.HostAdd...)
+		}
+		if len(infra.config.BaseHostsFile) > 0 {
+			infraConfig.HostsFile = infra.config.BaseHostsFile
 		}
 
 		networks, err := infra.networks()
