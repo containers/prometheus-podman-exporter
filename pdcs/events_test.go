@@ -17,7 +17,7 @@ var _ = Describe("Pdcs/Events", func() {
 
 		imageCount01 := len(podmanImages)
 		logger := promslog.New(&promslog.Config{})
-		pdcs.StartEventStreamer(logger, true)
+		go pdcs.StartEventStreamer(logger, true)
 
 		testImage := "quay.io/libpod/alpine"
 

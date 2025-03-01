@@ -89,7 +89,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 		updateImages = true
 	}
 
-	pdcs.StartEventStreamer(logger, updateImages)
+	go pdcs.StartEventStreamer(logger, updateImages)
 	pdcs.StartCacheSizeTicker(logger, cmdOptions.cacheDuration)
 
 	logger.Info("Listening on", "address", cmdOptions.webListen)
