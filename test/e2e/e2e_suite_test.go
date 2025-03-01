@@ -32,7 +32,7 @@ var _ = BeforeSuite(func() {
 		Long:  ``,
 	}
 
-	rootCmd.Flags().BoolP("debug", "d", false, "")
+	rootCmd.Flags().BoolP("debug", "d", true, "")
 	rootCmd.Flags().BoolP("version", "", false, "")
 	rootCmd.Flags().StringP("web.config.file", "", "", "")
 	rootCmd.Flags().StringP("web.listen-address", "l", ":9882", "")

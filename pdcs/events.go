@@ -10,7 +10,7 @@ import (
 	"github.com/containers/podman/v5/pkg/domain/entities"
 )
 
-func StartEventStreamer(logger *slog.Logger, updateImage bool) {
+func StartEventStreamer(logger *slog.Logger, updateImage bool) { //nolint:cyclop
 	var eventOptions entities.EventsOptions
 
 	logger.Info("starting podman event streamer")
@@ -20,38 +20,49 @@ func StartEventStreamer(logger *slog.Logger, updateImage bool) {
 		updateImages()
 	}
 
-	eventChannel := make(chan events.ReadResult, 1)
-	eventOptions.EventChan = eventChannel
-	eventOptions.Stream = true
-	eventOptions.Filter = []string{}
 	errChannel := make(chan error)
+	restartChannel := make(chan bool)
 
-	go func() {
-		err := registry.ContainerEngine().Events(context.Background(), eventOptions)
-		if err != nil {
-			errChannel <- err
-		}
-	}()
+	for {
+		eventChannel := make(chan events.ReadResult, 1)
+		eventOptions.EventChan = eventChannel
+		eventOptions.Stream = true
+		eventOptions.Filter = []string{}
 
-	go func() {
-		for {
-			select {
-			case event, ok := <-eventChannel:
-				if !ok {
-					logger.Error("podman received event not ok")
+		go func() {
+			logger.Debug("starting engine event reader")
 
-					continue
-				}
+			err := registry.ContainerEngine().Events(context.Background(), eventOptions)
+			if err != nil {
+				errChannel <- err
+			}
+		}()
 
-				if updateImage && event.Event.Type == events.Image {
-					logger.Debug("update images")
-					updateImages()
-				}
-			case err := <-errChannel:
-				if err != nil {
-					log.Fatal(err)
+		go func() {
+			logger.Debug("starting event reader loop")
+
+			for {
+				select {
+				case event, ok := <-eventChannel:
+					if !ok {
+						logger.Error("podman received event not ok")
+						restartChannel <- true
+
+						return
+					}
+
+					if updateImage && event.Event.Type == events.Image {
+						logger.Debug("update images")
+						updateImages()
+					}
+				case err := <-errChannel:
+					if err != nil {
+						log.Fatal(err)
+					}
 				}
 			}
-		}
-	}()
+		}()
+
+		<-restartChannel
+	}
 }
