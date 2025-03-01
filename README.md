@@ -94,6 +94,11 @@ podman_container_info{id="482113b805f7",image="docker.io/library/httpd:latest",n
 podman_container_state{id="19286a13dc23",pod_id="",pod_name=""} 2
 podman_container_state{id="482113b805f7",pod_id="",pod_name=""} 4
 
+# HELP podman_container_health Container current health (-1=unknown,0=healthy,1=unhealthy,2=starting).
+# TYPE podman_container_health gauge
+podman_container_state{id="19286a13dc23",pod_id="",pod_name=""} -1
+podman_container_state{id="482113b805f7",pod_id="",pod_name=""} 0
+
 # HELP podman_container_block_input_total Container block input.
 # TYPE podman_container_block_input_total counter
 podman_container_block_input_total{id="19286a13dc23",pod_id="",pod_name=""} 49152
