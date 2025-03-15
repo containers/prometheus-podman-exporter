@@ -23,7 +23,7 @@ type reportInfo struct {
 func SystemInfo() (System, error) {
 	var sysinfo System
 
-	report, err := registry.ContainerEngine().Info(registry.GetContext())
+	report, err := registry.ContainerEngine().Info(registry.Context())
 	if err != nil {
 		return sysinfo, err
 	}

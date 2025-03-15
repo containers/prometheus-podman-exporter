@@ -20,7 +20,7 @@ type Pod struct {
 func Pods() ([]Pod, error) {
 	pods := make([]Pod, 0)
 
-	reports, err := registry.ContainerEngine().PodPs(registry.GetContext(), entities.PodPSOptions{})
+	reports, err := registry.ContainerEngine().PodPs(registry.Context(), entities.PodPSOptions{})
 	if err != nil {
 		return pods, err
 	}
