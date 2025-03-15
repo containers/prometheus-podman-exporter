@@ -88,7 +88,7 @@ func Containers() ([]Container, error) {
 	cntSizeCache.cacheLock.Unlock()
 
 	if cacheErr != nil {
-		return nil, err
+		return nil, err //nolint:nilnesserr
 	}
 
 	for _, rep := range reports {

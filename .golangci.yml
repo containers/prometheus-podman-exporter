@@ -15,9 +15,7 @@ linters:
     - gomoddirectives
     - depguard
     # deprecated
-    - execinquery
-    - gomnd
-    - exportloopref
+    - tenv
     - rowserrcheck
     - wastedassign
 linters-settings:
