@@ -45,7 +45,7 @@ func Images() ([]Image, error) {
 
 func updateImages() {
 	images := make([]Image, 0)
-	reports, err := registry.ImageEngine().List(registry.GetContext(), entities.ImageListOptions{All: true})
+	reports, err := registry.ImageEngine().List(registry.Context(), entities.ImageListOptions{All: true})
 
 	imageRep.repLock.Lock()
 	defer imageRep.repLock.Unlock()
