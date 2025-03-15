@@ -1,11 +1,10 @@
 module github.com/containers/prometheus-podman-exporter
 
 go 1.23.0
-
 require (
-	github.com/containers/common v0.62.0
-	github.com/containers/image/v5 v5.34.0
-	github.com/containers/podman/v5 v5.4.0
+	github.com/containers/common v0.62.1
+	github.com/containers/image/v5 v5.34.1
+	github.com/containers/podman/v5 v5.4.1
 	github.com/onsi/ginkgo/v2 v2.22.2
 	github.com/onsi/gomega v1.36.2
 	github.com/pkg/errors v0.9.1
@@ -41,7 +40,7 @@ require (
 	github.com/containerd/typeurl/v2 v2.2.3 // indirect
 	github.com/containernetworking/cni v1.2.3 // indirect
 	github.com/containernetworking/plugins v1.5.1 // indirect
-	github.com/containers/buildah v1.39.0 // indirect
+	github.com/containers/buildah v1.39.2 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20250106202729-a3a812db5b72 // indirect
@@ -64,7 +63,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fsouza/go-dockerclient v1.12.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.23.0 // indirect
