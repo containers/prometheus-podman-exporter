@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.22'
+          go-version: '>=1.23'
       - uses: actions/checkout@v3
       - run: |
           go mod tidy
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.22'
+          go-version: '>=1.23'
       - uses: actions/checkout@v3
       - run: |
           bash hack/install_dep.sh
@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.22'
+          go-version: '>=1.23'
       - uses: actions/checkout@v3
       - run: |
           yum -y install make gcc glib2-devel glibc-devel glibc-static device-mapper-devel
@@ -58,7 +58,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.22'
+          go-version: '>=1.23'
       - uses: actions/checkout@v3
       - run: |
           bash hack/install_dep.sh
