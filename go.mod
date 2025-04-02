@@ -2,10 +2,12 @@ module github.com/containers/prometheus-podman-exporter
 
 go 1.23.0
 
+toolchain go1.24.1
+
 require (
-	github.com/containers/common v0.62.1
-	github.com/containers/image/v5 v5.34.1
-	github.com/containers/podman/v5 v5.4.1
+	github.com/containers/common v0.62.3
+	github.com/containers/image/v5 v5.34.3
+	github.com/containers/podman/v5 v5.4.2
 	github.com/onsi/ginkgo/v2 v2.23.3
 	github.com/onsi/gomega v1.36.3
 	github.com/pkg/errors v0.9.1
@@ -41,13 +43,13 @@ require (
 	github.com/containerd/typeurl/v2 v2.2.3 // indirect
 	github.com/containernetworking/cni v1.2.3 // indirect
 	github.com/containernetworking/plugins v1.5.1 // indirect
-	github.com/containers/buildah v1.39.2 // indirect
+	github.com/containers/buildah v1.39.4 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20250106202729-a3a812db5b72 // indirect
 	github.com/containers/ocicrypt v1.2.1 // indirect
 	github.com/containers/psgo v1.9.0 // indirect
-	github.com/containers/storage v1.57.1 // indirect
+	github.com/containers/storage v1.57.2 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/coreos/go-systemd/v22 v22.5.1-0.20231103132048-7d375ecc2b09 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20231217050601-ba74d44ecf5f // indirect
