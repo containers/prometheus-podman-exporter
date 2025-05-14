@@ -11,9 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	runcconfig "github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/devices"
+	"sync"
 
 	"github.com/containers/common/pkg/cgroups"
 	"github.com/containers/common/pkg/config"
@@ -21,8 +19,10 @@ import (
 	"github.com/containers/podman/v5/pkg/errorhandling"
 	"github.com/containers/podman/v5/pkg/rootless"
 	pmount "github.com/containers/storage/pkg/mount"
+	runcconfig "github.com/opencontainers/cgroups"
+	devices "github.com/opencontainers/cgroups/devices/config"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/opencontainers/selinux/go-selinux/label"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -61,11 +61,17 @@ func (r *ConmonOCIRuntime) createRootlessContainer(ctr *Container, restoreOption
 					logrus.Errorf("Unable to reset the previous mount namespace: %q", err)
 				}
 			}()
-			mounts, err := pmount.GetMounts()
-			if err != nil {
-				return 0, err
-			}
-			if rootPath != "" {
+
+			getMounts := sync.OnceValues(pmount.GetMounts)
+
+			// bind mount the containers' mount path to the path where the OCI runtime expects it to be
+			// if the container is already mounted at the expected path, do not cover the mountpoint.
+			if rootPath != "" && filepath.Clean(ctr.state.Mountpoint) != filepath.Clean(rootPath) {
+				mounts, err := getMounts()
+				if err != nil {
+					return 0, err
+				}
+
 				byMountpoint := make(map[string]*pmount.Info)
 				for _, m := range mounts {
 					byMountpoint[m.Mountpoint] = m
@@ -89,18 +95,13 @@ func (r *ConmonOCIRuntime) createRootlessContainer(ctr *Container, restoreOption
 					}
 				}
 
-				// bind mount the containers' mount path to the path where the OCI runtime expects it to be
-				// if the container is already mounted at the expected path, do not cover the mountpoint.
-				if filepath.Clean(ctr.state.Mountpoint) != filepath.Clean(rootPath) {
-					// do not propagate the bind mount on the parent mount namespace
-					if err := unix.Mount("", parentMount, "", unix.MS_SLAVE, ""); err != nil {
-						return 0, fmt.Errorf("failed to make %s slave: %w", parentMount, err)
-					}
-					if err := unix.Mount(ctr.state.Mountpoint, rootPath, "", unix.MS_BIND, ""); err != nil {
-						return 0, fmt.Errorf("failed to bind mount %s to %s: %w", ctr.state.Mountpoint, rootPath, err)
-					}
+				// do not propagate the bind mount on the parent mount namespace
+				if err := unix.Mount("", parentMount, "", unix.MS_SLAVE, ""); err != nil {
+					return 0, fmt.Errorf("failed to make %s slave: %w", parentMount, err)
 				}
-
+				if err := unix.Mount(ctr.state.Mountpoint, rootPath, "", unix.MS_BIND, ""); err != nil {
+					return 0, fmt.Errorf("failed to bind mount %s to %s: %w", ctr.state.Mountpoint, rootPath, err)
+				}
 				if isShared {
 					// we need to restore the shared propagation of the parent mount so that we don't break -v $SRC:$DST:shared in the container
 					// if $SRC is on the same mount as the root path
@@ -117,6 +118,10 @@ func (r *ConmonOCIRuntime) createRootlessContainer(ctr *Container, restoreOption
 				err = unix.Mount("/sys", "/sys", "none", unix.MS_REC|unix.MS_SLAVE, "")
 				if err != nil {
 					return 0, fmt.Errorf("cannot make /sys slave: %w", err)
+				}
+				mounts, err := getMounts()
+				if err != nil {
+					return 0, err
 				}
 				for _, m := range mounts {
 					if !strings.HasPrefix(m.Mountpoint, "/sys/kernel") {
@@ -142,13 +147,13 @@ func (r *ConmonOCIRuntime) createRootlessContainer(ctr *Container, restoreOption
 // Run the closure with the container's socket label set
 func (r *ConmonOCIRuntime) withContainerSocketLabel(ctr *Container, closure func() error) error {
 	runtime.LockOSThread()
-	if err := label.SetSocketLabel(ctr.ProcessLabel()); err != nil {
+	if err := selinux.SetSocketLabel(ctr.ProcessLabel()); err != nil {
 		return err
 	}
 	err := closure()
 	// Ignore error returned from SetSocketLabel("") call,
 	// can't recover.
-	if labelErr := label.SetSocketLabel(""); labelErr == nil {
+	if labelErr := selinux.SetSocketLabel(""); labelErr == nil {
 		// Unlock the thread only if the process label could be restored
 		// successfully.  Otherwise leave the thread locked and the Go runtime
 		// will terminate it once it returns to the threads pool.
@@ -159,14 +164,15 @@ func (r *ConmonOCIRuntime) withContainerSocketLabel(ctr *Container, closure func
 	return err
 }
 
+// Create systemd unit name for cgroup scopes.
+func createUnitName(prefix string, name string) string {
+	return fmt.Sprintf("%s-%s.scope", prefix, name)
+}
+
 // moveConmonToCgroupAndSignal gets a container's cgroupParent and moves the conmon process to that cgroup
 // it then signals for conmon to start by sending nonce data down the start fd
 func (r *ConmonOCIRuntime) moveConmonToCgroupAndSignal(ctr *Container, cmd *exec.Cmd, startFd *os.File) error {
-	mustCreateCgroup := true
-
-	if ctr.config.NoCgroups {
-		mustCreateCgroup = false
-	}
+	mustCreateCgroup := !ctr.config.NoCgroups
 
 	// If cgroup creation is disabled - just signal.
 	switch ctr.config.CgroupsMode {

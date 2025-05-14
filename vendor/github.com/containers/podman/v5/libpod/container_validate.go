@@ -20,7 +20,7 @@ func (c *Container) validate() error {
 	rootfsSet := c.config.Rootfs != ""
 
 	// If one of RootfsImageIDor RootfsImageName are set, both must be set.
-	if (imageIDSet || imageNameSet) && !(imageIDSet && imageNameSet) {
+	if (imageIDSet || imageNameSet) && (!imageIDSet || !imageNameSet) {
 		return fmt.Errorf("both RootfsImageName and RootfsImageID must be set if either is set: %w", define.ErrInvalidArg)
 	}
 
@@ -30,7 +30,7 @@ func (c *Container) validate() error {
 	}
 
 	// Must set at least one of RootfsImageID or Rootfs
-	if !(imageIDSet || rootfsSet) {
+	if !imageIDSet && !rootfsSet {
 		return fmt.Errorf("must set root filesystem source to either image or rootfs: %w", define.ErrInvalidArg)
 	}
 
@@ -181,6 +181,10 @@ func (c *Container) validate() error {
 		if strings.Contains(p.Protocol, ",") {
 			return fmt.Errorf("each port mapping must define a single protocol, got a comma-separated list for container port %d (protocols requested %q): %w", p.ContainerPort, p.Protocol, define.ErrInvalidArg)
 		}
+	}
+
+	if c.config.IsDefaultInfra && !c.config.IsInfra {
+		return fmt.Errorf("default rootfs-based infra container is set for non-infra container")
 	}
 
 	return nil

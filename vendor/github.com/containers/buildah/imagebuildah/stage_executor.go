@@ -59,8 +59,9 @@ import (
 // name to the image that it produces.
 type StageExecutor struct {
 	ctx                   context.Context
+	systemContext         *types.SystemContext
 	executor              *Executor
-	log                   func(format string, args ...interface{})
+	log                   func(format string, args ...any)
 	index                 int
 	stages                imagebuilder.Stages
 	name                  string
@@ -172,14 +173,7 @@ func (s *StageExecutor) Preserve(path string) error {
 	for cachedPath := range s.volumeCache {
 		// Walk our list of cached volumes, and check that they're
 		// still in the list of locations that we need to cache.
-		found := false
-		for _, volume := range s.volumes {
-			if volume == cachedPath {
-				// We need to keep this volume's cache.
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(s.volumes, cachedPath)
 		if !found {
 			// We don't need to keep this volume's cache.  Make a
 			// note to remove it.
@@ -368,9 +362,6 @@ func (s *StageExecutor) Copy(excludes []string, copies ...imagebuilder.Copy) err
 		if cp.Link {
 			return errors.New("COPY --link is not supported")
 		}
-		if cp.Parents {
-			return errors.New("COPY --parents is not supported")
-		}
 		if len(cp.Excludes) > 0 {
 			excludes = append(slices.Clone(excludes), cp.Excludes...)
 		}
@@ -427,7 +418,13 @@ func (s *StageExecutor) performCopy(excludes []string, copies ...imagebuilder.Co
 				data = strings.TrimPrefix(data, "\n")
 				// add breakline when heredoc ends for docker compat
 				data = data + "\n"
-				tmpFile, err := os.Create(filepath.Join(parse.GetTempDir(), path.Base(filepath.ToSlash(file.Name))))
+				// Create seperate subdir for this file.
+				tmpDir, err := os.MkdirTemp(parse.GetTempDir(), "buildah-heredoc")
+				if err != nil {
+					return fmt.Errorf("unable to create tmp dir for heredoc run %q: %w", parse.GetTempDir(), err)
+				}
+				defer os.RemoveAll(tmpDir)
+				tmpFile, err := os.Create(filepath.Join(tmpDir, path.Base(filepath.ToSlash(file.Name))))
 				if err != nil {
 					return fmt.Errorf("unable to create tmp file for COPY instruction at %q: %w", parse.GetTempDir(), err)
 				}
@@ -442,7 +439,7 @@ func (s *StageExecutor) performCopy(excludes []string, copies ...imagebuilder.Co
 					tmpFile.Close()
 					return fmt.Errorf("unable to write contents of heredoc file at %q: %w", tmpFile.Name(), err)
 				}
-				copySources = append(copySources, filepath.Base(tmpFile.Name()))
+				copySources = append(copySources, filepath.Join(filepath.Base(tmpDir), filepath.Base(tmpFile.Name())))
 				tmpFile.Close()
 			}
 			contextDir = parse.GetTempDir()
@@ -554,7 +551,17 @@ func (s *StageExecutor) performCopy(excludes []string, copies ...imagebuilder.Co
 					return fmt.Errorf("source can't be a URL for COPY")
 				}
 			} else {
-				sources = append(sources, filepath.Join(contextDir, src))
+				// filepath.Join clean path so /./ is removed
+				if _, suffix, found := strings.Cut(src, "/./"); found && copy.Parents {
+					fullPath := filepath.Join(contextDir, src)
+					suffix = filepath.Clean(suffix)
+					prefix := strings.TrimSuffix(fullPath, suffix)
+					prefix = filepath.Clean(prefix)
+					src = prefix + "/./" + suffix
+				} else {
+					src = filepath.Join(contextDir, src)
+				}
+				sources = append(sources, src)
 			}
 		}
 		options := buildah.AddAndCopyOptions{
@@ -571,10 +578,11 @@ func (s *StageExecutor) performCopy(excludes []string, copies ...imagebuilder.Co
 			// The values for these next two fields are ultimately
 			// based on command line flags with names that sound
 			// much more generic.
-			CertPath:              s.executor.systemContext.DockerCertPath,
-			InsecureSkipTLSVerify: s.executor.systemContext.DockerInsecureSkipTLSVerify,
+			CertPath:              s.systemContext.DockerCertPath,
+			InsecureSkipTLSVerify: s.systemContext.DockerInsecureSkipTLSVerify,
 			MaxRetries:            s.executor.maxPullPushRetries,
 			RetryDelay:            s.executor.retryPullPushDelay,
+			Parents:               copy.Parents,
 		}
 		if len(copy.Files) > 0 {
 			// If we are copying heredoc files, we need to temporary place
@@ -607,7 +615,7 @@ func (s *StageExecutor) runStageMountPoints(mountList []string) (map[string]inte
 		if strings.Contains(flag, "from") {
 			tokens := strings.Split(flag, ",")
 			if len(tokens) < 2 {
-				return nil, fmt.Errorf("Invalid --mount command: %s", flag)
+				return nil, fmt.Errorf("invalid --mount command: %s", flag)
 			}
 			for _, token := range tokens {
 				key, val, hasVal := strings.Cut(token, "=")
@@ -697,18 +705,16 @@ func (s *StageExecutor) runStageMountPoints(mountList []string) (map[string]inte
 							MountPoint: otherStage.mountPoint,
 						}
 						break
-					} else {
-						// Treat the source's name as the name of an image.
-						mountPoint, err := s.getImageRootfs(s.ctx, from)
-						if err != nil {
-							return nil, fmt.Errorf("%s from=%s: no stage or image found with that name", flag, from)
-						}
-						stageMountPoints[from] = internal.StageMountDetails{
-							IsImage:    true,
-							DidExecute: true,
-							MountPoint: mountPoint,
-						}
-						break
+					}
+					// Otherwise, treat the source's name as the name of an image.
+					mountPoint, err := s.getImageRootfs(s.ctx, from)
+					if err != nil {
+						return nil, fmt.Errorf("%s from=%s: no stage or image found with that name", flag, from)
+					}
+					stageMountPoints[from] = internal.StageMountDetails{
+						IsImage:    true,
+						DidExecute: true,
+						MountPoint: mountPoint,
 					}
 				default:
 					continue
@@ -802,7 +808,7 @@ func (s *StageExecutor) Run(run imagebuilder.Run, config docker.Config) error {
 		defer devNull.Close()
 		stdin = devNull
 	}
-	namespaceOptions := append([]define.NamespaceOption{}, s.executor.namespaceOptions...)
+	namespaceOptions := slices.Clone(s.executor.namespaceOptions)
 	options := buildah.RunOptions{
 		Args:                 s.executor.runtimeArgs,
 		Cmd:                  config.Cmd,
@@ -827,7 +833,7 @@ func (s *StageExecutor) Run(run imagebuilder.Run, config docker.Config) error {
 		Stderr:               s.executor.err,
 		Stdin:                stdin,
 		Stdout:               s.executor.out,
-		SystemContext:        s.executor.systemContext,
+		SystemContext:        s.systemContext,
 		Terminal:             buildah.WithoutTerminal,
 		User:                 config.User,
 		WorkingDir:           config.WorkingDir,
@@ -952,19 +958,20 @@ func (s *StageExecutor) prepare(ctx context.Context, from string, initializeIBCo
 		}
 	}
 
-	builderSystemContext := s.executor.systemContext
-	// get platform string from stage
-	if stage.Builder.Platform != "" {
-		os, arch, variant, err := parse.Platform(stage.Builder.Platform)
+	// In a multi-stage build where `FROM --platform=<>` was used then we must
+	// reset context for new stages so that new stages don't inherit unexpected
+	// `--platform` from prior stages.
+	if stage.Builder.Platform != "" || (len(s.stages) > 1 && (s.systemContext.ArchitectureChoice == "" && s.systemContext.VariantChoice == "" && s.systemContext.OSChoice == "")) {
+		imageOS, imageArch, imageVariant, err := parse.Platform(stage.Builder.Platform)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse platform %q: %w", stage.Builder.Platform, err)
 		}
-		if arch != "" || variant != "" {
-			builderSystemContext.ArchitectureChoice = arch
-			builderSystemContext.VariantChoice = variant
+		if imageArch != "" || imageVariant != "" {
+			s.systemContext.ArchitectureChoice = imageArch
+			s.systemContext.VariantChoice = imageVariant
 		}
-		if os != "" {
-			builderSystemContext.OSChoice = os
+		if imageOS != "" {
+			s.systemContext.OSChoice = imageOS
 		}
 	}
 
@@ -978,7 +985,7 @@ func (s *StageExecutor) prepare(ctx context.Context, from string, initializeIBCo
 		BlobDirectory:         s.executor.blobDirectory,
 		SignaturePolicyPath:   s.executor.signaturePolicyPath,
 		ReportWriter:          s.executor.reportWriter,
-		SystemContext:         builderSystemContext,
+		SystemContext:         s.systemContext,
 		Isolation:             s.executor.isolation,
 		NamespaceOptions:      s.executor.namespaceOptions,
 		ConfigureNetwork:      s.executor.configureNetwork,
@@ -1062,6 +1069,11 @@ func (s *StageExecutor) prepare(ctx context.Context, from string, initializeIBCo
 			RootFS:          rootfs,
 		}
 		dImage.Config = &dImage.ContainerConfig
+		if s.executor.inheritLabels == types.OptionalBoolFalse {
+			// If user has selected `--inherit-labels=false` let's not
+			// inherit labels from base image.
+			dImage.Config.Labels = nil
+		}
 		err = ib.FromImage(&dImage, node)
 		if err != nil {
 			if err2 := builder.Delete(); err2 != nil {
@@ -1531,7 +1543,7 @@ func (s *StageExecutor) Execute(ctx context.Context, base string) (imgID string,
 		// we need to call ib.Run() to correctly put the args together before
 		// determining if a cached layer with the same build args already exists
 		// and that is done in the if block below.
-		if checkForLayers && step.Command != "arg" && !(s.executor.squash && lastInstruction && lastStage) && !avoidLookingCache {
+		if checkForLayers && step.Command != "arg" && (!s.executor.squash || !lastInstruction || !lastStage) && !avoidLookingCache {
 			// For `COPY` and `ADD`, history entries include digests computed from
 			// the content that's copied in.  We need to compute that information so that
 			// it can be used to evaluate the cache, which means we need to go ahead
@@ -1865,6 +1877,11 @@ func (s *StageExecutor) getCreatedBy(node *parser.Node, addedContentSummary stri
 	if node == nil {
 		return "/bin/sh", nil
 	}
+	inheritLabels := ""
+	// If --inherit-label was manually set to false then update history.
+	if s.executor.inheritLabels == types.OptionalBoolFalse {
+		inheritLabels = "|inheritLabels=false"
+	}
 	switch strings.ToUpper(node.Value) {
 	case "ARG":
 		for _, variable := range strings.Fields(node.Original) {
@@ -1873,7 +1890,7 @@ func (s *StageExecutor) getCreatedBy(node *parser.Node, addedContentSummary stri
 			}
 		}
 		buildArgs := s.getBuildArgsKey()
-		return "/bin/sh -c #(nop) ARG " + buildArgs, nil
+		return "/bin/sh -c #(nop) ARG " + buildArgs + inheritLabels, nil
 	case "RUN":
 		shArg := ""
 		buildArgs := s.getBuildArgsResolvedForRun()
@@ -1889,6 +1906,10 @@ func (s *StageExecutor) getCreatedBy(node *parser.Node, addedContentSummary stri
 					continue
 				}
 				mountOptionSource = mountInfo.Source
+				mountOptionSource, err = imagebuilder.ProcessWord(mountOptionSource, s.stage.Builder.Arguments())
+				if err != nil {
+					return "", fmt.Errorf("getCreatedBy: while replacing arg variables with values for format %q: %w", mountOptionSource, err)
+				}
 				mountOptionFrom = mountInfo.From
 				// If source is not specified then default is '.'
 				if mountOptionSource == "" {
@@ -1937,25 +1958,28 @@ func (s *StageExecutor) getCreatedBy(node *parser.Node, addedContentSummary stri
 		if len(node.Original) > 4 {
 			shArg = node.Original[4:]
 		}
-		if buildArgs != "" {
-			return "|" + strconv.Itoa(len(strings.Split(buildArgs, " "))) + " " + buildArgs + " /bin/sh -c " + shArg + appendCheckSum, nil
-		}
-		result := "/bin/sh -c " + shArg
+
+		heredoc := ""
+		result := ""
 		if len(node.Heredocs) > 0 {
 			for _, doc := range node.Heredocs {
 				heredocContent := strings.TrimSpace(doc.Content)
-				result = result + "\n" + heredocContent
+				heredoc = heredoc + "\n" + heredocContent
 			}
 		}
-		return result + appendCheckSum, nil
+		if buildArgs != "" {
+			result = result + "|" + strconv.Itoa(len(strings.Split(buildArgs, " "))) + " " + buildArgs + " "
+		}
+		result = result + "/bin/sh -c " + shArg + heredoc + appendCheckSum + inheritLabels
+		return result, nil
 	case "ADD", "COPY":
 		destination := node
 		for destination.Next != nil {
 			destination = destination.Next
 		}
-		return "/bin/sh -c #(nop) " + strings.ToUpper(node.Value) + " " + addedContentSummary + " in " + destination.Value + " ", nil
+		return "/bin/sh -c #(nop) " + strings.ToUpper(node.Value) + " " + addedContentSummary + " in " + destination.Value + " " + inheritLabels, nil
 	default:
-		return "/bin/sh -c #(nop) " + node.Original, nil
+		return "/bin/sh -c #(nop) " + node.Original + inheritLabels, nil
 	}
 }
 
@@ -2041,7 +2065,7 @@ func (s *StageExecutor) tagExistingImage(ctx context.Context, cacheID, output st
 		return "", nil, err
 	}
 
-	policyContext, err := util.GetPolicyContext(s.executor.systemContext)
+	policyContext, err := util.GetPolicyContext(s.systemContext)
 	if err != nil {
 		return "", nil, err
 	}
@@ -2100,7 +2124,7 @@ func (s *StageExecutor) generateCacheKey(ctx context.Context, currNode *parser.N
 		if err != nil {
 			return "", fmt.Errorf("getting history of base image %q: %w", s.builder.FromImageID, err)
 		}
-		for i := 0; i < len(diffIDs); i++ {
+		for i := range len(diffIDs) {
 			fmt.Fprintln(hash, diffIDs[i].String())
 		}
 	}
@@ -2154,7 +2178,7 @@ func (s *StageExecutor) pushCache(ctx context.Context, src, cacheKey string) err
 			Compression:         s.executor.compression,
 			SignaturePolicyPath: s.executor.signaturePolicyPath,
 			Store:               s.executor.store,
-			SystemContext:       s.executor.systemContext,
+			SystemContext:       s.systemContext,
 			BlobDirectory:       s.executor.blobDirectory,
 			SignBy:              s.executor.signBy,
 			MaxRetries:          s.executor.maxPullPushRetries,
@@ -2192,7 +2216,7 @@ func (s *StageExecutor) pullCache(ctx context.Context, cacheKey string) (referen
 		options := buildah.PullOptions{
 			SignaturePolicyPath: s.executor.signaturePolicyPath,
 			Store:               s.executor.store,
-			SystemContext:       s.executor.systemContext,
+			SystemContext:       s.systemContext,
 			BlobDirectory:       s.executor.blobDirectory,
 			MaxRetries:          s.executor.maxPullPushRetries,
 			RetryDelay:          s.executor.retryPullPushDelay,
@@ -2365,7 +2389,7 @@ func (s *StageExecutor) commit(ctx context.Context, createdBy string, emptyLayer
 	s.builder.SetStopSignal(config.StopSignal)
 	if config.Healthcheck != nil {
 		s.builder.SetHealthcheck(&buildahdocker.HealthConfig{
-			Test:          append([]string{}, config.Healthcheck.Test...),
+			Test:          slices.Clone(config.Healthcheck.Test),
 			Interval:      config.Healthcheck.Interval,
 			Timeout:       config.Healthcheck.Timeout,
 			StartPeriod:   config.Healthcheck.StartPeriod,
@@ -2414,7 +2438,7 @@ func (s *StageExecutor) commit(ctx context.Context, createdBy string, emptyLayer
 		SignaturePolicyPath:   s.executor.signaturePolicyPath,
 		ReportWriter:          writer,
 		PreferredManifestType: s.executor.outputFormat,
-		SystemContext:         s.executor.systemContext,
+		SystemContext:         s.systemContext,
 		Squash:                squash,
 		OmitHistory:           s.executor.commonBuildOptions.OmitHistory,
 		EmptyLayer:            emptyLayer,
