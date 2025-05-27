@@ -13,6 +13,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,12 +70,14 @@ func extendedGlob(pattern string) (matches []string, err error) {
 		components := []string{}
 		dir := pattern
 		file := ""
-		for dir != "" && dir != string(os.PathSeparator) {
+		for dir != filepath.VolumeName(dir) && dir != string(os.PathSeparator) {
 			dir, file = filepath.Split(dir)
-			components = append([]string{file}, components...)
+			if file != "" {
+				components = append([]string{file}, components...)
+			}
 			dir = strings.TrimSuffix(dir, string(os.PathSeparator))
 		}
-		patterns := []string{string(os.PathSeparator)}
+		patterns := []string{filepath.VolumeName(dir) + string(os.PathSeparator)}
 		for i := range components {
 			var nextPatterns []string
 			if components[i] == "**" {
@@ -328,7 +331,7 @@ func Stat(root string, directory string, options StatOptions, globs []string) ([
 		Request:     requestStat,
 		Root:        root,
 		Directory:   directory,
-		Globs:       append([]string{}, globs...),
+		Globs:       slices.Clone(globs),
 		StatOptions: options,
 	}
 	resp, err := copier(nil, nil, req)
@@ -350,6 +353,7 @@ type GetOptions struct {
 	ChmodDirs          *os.FileMode      // set permissions on directories. no effect on archives being extracted
 	ChownFiles         *idtools.IDPair   // set ownership of files. no effect on archives being extracted
 	ChmodFiles         *os.FileMode      // set permissions on files. no effect on archives being extracted
+	Parents            bool              // maintain the sources parent directory in the destination
 	StripSetuidBit     bool              // strip the setuid bit off of items being copied. no effect on archives being extracted
 	StripSetgidBit     bool              // strip the setgid bit off of items being copied. no effect on archives being extracted
 	StripStickyBit     bool              // strip the sticky bit off of items being copied. no effect on archives being extracted
@@ -378,7 +382,7 @@ func Get(root string, directory string, options GetOptions, globs []string, bulk
 		Request:   requestGet,
 		Root:      root,
 		Directory: directory,
-		Globs:     append([]string{}, globs...),
+		Globs:     slices.Clone(globs),
 		StatOptions: StatOptions{
 			CheckForArchives: options.ExpandArchives,
 		},
@@ -594,7 +598,7 @@ func copierWithoutSubprocess(bulkReader io.Reader, bulkWriter io.Writer, req req
 	req.preservedRoot = req.Root
 	req.rootPrefix = string(os.PathSeparator)
 	req.preservedDirectory = req.Directory
-	req.preservedGlobs = append([]string{}, req.Globs...)
+	req.preservedGlobs = slices.Clone(req.Globs)
 	if !filepath.IsAbs(req.Directory) {
 		req.Directory = filepath.Join(req.Root, cleanerReldirectory(req.Directory))
 	}
@@ -697,9 +701,9 @@ func copierWithSubprocess(bulkReader io.Reader, bulkWriter io.Writer, req reques
 	bulkReaderRead = nil
 	bulkWriterWrite.Close()
 	bulkWriterWrite = nil
-	killAndReturn := func(err error, step string) (*response, error) { // nolint: unparam
+	killAndReturn := func(err error, step string) error {
 		if err2 := cmd.Process.Kill(); err2 != nil {
-			return nil, fmt.Errorf("killing subprocess: %v; %s: %w", err2, step, err)
+			return fmt.Errorf("killing subprocess: %v; %s: %w", err2, step, err)
 		}
 		if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE) {
 			err2 := cmd.Wait()
@@ -707,22 +711,22 @@ func copierWithSubprocess(bulkReader io.Reader, bulkWriter io.Writer, req reques
 				err = fmt.Errorf("%s: %w", errorText, err)
 			}
 			if err2 != nil {
-				return nil, fmt.Errorf("waiting on subprocess: %v; %s: %w", err2, step, err)
+				return fmt.Errorf("waiting on subprocess: %v; %s: %w", err2, step, err)
 			}
 		}
-		return nil, fmt.Errorf("%v: %w", step, err)
+		return fmt.Errorf("%v: %w", step, err)
 	}
 	if err = encoder.Encode(req); err != nil {
-		return killAndReturn(err, "error encoding work request for copier subprocess")
+		return nil, killAndReturn(err, "error encoding work request for copier subprocess")
 	}
 	if err = decoder.Decode(&resp); err != nil {
 		if errors.Is(err, io.EOF) && errorBuffer.Len() > 0 {
-			return killAndReturn(errors.New(errorBuffer.String()), "error in copier subprocess")
+			return nil, killAndReturn(errors.New(errorBuffer.String()), "error in copier subprocess")
 		}
-		return killAndReturn(err, "error decoding response from copier subprocess")
+		return nil, killAndReturn(err, "error decoding response from copier subprocess")
 	}
 	if err = encoder.Encode(&request{Request: requestQuit}); err != nil {
-		return killAndReturn(err, "error encoding quit request for copier subprocess")
+		return nil, killAndReturn(err, "error encoding quit request for copier subprocess")
 	}
 	stdinWrite.Close()
 	stdinWrite = nil
@@ -846,7 +850,7 @@ func copierMain() {
 		req.preservedRoot = req.Root
 		req.rootPrefix = string(os.PathSeparator)
 		req.preservedDirectory = req.Directory
-		req.preservedGlobs = append([]string{}, req.Globs...)
+		req.preservedGlobs = slices.Clone(req.Globs)
 		if chrooted {
 			// We'll need to adjust some things now that the root
 			// directory isn't what it was.  Make the directory and
@@ -971,7 +975,7 @@ func pathIsExcluded(root, path string, pm *fileutils.PatternMatcher) (string, bo
 	// Matches uses filepath.FromSlash() to convert candidates before
 	// checking if they match the patterns it's been given, implying that
 	// it expects Unix-style paths.
-	matches, err := pm.Matches(filepath.ToSlash(rel)) // nolint:staticcheck
+	matches, err := pm.Matches(filepath.ToSlash(rel)) //nolint:staticcheck
 	if err != nil {
 		return rel, false, fmt.Errorf("copier: error checking if %q is excluded: %w", rel, err)
 	}
@@ -1005,7 +1009,7 @@ func resolvePath(root, path string, evaluateFinalComponent bool, pm *fileutils.P
 		}
 		excluded = excluded || thisExcluded
 		if !excluded {
-			if target, err := os.Readlink(filepath.Join(workingPath, components[0])); err == nil && !(len(components) == 1 && !evaluateFinalComponent) {
+			if target, err := os.Readlink(filepath.Join(workingPath, components[0])); err == nil && (len(components) != 1 || evaluateFinalComponent) {
 				followed++
 				if followed > maxLoopsFollowed {
 					return "", &os.PathError{
@@ -1048,7 +1052,7 @@ func resolvePath(root, path string, evaluateFinalComponent bool, pm *fileutils.P
 }
 
 func copierHandlerEval(req request) *response {
-	errorResponse := func(fmtspec string, args ...interface{}) *response {
+	errorResponse := func(fmtspec string, args ...any) *response {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Eval: evalResponse{}}
 	}
 	resolvedTarget, err := resolvePath(req.Root, req.Directory, true, nil)
@@ -1059,7 +1063,7 @@ func copierHandlerEval(req request) *response {
 }
 
 func copierHandlerStat(req request, pm *fileutils.PatternMatcher) *response {
-	errorResponse := func(fmtspec string, args ...interface{}) *response {
+	errorResponse := func(fmtspec string, args ...any) *response {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Stat: statResponse{}}
 	}
 	if len(req.Globs) == 0 {
@@ -1182,11 +1186,54 @@ func errorIsPermission(err error) bool {
 	return errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "permission denied")
 }
 
+func getParents(path string, stopPath string) []string {
+	out := []string{}
+	for path != "/" && path != "." && path != stopPath {
+		path = filepath.Dir(path)
+		if path == stopPath {
+			continue
+		}
+		out = append(out, path)
+	}
+	slices.Reverse(out)
+	return out
+}
+
+func checkLinks(item string, req request, info os.FileInfo) (string, os.FileInfo, error) {
+	// chase links. if we hit a dead end, we should just fail
+	oldItem := item
+	followedLinks := 0
+	const maxFollowedLinks = 16
+	for !req.GetOptions.NoDerefSymlinks && info.Mode()&os.ModeType == os.ModeSymlink && followedLinks < maxFollowedLinks {
+		path, err := os.Readlink(item)
+		if err != nil {
+			continue
+		}
+		if filepath.IsAbs(path) || looksLikeAbs(path) {
+			path = filepath.Join(req.Root, path)
+		} else {
+			path = filepath.Join(filepath.Dir(item), path)
+		}
+		item = path
+		if _, err = convertToRelSubdirectory(req.Root, item); err != nil {
+			return "", nil, fmt.Errorf("copier: get: computing path of %q(%q) relative to %q: %w", oldItem, item, req.Root, err)
+		}
+		if info, err = os.Lstat(item); err != nil {
+			return "", nil, fmt.Errorf("copier: get: lstat %q(%q): %w", oldItem, item, err)
+		}
+		followedLinks++
+	}
+	if followedLinks >= maxFollowedLinks {
+		return "", nil, fmt.Errorf("copier: get: resolving symlink %q(%q): %w", oldItem, item, syscall.ELOOP)
+	}
+	return item, info, nil
+}
+
 func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMatcher, idMappings *idtools.IDMappings) (*response, func() error, error) {
 	statRequest := req
 	statRequest.Request = requestStat
 	statResponse := copierHandlerStat(req, pm)
-	errorResponse := func(fmtspec string, args ...interface{}) (*response, func() error, error) {
+	errorResponse := func(fmtspec string, args ...any) (*response, func() error, error) {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Stat: statResponse.Stat, Get: getResponse{}}, nil, nil
 	}
 	if statResponse.Error != "" {
@@ -1196,15 +1243,25 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 		return errorResponse("copier: get: expected at least one glob pattern, got 0")
 	}
 	// build a queue of items by globbing
-	var queue []string
+	type queueItem struct {
+		glob    string
+		parents []string
+	}
+	var queue []queueItem
 	globMatchedCount := 0
 	for _, glob := range req.Globs {
 		globMatched, err := extendedGlob(glob)
 		if err != nil {
 			return errorResponse("copier: get: glob %q: %v", glob, err)
 		}
-		globMatchedCount += len(globMatched)
-		queue = append(queue, globMatched...)
+		for _, path := range globMatched {
+			var parents []string
+			if req.GetOptions.Parents {
+				parents = getParents(path, req.Directory)
+			}
+			globMatchedCount++
+			queue = append(queue, queueItem{glob: path, parents: parents})
+		}
 	}
 	// no matches -> error
 	if len(queue) == 0 {
@@ -1219,7 +1276,9 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 		defer tw.Close()
 		hardlinkChecker := new(hardlinkChecker)
 		itemsCopied := 0
-		for i, item := range queue {
+		addedParents := map[string]struct{}{}
+		for i, qItem := range queue {
+			item := qItem.glob
 			// if we're not discarding the names of individual directories, keep track of this one
 			relNamePrefix := ""
 			if req.GetOptions.KeepDirectoryNames {
@@ -1230,31 +1289,53 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 			if err != nil {
 				return fmt.Errorf("copier: get: lstat %q: %w", item, err)
 			}
-			// chase links. if we hit a dead end, we should just fail
-			followedLinks := 0
-			const maxFollowedLinks = 16
-			for !req.GetOptions.NoDerefSymlinks && info.Mode()&os.ModeType == os.ModeSymlink && followedLinks < maxFollowedLinks {
-				path, err := os.Readlink(item)
+			if req.GetOptions.Parents && info.Mode().IsDir() {
+				if !slices.Contains(qItem.parents, item) {
+					qItem.parents = append(qItem.parents, item)
+				}
+			}
+			// Copy parents in to tarball first if exists
+			for _, parent := range qItem.parents {
+				oldParent := parent
+				parentInfo, err := os.Lstat(parent)
 				if err != nil {
+					return fmt.Errorf("copier: get: lstat %q: %w", parent, err)
+				}
+				parent, parentInfo, err = checkLinks(parent, req, parentInfo)
+				if err != nil {
+					return err
+				}
+				parentName, err := convertToRelSubdirectory(req.Directory, oldParent)
+				if err != nil {
+					return fmt.Errorf("copier: get: error computing path of %q relative to %q: %w", parent, req.Directory, err)
+				}
+				if parentName == "" || parentName == "." {
+					// skip the "." entry
 					continue
 				}
-				if filepath.IsAbs(path) || looksLikeAbs(path) {
-					path = filepath.Join(req.Root, path)
-				} else {
-					path = filepath.Join(filepath.Dir(item), path)
+
+				if _, ok := addedParents[parentName]; ok {
+					continue
 				}
-				item = path
-				if _, err = convertToRelSubdirectory(req.Root, item); err != nil {
-					return fmt.Errorf("copier: get: computing path of %q(%q) relative to %q: %w", queue[i], item, req.Root, err)
+				addedParents[parentName] = struct{}{}
+
+				if err := copierHandlerGetOne(parentInfo, "", parentName, parent, req.GetOptions, tw, hardlinkChecker, idMappings); err != nil {
+					if req.GetOptions.IgnoreUnreadable && errorIsPermission(err) {
+						continue
+					} else if errors.Is(err, os.ErrNotExist) {
+						logrus.Warningf("copier: file disappeared while reading: %q", parent)
+						return nil
+					}
+					return fmt.Errorf("copier: get: %q: %w", queue[i].glob, err)
 				}
-				if info, err = os.Lstat(item); err != nil {
-					return fmt.Errorf("copier: get: lstat %q(%q): %w", queue[i], item, err)
-				}
-				followedLinks++
+				itemsCopied++
 			}
-			if followedLinks >= maxFollowedLinks {
-				return fmt.Errorf("copier: get: resolving symlink %q(%q): %w", queue[i], item, syscall.ELOOP)
+
+			item, info, err = checkLinks(item, req, info)
+			if err != nil {
+				return err
 			}
+
 			// evaluate excludes relative to the root directory
 			if info.Mode().IsDir() {
 				// we don't expand any of the contents that are archives
@@ -1354,6 +1435,12 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 							ok = filepath.SkipDir
 						}
 					}
+					if req.GetOptions.Parents {
+						rel, err = convertToRelSubdirectory(req.Directory, path)
+						if err != nil {
+							return fmt.Errorf("copier: get: error computing path of %q relative to %q: %w", path, req.Root, err)
+						}
+					}
 					// add the item to the outgoing tar stream
 					if err := copierHandlerGetOne(info, symlinkTarget, rel, path, options, tw, hardlinkChecker, idMappings); err != nil {
 						if req.GetOptions.IgnoreUnreadable && errorIsPermission(err) {
@@ -1368,7 +1455,7 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 				}
 				// walk the directory tree, checking/adding items individually
 				if err := filepath.WalkDir(item, walkfn); err != nil {
-					return fmt.Errorf("copier: get: %q(%q): %w", queue[i], item, err)
+					return fmt.Errorf("copier: get: %q(%q): %w", queue[i].glob, item, err)
 				}
 				itemsCopied++
 			} else {
@@ -1379,15 +1466,24 @@ func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMa
 				if skip {
 					continue
 				}
-				// add the item to the outgoing tar stream.  in
-				// cases where this was a symlink that we
-				// dereferenced, be sure to use the name of the
-				// link.
-				if err := copierHandlerGetOne(info, "", filepath.Base(queue[i]), item, req.GetOptions, tw, hardlinkChecker, idMappings); err != nil {
+
+				name := filepath.Base(queue[i].glob)
+				if req.GetOptions.Parents {
+					name, err = convertToRelSubdirectory(req.Directory, queue[i].glob)
+					if err != nil {
+						return fmt.Errorf("copier: get: error computing path of %q relative to %q: %w", item, req.Root, err)
+					}
+					if name == "" || name == "." {
+						// skip the "." entry
+						continue
+					}
+				}
+
+				if err := copierHandlerGetOne(info, "", name, item, req.GetOptions, tw, hardlinkChecker, idMappings); err != nil {
 					if req.GetOptions.IgnoreUnreadable && errorIsPermission(err) {
 						continue
 					}
-					return fmt.Errorf("copier: get: %q: %w", queue[i], err)
+					return fmt.Errorf("copier: get: %q: %w", queue[i].glob, err)
 				}
 				itemsCopied++
 			}
@@ -1565,14 +1661,15 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 		return fmt.Errorf("getting fflags: %w", err)
 	}
 	var f *os.File
-	if hdr.Typeflag == tar.TypeReg {
+	switch hdr.Typeflag {
+	case tar.TypeReg:
 		// open the file first so that we don't write a header for it if we can't actually read it
 		f, err = os.Open(contentPath)
 		if err != nil {
 			return fmt.Errorf("opening file for adding its contents to archive: %w", err)
 		}
 		defer f.Close()
-	} else if hdr.Typeflag == tar.TypeDir {
+	case tar.TypeDir:
 		// open the directory file first to make sure we can access it.
 		f, err = os.Open(contentPath)
 		if err != nil {
@@ -1599,7 +1696,7 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 }
 
 func copierHandlerPut(bulkReader io.Reader, req request, idMappings *idtools.IDMappings) (*response, func() error, error) {
-	errorResponse := func(fmtspec string, args ...interface{}) (*response, func() error, error) {
+	errorResponse := func(fmtspec string, args ...any) (*response, func() error, error) {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Put: putResponse{}}, nil, nil
 	}
 	dirUID, dirGID, defaultDirUID, defaultDirGID := 0, 0, 0, 0
@@ -1984,7 +2081,7 @@ func copierHandlerPut(bulkReader io.Reader, req request, idMappings *idtools.IDM
 			// set xattrs, including some that might have been reset by chown()
 			if !req.PutOptions.StripXattrs {
 				xattrs := mapWithPrefixedKeysWithoutKeyPrefix(hdr.PAXRecords, xattrPAXRecordNamespace)
-				if err = Lsetxattrs(path, xattrs); err != nil { // nolint:staticcheck
+				if err = Lsetxattrs(path, xattrs); err != nil {
 					if !req.PutOptions.IgnoreXattrErrors {
 						return fmt.Errorf("copier: put: error setting extended attributes on %q: %w", path, err)
 					}
@@ -2013,7 +2110,7 @@ func copierHandlerPut(bulkReader io.Reader, req request, idMappings *idtools.IDM
 }
 
 func copierHandlerMkdir(req request, idMappings *idtools.IDMappings) (*response, func() error, error) {
-	errorResponse := func(fmtspec string, args ...interface{}) (*response, func() error, error) {
+	errorResponse := func(fmtspec string, args ...any) (*response, func() error, error) {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Mkdir: mkdirResponse{}}, nil, nil
 	}
 	dirUID, dirGID := 0, 0
@@ -2067,7 +2164,7 @@ func copierHandlerMkdir(req request, idMappings *idtools.IDMappings) (*response,
 }
 
 func copierHandlerRemove(req request) *response {
-	errorResponse := func(fmtspec string, args ...interface{}) *response {
+	errorResponse := func(fmtspec string, args ...any) *response {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Remove: removeResponse{}}
 	}
 	resolvedTarget, err := resolvePath(req.Root, req.Directory, false, nil)

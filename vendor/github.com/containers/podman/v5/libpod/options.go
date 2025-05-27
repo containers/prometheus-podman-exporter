@@ -328,6 +328,17 @@ func WithCDI(devices []string) CtrCreateOption {
 	}
 }
 
+func WithCDISpecDirs(cdiSpecDirs []string) RuntimeOption {
+	return func(rt *Runtime) error {
+		if rt.valid {
+			return define.ErrRuntimeFinalized
+		}
+
+		rt.config.Engine.CdiSpecDirs.Set(cdiSpecDirs)
+		return nil
+	}
+}
+
 // WithStorageOpts sets the devices to check for CDI configuration.
 func WithStorageOpts(storageOpts map[string]string) CtrCreateOption {
 	return func(ctr *Container) error {
@@ -1515,6 +1526,19 @@ func WithImageVolumes(volumes []*ContainerImageVolume) CtrCreateOption {
 	}
 }
 
+// WithImageVolumes adds the given image volumes to the container.
+func WithArtifactVolumes(volumes []*ContainerArtifactVolume) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+
+		ctr.config.ArtifactVolumes = volumes
+
+		return nil
+	}
+}
+
 // WithHealthCheck adds the healthcheck to the container config
 func WithHealthCheck(healthCheck *manifest.Schema2HealthConfig) CtrCreateOption {
 	return func(ctr *Container) error {
@@ -1619,6 +1643,20 @@ func withIsInfra() CtrCreateOption {
 		}
 
 		ctr.config.IsInfra = true
+
+		return nil
+	}
+}
+
+// withIsDefaultInfra allows us to differentiate between the default infra containers generated
+// directly by podman and custom infra containers within the container config
+func withIsDefaultInfra() CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+
+		ctr.config.IsDefaultInfra = true
 
 		return nil
 	}

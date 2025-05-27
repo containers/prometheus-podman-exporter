@@ -34,6 +34,8 @@ import (
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/libpod/shutdown"
 	"github.com/containers/podman/v5/pkg/ctime"
+	"github.com/containers/podman/v5/pkg/domain/entities"
+	envLib "github.com/containers/podman/v5/pkg/env"
 	"github.com/containers/podman/v5/pkg/lookup"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/podman/v5/pkg/selinux"
@@ -134,7 +136,7 @@ func (c *Container) CheckpointPath() string {
 	return filepath.Join(c.bundlePath(), metadata.CheckpointDirectory)
 }
 
-// PreCheckpointPath returns the path to the directory containing the pre-checkpoint-images
+// PreCheckPointPath returns the path to the directory containing the pre-checkpoint-images
 func (c *Container) PreCheckPointPath() string {
 	return filepath.Join(c.bundlePath(), preCheckpointDir)
 }
@@ -534,12 +536,8 @@ func (c *Container) setupStorage(ctx context.Context) error {
 		return fmt.Errorf("creating container storage: %w", containerInfoErr)
 	}
 
-	// Only reconfig IDMappings if layer was mounted from storage.
-	// If it's an external overlay do not reset IDmappings.
-	if !c.config.RootfsOverlay {
-		c.config.IDMappings.UIDMap = containerInfo.UIDMap
-		c.config.IDMappings.GIDMap = containerInfo.GIDMap
-	}
+	c.config.IDMappings.UIDMap = containerInfo.UIDMap
+	c.config.IDMappings.GIDMap = containerInfo.GIDMap
 
 	processLabel, err := c.processLabel(containerInfo.ProcessLabel)
 	if err != nil {
@@ -1144,7 +1142,7 @@ func (c *Container) init(ctx context.Context, retainRetries bool) error {
 			timer = c.config.StartupHealthCheckConfig.Interval.String()
 		}
 		if err := c.createTimer(timer, c.config.StartupHealthCheckConfig != nil); err != nil {
-			logrus.Error(err)
+			return fmt.Errorf("create healthcheck: %w", err)
 		}
 	}
 
@@ -1180,9 +1178,10 @@ func (c *Container) cleanupRuntime(ctx context.Context) error {
 	// If we were Stopped, we are now Exited, as we've removed ourself
 	// from the runtime.
 	// If we were Created, we are now Configured.
-	if c.state.State == define.ContainerStateStopped {
+	switch c.state.State {
+	case define.ContainerStateStopped:
 		c.state.State = define.ContainerStateExited
-	} else if c.state.State == define.ContainerStateCreated {
+	case define.ContainerStateCreated:
 		c.state.State = define.ContainerStateConfigured
 	}
 
@@ -1217,10 +1216,11 @@ func (c *Container) reinit(ctx context.Context, retainRetries bool) error {
 // Performs all necessary steps to start a container that is not running
 // Does not lock or check validity, requires to run on the same thread that holds the lock for the container.
 func (c *Container) initAndStart(ctx context.Context) (retErr error) {
-	// If we are ContainerStateUnknown, throw an error
-	if c.state.State == define.ContainerStateUnknown {
+	// If we are ContainerState{Unknown,Removing}, throw an error.
+	switch c.state.State {
+	case define.ContainerStateUnknown:
 		return fmt.Errorf("container %s is in an unknown state: %w", c.ID(), define.ErrCtrStateInvalid)
-	} else if c.state.State == define.ContainerStateRemoving {
+	case define.ContainerStateRemoving:
 		return fmt.Errorf("cannot start container %s as it is being removed: %w", c.ID(), define.ErrCtrStateInvalid)
 	}
 
@@ -1266,6 +1266,40 @@ func (c *Container) initAndStart(ctx context.Context) (retErr error) {
 	return c.waitForHealthy(ctx)
 }
 
+// Internal function to start a container without taking the pod lock.
+// Please note that this DOES take the container lock.
+// Intended to be used in pod-related functions.
+func (c *Container) startNoPodLock(ctx context.Context, recursive bool) (finalErr error) {
+	if !c.batched {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		// defer's are executed LIFO so we are locked here
+		// as long as we call this after the defer unlock()
+		defer func() {
+			if finalErr != nil {
+				if err := saveContainerError(c, finalErr); err != nil {
+					logrus.Debug(err)
+				}
+			}
+		}()
+
+		if err := c.syncContainer(); err != nil {
+			return err
+		}
+	}
+
+	if err := c.prepareToStart(ctx, recursive); err != nil {
+		return err
+	}
+
+	// Start the container
+	if err := c.start(); err != nil {
+		return err
+	}
+	return c.waitForHealthy(ctx)
+}
+
 // Internal, non-locking function to start a container
 func (c *Container) start() error {
 	if c.config.Spec.Process != nil {
@@ -1297,12 +1331,12 @@ func (c *Container) start() error {
 	// Check if healthcheck is not nil and --no-healthcheck option is not set.
 	// If --no-healthcheck is set Test will be always set to `[NONE]` so no need
 	// to update status in such case.
-	if c.config.HealthCheckConfig != nil && !(len(c.config.HealthCheckConfig.Test) == 1 && c.config.HealthCheckConfig.Test[0] == "NONE") {
+	if c.config.HealthCheckConfig != nil && (len(c.config.HealthCheckConfig.Test) != 1 || c.config.HealthCheckConfig.Test[0] != "NONE") {
 		if err := c.updateHealthStatus(define.HealthCheckStarting); err != nil {
-			logrus.Error(err)
+			return fmt.Errorf("update healthcheck status: %w", err)
 		}
 		if err := c.startTimer(c.config.StartupHealthCheckConfig != nil); err != nil {
-			logrus.Error(err)
+			return fmt.Errorf("start healthcheck: %w", err)
 		}
 	}
 
@@ -1552,6 +1586,14 @@ func (c *Container) pause() error {
 		}
 	}
 
+	if c.state.HCUnitName != "" {
+		if err := c.removeTransientFiles(context.Background(),
+			c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+			c.state.HCUnitName); err != nil {
+			return fmt.Errorf("failed to remove HealthCheck timer: %v", err)
+		}
+	}
+
 	if err := c.ociRuntime.PauseContainer(c); err != nil {
 		// TODO when using docker-py there is some sort of race/incompatibility here
 		return err
@@ -1560,6 +1602,7 @@ func (c *Container) pause() error {
 	logrus.Debugf("Paused container %s", c.ID())
 
 	c.state.State = define.ContainerStatePaused
+	c.state.HCUnitName = ""
 
 	return c.save()
 }
@@ -1573,6 +1616,28 @@ func (c *Container) unpause() error {
 	if err := c.ociRuntime.UnpauseContainer(c); err != nil {
 		// TODO when using docker-py there is some sort of race/incompatibility here
 		return err
+	}
+
+	isStartupHealthCheck := c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed
+	isHealthCheckEnabled := c.config.HealthCheckConfig != nil &&
+		(len(c.config.HealthCheckConfig.Test) != 1 || c.config.HealthCheckConfig.Test[0] != "NONE")
+	if isHealthCheckEnabled || isStartupHealthCheck {
+		timer := c.config.HealthCheckConfig.Interval.String()
+		if isStartupHealthCheck {
+			timer = c.config.StartupHealthCheckConfig.Interval.String()
+		}
+		if err := c.createTimer(timer, isStartupHealthCheck); err != nil {
+			return fmt.Errorf("create healthcheck: %w", err)
+		}
+	}
+
+	if isHealthCheckEnabled {
+		if err := c.updateHealthStatus(define.HealthCheckReset); err != nil {
+			return err
+		}
+		if err := c.startTimer(isStartupHealthCheck); err != nil {
+			return err
+		}
 	}
 
 	logrus.Debugf("Unpaused container %s", c.ID())
@@ -1621,14 +1686,14 @@ func (c *Container) restartWithTimeout(ctx context.Context, timeout uint) (retEr
 		return err
 	}
 
-	if c.state.State == define.ContainerStateStopped {
-		// Reinitialize the container if we need to
+	switch c.state.State {
+	case define.ContainerStateStopped:
+		// Reinitialize the container if we need to.
 		if err := c.reinit(ctx, false); err != nil {
 			return err
 		}
-	} else if c.state.State == define.ContainerStateConfigured ||
-		c.state.State == define.ContainerStateExited {
-		// Initialize the container
+	case define.ContainerStateConfigured, define.ContainerStateExited:
+		// Initialize the container.
 		if err := c.init(ctx, false); err != nil {
 			return err
 		}
@@ -2053,6 +2118,62 @@ func (c *Container) cleanupStorage() error {
 
 	markUnmounted()
 	return cleanupErr
+}
+
+// fullCleanup performs all cleanup tasks, including handling restart policy.
+func (c *Container) fullCleanup(ctx context.Context, onlyStopped bool) error {
+	// Check if state is good
+	if !c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated, define.ContainerStateStopped, define.ContainerStateStopping, define.ContainerStateExited) {
+		return fmt.Errorf("container %s is running or paused, refusing to clean up: %w", c.ID(), define.ErrCtrStateInvalid)
+	}
+	if onlyStopped && !c.ensureState(define.ContainerStateStopped) {
+		return fmt.Errorf("container %s is not stopped and only cleanup for a stopped container was requested: %w", c.ID(), define.ErrCtrStateInvalid)
+	}
+
+	// if the container was not created in the oci runtime or was already cleaned up, then do nothing
+	if c.ensureState(define.ContainerStateConfigured, define.ContainerStateExited) {
+		return nil
+	}
+
+	// Handle restart policy.
+	// Returns a bool indicating whether we actually restarted.
+	// If we did, don't proceed to cleanup - just exit.
+	didRestart, err := c.handleRestartPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	if didRestart {
+		return nil
+	}
+
+	// If we didn't restart, we perform a normal cleanup
+
+	// make sure all the container processes are terminated if we are running without a pid namespace.
+	hasPidNs := false
+	if c.config.Spec.Linux != nil {
+		for _, i := range c.config.Spec.Linux.Namespaces {
+			if i.Type == spec.PIDNamespace {
+				hasPidNs = true
+				break
+			}
+		}
+	}
+	if !hasPidNs {
+		// do not fail on errors
+		_ = c.ociRuntime.KillContainer(c, uint(unix.SIGKILL), true)
+	}
+
+	// Check for running exec sessions
+	sessions, err := c.getActiveExecSessions()
+	if err != nil {
+		return err
+	}
+	if len(sessions) > 0 {
+		return fmt.Errorf("container %s has active exec sessions, refusing to clean up: %w", c.ID(), define.ErrCtrStateInvalid)
+	}
+
+	defer c.newContainerEvent(events.Cleanup)
+	return c.cleanup(ctx)
 }
 
 // Unmount the container and free its resources
@@ -2672,11 +2793,11 @@ func (c *Container) extractSecretToCtrStorage(secr *ContainerSecret) error {
 
 // Update a container's resources or restart policy after creation.
 // At least one of resources or restartPolicy must not be nil.
-func (c *Container) update(resources *spec.LinuxResources, restartPolicy *string, restartRetries *uint) error {
-	if resources == nil && restartPolicy == nil {
+func (c *Container) update(updateOptions *entities.ContainerUpdateOptions) error {
+	if updateOptions.Resources == nil && updateOptions.RestartPolicy == nil {
 		return fmt.Errorf("must provide at least one of resources and restartPolicy to update a container: %w", define.ErrInvalidArg)
 	}
-	if restartRetries != nil && restartPolicy == nil {
+	if updateOptions.RestartRetries != nil && updateOptions.RestartPolicy == nil {
 		return fmt.Errorf("must provide restart policy if updating restart retries: %w", define.ErrInvalidArg)
 	}
 
@@ -2689,38 +2810,50 @@ func (c *Container) update(resources *spec.LinuxResources, restartPolicy *string
 	oldRestart := c.config.RestartPolicy
 	oldRetries := c.config.RestartRetries
 
-	if restartPolicy != nil {
-		if err := define.ValidateRestartPolicy(*restartPolicy); err != nil {
+	if updateOptions.RestartPolicy != nil {
+		if err := define.ValidateRestartPolicy(*updateOptions.RestartPolicy); err != nil {
 			return err
 		}
 
-		if restartRetries != nil {
-			if *restartPolicy != define.RestartPolicyOnFailure {
+		if updateOptions.RestartRetries != nil {
+			if *updateOptions.RestartPolicy != define.RestartPolicyOnFailure {
 				return fmt.Errorf("cannot set restart policy retries unless policy is on-failure: %w", define.ErrInvalidArg)
 			}
 		}
 
-		c.config.RestartPolicy = *restartPolicy
-		if restartRetries != nil {
-			c.config.RestartRetries = *restartRetries
+		c.config.RestartPolicy = *updateOptions.RestartPolicy
+		if updateOptions.RestartRetries != nil {
+			c.config.RestartRetries = *updateOptions.RestartRetries
 		} else {
 			c.config.RestartRetries = 0
 		}
 	}
 
-	if resources != nil {
+	if updateOptions.Resources != nil {
 		if c.config.Spec.Linux == nil {
 			c.config.Spec.Linux = new(spec.Linux)
 		}
 
-		resourcesToUpdate, err := json.Marshal(resources)
+		resourcesToUpdate, err := json.Marshal(updateOptions.Resources)
 		if err != nil {
 			return err
 		}
 		if err := json.Unmarshal(resourcesToUpdate, c.config.Spec.Linux.Resources); err != nil {
 			return err
 		}
-		resources = c.config.Spec.Linux.Resources
+		updateOptions.Resources = c.config.Spec.Linux.Resources
+	}
+
+	if len(updateOptions.Env) != 0 {
+		c.config.Spec.Process.Env = envLib.Slice(envLib.Join(envLib.Map(c.config.Spec.Process.Env), envLib.Map(updateOptions.Env)))
+	}
+
+	if len(updateOptions.UnsetEnv) != 0 {
+		envMap := envLib.Map(c.config.Spec.Process.Env)
+		for _, e := range updateOptions.UnsetEnv {
+			delete(envMap, e)
+		}
+		c.config.Spec.Process.Env = envLib.Slice(envMap)
 	}
 
 	if err := c.runtime.state.SafeRewriteContainerConfig(c, "", "", c.config); err != nil {
@@ -2731,22 +2864,28 @@ func (c *Container) update(resources *spec.LinuxResources, restartPolicy *string
 		return err
 	}
 
-	if c.ensureState(define.ContainerStateCreated, define.ContainerStateRunning, define.ContainerStatePaused) && resources != nil {
+	if c.ensureState(define.ContainerStateCreated, define.ContainerStateRunning, define.ContainerStatePaused) &&
+		(updateOptions.Resources != nil || updateOptions.Env != nil || updateOptions.UnsetEnv != nil) {
 		// So `podman inspect` on running containers sources its OCI spec from disk.
 		// To keep inspect accurate we need to update the on-disk OCI spec.
 		onDiskSpec, err := c.specFromState()
 		if err != nil {
 			return fmt.Errorf("retrieving on-disk OCI spec to update: %w", err)
 		}
-		if onDiskSpec.Linux == nil {
-			onDiskSpec.Linux = new(spec.Linux)
+		if updateOptions.Resources != nil {
+			if onDiskSpec.Linux == nil {
+				onDiskSpec.Linux = new(spec.Linux)
+			}
+			onDiskSpec.Linux.Resources = updateOptions.Resources
 		}
-		onDiskSpec.Linux.Resources = resources
+		if len(updateOptions.Env) != 0 || len(updateOptions.UnsetEnv) != 0 {
+			onDiskSpec.Process.Env = c.config.Spec.Process.Env
+		}
 		if err := c.saveSpec(onDiskSpec); err != nil {
 			logrus.Errorf("Unable to update container %s OCI spec - `podman inspect` may not be accurate until container is restarted: %v", c.ID(), err)
 		}
 
-		if err := c.ociRuntime.UpdateContainer(c, resources); err != nil {
+		if err := c.ociRuntime.UpdateContainer(c, updateOptions.Resources); err != nil {
 			return err
 		}
 	}
@@ -2774,7 +2913,9 @@ func (c *Container) resetHealthCheckTimers(noHealthCheck bool, changedTimer bool
 
 	if !isStartup {
 		if c.state.StartupHCPassed || c.config.StartupHealthCheckConfig == nil {
-			c.recreateHealthCheckTimer(context.Background(), false, false)
+			if err := c.recreateHealthCheckTimer(context.Background(), false, false); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -2787,7 +2928,9 @@ func (c *Container) resetHealthCheckTimers(noHealthCheck bool, changedTimer bool
 			return err
 		}
 		if wasEnabledHealthCheck {
-			c.recreateHealthCheckTimer(context.Background(), true, true)
+			if err := c.recreateHealthCheckTimer(context.Background(), true, true); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

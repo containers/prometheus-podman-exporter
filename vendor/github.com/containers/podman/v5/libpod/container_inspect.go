@@ -11,7 +11,6 @@ import (
 	"github.com/containers/podman/v5/libpod/driver"
 	"github.com/containers/podman/v5/pkg/signal"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage/types"
 	"github.com/docker/go-units"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -195,7 +194,7 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 	// Check if healthcheck is not nil and --no-healthcheck option is not set.
 	// If --no-healthcheck is set Test will be always set to `[NONE]`, so the
 	// inspect status should be set to nil.
-	if c.config.HealthCheckConfig != nil && !(len(c.config.HealthCheckConfig.Test) == 1 && c.config.HealthCheckConfig.Test[0] == "NONE") {
+	if c.config.HealthCheckConfig != nil && (len(c.config.HealthCheckConfig.Test) != 1 || c.config.HealthCheckConfig.Test[0] != "NONE") {
 		// This container has a healthcheck defined in it; we need to add its state
 		healthCheckState, err := c.readHealthCheckLog()
 		if err != nil {
@@ -215,7 +214,7 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 	data.NetworkSettings = networkConfig
 	// Ports in NetworkSettings includes exposed ports for network modes that are not host,
 	// and not container.
-	if !(c.config.NetNsCtr != "" || c.NetworkMode() == "host") {
+	if c.config.NetNsCtr == "" && c.NetworkMode() != "host" {
 		addInspectPortsExpose(c.config.ExposedPorts, data.NetworkSettings.Ports)
 	}
 
@@ -491,17 +490,6 @@ func (c *Container) generateInspectContainerConfig(spec *spec.Spec) *define.Insp
 	return ctrConfig
 }
 
-func generateIDMappings(idMappings types.IDMappingOptions) *define.InspectIDMappings {
-	var inspectMappings define.InspectIDMappings
-	for _, uid := range idMappings.UIDMap {
-		inspectMappings.UIDMap = append(inspectMappings.UIDMap, fmt.Sprintf("%d:%d:%d", uid.ContainerID, uid.HostID, uid.Size))
-	}
-	for _, gid := range idMappings.GIDMap {
-		inspectMappings.GIDMap = append(inspectMappings.GIDMap, fmt.Sprintf("%d:%d:%d", gid.ContainerID, gid.HostID, gid.Size))
-	}
-	return &inspectMappings
-}
-
 // Generate the InspectContainerHostConfig struct for the HostConfig field of
 // Inspect.
 func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, namedVolumes []*ContainerNamedVolume, mounts []spec.Mount) (*define.InspectContainerHostConfig, error) {
@@ -659,36 +647,13 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 	return hostConfig, nil
 }
 
-// Return true if the container is running in the host's PID NS.
-func (c *Container) inHostPidNS() (bool, error) {
-	if c.config.PIDNsCtr != "" {
-		return false, nil
-	}
-	ctrSpec, err := c.specFromState()
-	if err != nil {
-		return false, err
-	}
-	if ctrSpec.Linux != nil {
-		// Locate the spec's PID namespace.
-		// If there is none, it's pid=host.
-		// If there is one and it has a path, it's "ns:".
-		// If there is no path, it's default - the empty string.
-		for _, ns := range ctrSpec.Linux.Namespaces {
-			if ns.Type == spec.PIDNamespace {
-				return false, nil
-			}
-		}
-	}
-	return true, nil
-}
-
 func (c *Container) GetDevices(priv bool, ctrSpec spec.Spec, deviceNodes map[string]string) ([]define.InspectDevice, error) {
 	devices := []define.InspectDevice{}
 	if ctrSpec.Linux != nil && !priv {
 		for _, dev := range ctrSpec.Linux.Devices {
 			key := fmt.Sprintf("%d:%d", dev.Major, dev.Minor)
 			if deviceNodes == nil {
-				nodes, err := util.FindDeviceNodes()
+				nodes, err := util.FindDeviceNodes(false)
 				if err != nil {
 					return nil, err
 				}
@@ -713,7 +678,7 @@ func blkioDeviceThrottle(deviceNodes map[string]string, devs []spec.LinuxThrottl
 	for _, dev := range devs {
 		key := fmt.Sprintf("%d:%d", dev.Major, dev.Minor)
 		if deviceNodes == nil {
-			nodes, err := util.FindDeviceNodes()
+			nodes, err := util.FindDeviceNodes(true)
 			if err != nil {
 				return nil, err
 			}

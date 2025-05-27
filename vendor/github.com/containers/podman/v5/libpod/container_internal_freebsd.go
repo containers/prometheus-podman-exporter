@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/podman/v5/pkg/rootless"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
@@ -179,7 +181,9 @@ func (c *Container) addNetworkContainer(g *generate.Generator, ctr string) error
 	if err != nil {
 		return fmt.Errorf("retrieving dependency %s of container %s from state: %w", ctr, c.ID(), err)
 	}
-	c.runtime.state.UpdateContainer(nsCtr)
+	if err := c.runtime.state.UpdateContainer(nsCtr); err != nil {
+		return err
+	}
 	if nsCtr.state.NetNS != "" {
 		g.AddAnnotation("org.freebsd.parentJail", nsCtr.state.NetNS)
 	}
@@ -251,10 +255,9 @@ func (c *Container) addSharedNamespaces(g *generate.Generator) error {
 	// the user (already present in OCI spec). If we don't have a UTS ns,
 	// set it to the host's hostname instead.
 	hostname := c.Hostname()
-	foundUTS := false
 
 	// TODO: make this optional, needs progress on adding FreeBSD section to the spec
-	foundUTS = true
+	foundUTS := true
 	g.SetHostname(hostname)
 
 	if !foundUTS {
@@ -389,7 +392,7 @@ func (c *Container) getPlatformRunPath() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		inspectData, err := image.Inspect(nil, nil)
+		inspectData, err := image.Inspect(context.TODO(), nil)
 		if err != nil {
 			return "", err
 		}
@@ -409,4 +412,26 @@ func (c *Container) hasPrivateUTS() bool {
 	// should be optional but needs a FreeBSD section in the OCI runtime
 	// specification.
 	return true
+}
+
+// hasCapSysResource returns whether the current process has CAP_SYS_RESOURCE.
+func hasCapSysResource() (bool, error) {
+	return true, nil
+}
+
+// containerPathIsFile returns true if the given containerPath is a file
+func containerPathIsFile(unsafeRoot string, containerPath string) (bool, error) {
+	// Note freebsd does not have support for OpenInRoot() so us the less safe way
+	// with the old SecureJoin(), but given this is only called before the container
+	// is started it is not subject to race conditions with the container process.
+	path, err := securejoin.SecureJoin(unsafeRoot, containerPath)
+	if err != nil {
+		return false, err
+	}
+
+	st, err := os.Lstat(path)
+	if err == nil && !st.IsDir() {
+		return true, nil
+	}
+	return false, err
 }

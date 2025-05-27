@@ -47,6 +47,7 @@ import (
 	"github.com/containers/storage/pkg/lockfile"
 	"github.com/containers/storage/pkg/mount"
 	"github.com/containers/storage/pkg/reexec"
+	"github.com/containers/storage/pkg/regexp"
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -56,6 +57,10 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
+
+const maxHostnameLen = 64
+
+var validHostnames = regexp.Delayed("[A-Za-z0-9][A-Za-z0-9.-]+")
 
 func (b *Builder) createResolvConf(rdir string, chownOpts *idtools.IDPair) (string, error) {
 	cfile := filepath.Join(rdir, "resolv.conf")
@@ -176,14 +181,8 @@ func (b *Builder) addHostsEntries(file, imageRoot string, entries etchosts.HostE
 
 // generateHostname creates a containers /etc/hostname file
 func (b *Builder) generateHostname(rdir, hostname string, chownOpts *idtools.IDPair) (string, error) {
-	var err error
-	hostnamePath := "/etc/hostname"
-
-	var hostnameBuffer bytes.Buffer
-	hostnameBuffer.Write([]byte(fmt.Sprintf("%s\n", hostname)))
-
-	cfile := filepath.Join(rdir, filepath.Base(hostnamePath))
-	if err = ioutils.AtomicWriteFile(cfile, hostnameBuffer.Bytes(), 0o644); err != nil {
+	cfile := filepath.Join(rdir, "hostname")
+	if err := ioutils.AtomicWriteFile(cfile, append([]byte(hostname), '\n'), 0o644); err != nil {
 		return "", fmt.Errorf("writing /etc/hostname into the container: %w", err)
 	}
 
@@ -193,7 +192,7 @@ func (b *Builder) generateHostname(rdir, hostname string, chownOpts *idtools.IDP
 		uid = chownOpts.UID
 		gid = chownOpts.GID
 	}
-	if err = os.Chown(cfile, uid, gid); err != nil {
+	if err := os.Chown(cfile, uid, gid); err != nil {
 		return "", err
 	}
 	if err := relabel(cfile, b.MountLabel, false); err != nil {
@@ -729,7 +728,7 @@ func runUsingRuntime(options RunOptions, configureNetwork bool, moreCreateArgs [
 	return wstatus, nil
 }
 
-func runCollectOutput(logger *logrus.Logger, fds, closeBeforeReadingFds []int) string { //nolint:interfacer
+func runCollectOutput(logger *logrus.Logger, fds, closeBeforeReadingFds []int) string {
 	for _, fd := range closeBeforeReadingFds {
 		unix.Close(fd)
 	}
@@ -775,7 +774,7 @@ func runCollectOutput(logger *logrus.Logger, fds, closeBeforeReadingFds []int) s
 	return b.String()
 }
 
-func setNonblock(logger *logrus.Logger, fd int, description string, nonblocking bool) (bool, error) { //nolint:interfacer
+func setNonblock(logger *logrus.Logger, fd int, description string, nonblocking bool) (bool, error) {
 	mask, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
 	if err != nil {
 		return false, err
@@ -865,13 +864,13 @@ func runCopyStdio(logger *logrus.Logger, stdio *sync.WaitGroup, copyPipes bool, 
 			return
 		}
 		if blocked {
-			defer setNonblock(logger, rfd, readDesc[rfd], false) // nolint:errcheck
+			defer setNonblock(logger, rfd, readDesc[rfd], false) //nolint:errcheck
 		}
-		setNonblock(logger, wfd, writeDesc[wfd], false) // nolint:errcheck
+		setNonblock(logger, wfd, writeDesc[wfd], false) //nolint:errcheck
 	}
 
 	if copyPipes {
-		setNonblock(logger, stdioPipe[unix.Stdin][1], writeDesc[stdioPipe[unix.Stdin][1]], true) // nolint:errcheck
+		setNonblock(logger, stdioPipe[unix.Stdin][1], writeDesc[stdioPipe[unix.Stdin][1]], true) //nolint:errcheck
 	}
 
 	runCopyStdioPassData(copyPipes, stdioPipe, finishCopy, relayMap, relayBuffer, readDesc, writeDesc)
@@ -2091,4 +2090,22 @@ func relabel(path, mountLabel string, shared bool) error {
 		logrus.Debugf("Labeling not supported on %q", path)
 	}
 	return nil
+}
+
+// mapContainerNameToHostname returns the passed-in string with characters that
+// don't match validHostnames (defined above) stripped out.
+func mapContainerNameToHostname(containerName string) string {
+	match := validHostnames.FindStringIndex(containerName)
+	if match == nil {
+		return ""
+	}
+	trimmed := containerName[match[0]:]
+	match[1] -= match[0]
+	match[0] = 0
+	for match[1] != len(trimmed) && match[1] < match[0]+maxHostnameLen {
+		trimmed = trimmed[:match[1]] + trimmed[match[1]+1:]
+		match = validHostnames.FindStringIndex(trimmed)
+		match[1] = min(match[1], maxHostnameLen)
+	}
+	return trimmed[:match[1]]
 }

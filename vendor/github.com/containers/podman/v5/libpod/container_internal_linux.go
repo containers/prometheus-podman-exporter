@@ -21,6 +21,8 @@ import (
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/shutdown"
 	"github.com/containers/podman/v5/pkg/rootless"
+	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/moby/sys/capability"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux/label"
@@ -438,7 +440,7 @@ func (c *Container) getOCICgroupPath() (string, error) {
 }
 
 func openDirectory(path string) (fd int, err error) {
-	return unix.Open(path, unix.O_RDONLY|unix.O_PATH, 0)
+	return unix.Open(path, unix.O_RDONLY|unix.O_PATH|unix.O_CLOEXEC, 0)
 }
 
 func (c *Container) addNetworkNamespace(g *generate.Generator) error {
@@ -739,41 +741,22 @@ func (s *safeMountInfo) Close() {
 // The caller is responsible for closing the file descriptor and unmounting the subpath
 // when it's no longer needed.
 func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountInfo, err error) {
-	joinedPath := filepath.Clean(filepath.Join(mountPoint, subpath))
-	fd, err := unix.Open(joinedPath, unix.O_RDONLY|unix.O_PATH, 0)
+	file, err := securejoin.OpenInRoot(mountPoint, subpath)
 	if err != nil {
 		return nil, err
-	}
-	f := os.NewFile(uintptr(fd), joinedPath)
-	defer func() {
-		if err != nil {
-			f.Close()
-		}
-	}()
-
-	// Once we got the file descriptor, we need to check that the subpath is a valid.  We
-	// refer to the open FD so there won't be other path lookups (and no risk to follow a symlink).
-	fdPath := fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), f.Fd())
-	p, err := os.Readlink(fdPath)
-	if err != nil {
-		return nil, err
-	}
-	relPath, err := filepath.Rel(mountPoint, p)
-	if err != nil {
-		return nil, err
-	}
-	if relPath == ".." || strings.HasPrefix(relPath, "../") {
-		return nil, fmt.Errorf("subpath %q is outside of the volume %q", subpath, mountPoint)
 	}
 
-	fi, err := os.Stat(fdPath)
+	// we need to always reference the file by its fd, that points inside the mountpoint.
+	fname := fmt.Sprintf("/proc/self/fd/%d", int(file.Fd()))
+
+	fi, err := os.Stat(fname)
 	if err != nil {
 		return nil, err
 	}
 	var npath string
 	switch {
 	case fi.Mode()&fs.ModeSymlink != 0:
-		return nil, fmt.Errorf("file %q is a symlink", joinedPath)
+		return nil, fmt.Errorf("file %q is a symlink", filepath.Join(mountPoint, subpath))
 	case fi.IsDir():
 		npath, err = os.MkdirTemp(c.state.RunDir, "subpath")
 		if err != nil {
@@ -787,11 +770,12 @@ func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountIn
 		tmp.Close()
 		npath = tmp.Name()
 	}
-	if err := unix.Mount(fdPath, npath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+
+	if err := unix.Mount(fname, npath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return nil, err
 	}
 	return &safeMountInfo{
-		file:       f,
+		file:       file,
 		mountPoint: npath,
 	}, nil
 }
@@ -834,4 +818,31 @@ func (c *Container) hasPrivateUTS() bool {
 		}
 	}
 	return privateUTS
+}
+
+// hasCapSysResource returns whether the current process has CAP_SYS_RESOURCE.
+var hasCapSysResource = sync.OnceValues(func() (bool, error) {
+	currentCaps, err := capability.NewPid2(0)
+	if err != nil {
+		return false, err
+	}
+	if err = currentCaps.Load(); err != nil {
+		return false, err
+	}
+	return currentCaps.Get(capability.EFFECTIVE, capability.CAP_SYS_RESOURCE), nil
+})
+
+// containerPathIsFile returns true if the given containerPath is a file
+func containerPathIsFile(unsafeRoot string, containerPath string) (bool, error) {
+	f, err := securejoin.OpenInRoot(unsafeRoot, containerPath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	st, err := f.Stat()
+	if err == nil && !st.IsDir() {
+		return true, nil
+	}
+	return false, err
 }

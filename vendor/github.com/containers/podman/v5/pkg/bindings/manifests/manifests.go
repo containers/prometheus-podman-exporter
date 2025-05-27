@@ -24,7 +24,6 @@ import (
 	"github.com/containers/podman/v5/pkg/bindings/images"
 	entitiesTypes "github.com/containers/podman/v5/pkg/domain/entities/types"
 	"github.com/containers/podman/v5/pkg/errorhandling"
-	dockerAPI "github.com/docker/docker/api/types"
 	jsoniter "github.com/json-iterator/go"
 )
 
@@ -33,7 +32,7 @@ import (
 // of a list if the name provided is a manifest list.  The ID of the new manifest list
 // is returned as a string.
 func Create(ctx context.Context, name string, images []string, options *CreateOptions) (string, error) {
-	var idr dockerAPI.IDResponse
+	var idr entitiesTypes.IDResponse
 	if options == nil {
 		options = new(CreateOptions)
 	}
@@ -432,7 +431,7 @@ func Modify(ctx context.Context, name string, images []string, options *ModifyOp
 
 	artifactWriterGroup.Wait()
 	if artifactWriterError != nil {
-		return "", fmt.Errorf("uploading artifacts: %w", err)
+		return "", fmt.Errorf("uploading artifacts: %w", artifactWriterError)
 	}
 
 	data, err := io.ReadAll(response.Body)
