@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/containerd/platforms"
 	"github.com/containers/buildah/define"
 	"github.com/containers/buildah/docker"
 	internalUtil "github.com/containers/buildah/internal/util"
@@ -26,7 +26,7 @@ import (
 // unmarshalConvertedConfig obtains the config blob of img valid for the wantedManifestMIMEType format
 // (either as it exists, or converting the image if necessary), and unmarshals it into dest.
 // NOTE: The MIME type is of the _manifest_, not of the _config_ that is returned.
-func unmarshalConvertedConfig(ctx context.Context, dest interface{}, img types.Image, wantedManifestMIMEType string) error {
+func unmarshalConvertedConfig(ctx context.Context, dest any, img types.Image, wantedManifestMIMEType string) error {
 	_, actualManifestMIMEType, err := img.Manifest(ctx)
 	if err != nil {
 		return fmt.Errorf("getting manifest MIME type for %q: %w", transports.ImageName(img.Reference()), err)
@@ -96,9 +96,7 @@ func (b *Builder) initConfig(ctx context.Context, sys *types.SystemContext, img 
 				if b.ImageAnnotations == nil {
 					b.ImageAnnotations = make(map[string]string, len(v1Manifest.Annotations))
 				}
-				for k, v := range v1Manifest.Annotations {
-					b.ImageAnnotations[k] = v
-				}
+				maps.Copy(b.ImageAnnotations, v1Manifest.Annotations)
 			}
 		}
 	} else {
@@ -137,18 +135,19 @@ func (b *Builder) fixupConfig(sys *types.SystemContext) {
 	if b.OCIv1.Created == nil || b.OCIv1.Created.IsZero() {
 		b.OCIv1.Created = &now
 	}
+	currentPlatformSpecification := platforms.DefaultSpec()
 	if b.OS() == "" {
 		if sys != nil && sys.OSChoice != "" {
 			b.SetOS(sys.OSChoice)
 		} else {
-			b.SetOS(runtime.GOOS)
+			b.SetOS(currentPlatformSpecification.OS)
 		}
 	}
 	if b.Architecture() == "" {
 		if sys != nil && sys.ArchitectureChoice != "" {
 			b.SetArchitecture(sys.ArchitectureChoice)
 		} else {
-			b.SetArchitecture(runtime.GOARCH)
+			b.SetArchitecture(currentPlatformSpecification.Architecture)
 		}
 		// in case the arch string we started with was shorthand for a known arch+variant pair, normalize it
 		ps := internalUtil.NormalizePlatform(ociv1.Platform{OS: b.OS(), Architecture: b.Architecture(), Variant: b.Variant()})
@@ -158,6 +157,8 @@ func (b *Builder) fixupConfig(sys *types.SystemContext) {
 	if b.Variant() == "" {
 		if sys != nil && sys.VariantChoice != "" {
 			b.SetVariant(sys.VariantChoice)
+		} else {
+			b.SetVariant(currentPlatformSpecification.Variant)
 		}
 		// in case the arch string we started with was shorthand for a known arch+variant pair, normalize it
 		ps := internalUtil.NormalizePlatform(ociv1.Platform{OS: b.OS(), Architecture: b.Architecture(), Variant: b.Variant()})
