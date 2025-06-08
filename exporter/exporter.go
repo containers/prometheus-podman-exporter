@@ -41,7 +41,7 @@ type exporterOptions struct {
 func Start(cmd *cobra.Command, _ []string) error {
 	// setup exporter
 	logLevel := "info"
-	promlogConfig := &promslog.Config{Level: &promslog.AllowedLevel{}}
+	promlogConfig := &promslog.Config{Level: promslog.NewLevel()}
 
 	cmdOptions, err := parseOptions(cmd)
 	if err != nil {
