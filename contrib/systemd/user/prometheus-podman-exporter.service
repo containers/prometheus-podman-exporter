@@ -1,5 +1,5 @@
 [Unit]
-Description=Prometheus exporter for podman (v4) machine
+Description=Prometheus exporter for podman (v5) machine
 [Service]
 Restart=on-failure
 EnvironmentFile=-/etc/sysconfig/prometheus-podman-exporter
