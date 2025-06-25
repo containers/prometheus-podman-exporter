@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 
-description="Prometheus exporter for podman (v4) machine"
+description="Prometheus exporter for podman (v5) machine"
 
 command_user="${RUN_AS_USER:-root:root}"
 command="/usr/bin/prometheus-podman-exporter"
