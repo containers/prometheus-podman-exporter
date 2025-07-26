@@ -20,7 +20,7 @@ var errMinCacheDurtion = errors.New("invalid cache duration value, shall be >= "
 
 type exporterOptions struct {
 	debug                     bool
-	webListen                 string
+	webListen                 []string
 	webMaxRequests            int
 	webTelemetryPath          string
 	webDisableExporterMetrics bool
@@ -92,13 +92,13 @@ func Start(cmd *cobra.Command, _ []string) error {
 	go pdcs.StartEventStreamer(logger, updateImages)
 	pdcs.StartCacheSizeTicker(logger, cmdOptions.cacheDuration)
 
-	logger.Info("Listening on", "address", cmdOptions.webListen)
+	logger.Info("Listening on", "addresses", cmdOptions.webListen)
 
 	server := &http.Server{
 		ReadHeaderTimeout: 3 * time.Second, //nolint:mnd
 	}
 	serverSystemd := false
-	serverWebListen := []string{cmdOptions.webListen}
+	serverWebListen := cmdOptions.webListen
 
 	toolkitFlag := new(web.FlagConfig)
 	toolkitFlag.WebSystemdSocket = &serverSystemd
@@ -167,7 +167,7 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, err
 	}
 
-	webListen, err := cmd.Flags().GetString("web.listen-address")
+	webListen, err := cmd.Flags().GetStringArray("web.listen-address")
 	if err != nil {
 		return nil, err
 	}
