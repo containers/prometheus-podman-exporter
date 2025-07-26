@@ -50,7 +50,7 @@ Flags:
       --version                               Print version and exit.
       --web.config.file string                [EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.
   -e, --web.disable-exporter-metrics          Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
-  -l, --web.listen-address string             Address on which to expose metrics and web interface. (default ":9882")
+  -l, --web.listen-addresses string           Addresses on which to expose metrics and web interface. (default ":9882")
   -m, --web.max-requests int                  Maximum number of parallel scrape requests. Use 0 to disable (default 40)
   -p, --web.telemetry-path string             Path under which to expose metrics. (default "/metrics")
 ```

@@ -33,7 +33,7 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("debug", "d", false, "")
 	rootCmd.Flags().BoolP("version", "", false, "")
 	rootCmd.Flags().StringP("web.config.file", "", "", "")
-	rootCmd.Flags().StringP("web.listen-address", "l", ":9882", "")
+	rootCmd.Flags().StringArrayP("web.listen-addresses", "l", []string{":9882"}, "")
 	rootCmd.Flags().StringP("web.telemetry-path", "p", "/metrics", "")
 	rootCmd.Flags().BoolP("web.disable-exporter-metrics", "e", false, "")
 	rootCmd.Flags().IntP("web.max-requests", "m", 10, "")
