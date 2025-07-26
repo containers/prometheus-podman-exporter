@@ -167,7 +167,7 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, err
 	}
 
-	webListen, err := cmd.Flags().GetStringArray("web.listen-addresses")
+	webListen, err := cmd.Flags().GetStringArray("web.listen-address")
 	if err != nil {
 		return nil, err
 	}
