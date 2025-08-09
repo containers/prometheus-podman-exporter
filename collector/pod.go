@@ -91,14 +91,18 @@ func (c *podCollector) Update(ch chan<- prometheus.Metric) error {
 
 		if enhanceAllMetrics {
 			ch <- c.state.mustNewConstMetric(float64(rep.State), podLabelsInfo.labelsValue...)
+
 			ch <- c.numOfContainers.mustNewConstMetric(float64(rep.NumOfContainers), podLabelsInfo.labelsValue...)
+
 			ch <- c.created.mustNewConstMetric(float64(rep.Created), podLabelsInfo.labelsValue...)
 
 			continue
 		}
 
 		ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID)
+
 		ch <- c.numOfContainers.mustNewConstMetric(float64(rep.NumOfContainers), rep.ID)
+
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID)
 	}
 

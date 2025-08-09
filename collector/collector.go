@@ -90,6 +90,7 @@ func NewPodmanCollector(logger *slog.Logger) (*PodmanCollector, error) {
 // Describe implements the prometheus.Collector interface.
 func (p PodmanCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- scrapeDurationDesc
+
 	ch <- scrapeSuccessDesc
 }
 
@@ -141,6 +142,7 @@ func execute(name string, c Collector, ch chan<- prometheus.Metric, logger *slog
 	}
 
 	ch <- prometheus.MustNewConstMetric(scrapeDurationDesc, prometheus.GaugeValue, duration.Seconds(), name)
+
 	ch <- prometheus.MustNewConstMetric(scrapeSuccessDesc, prometheus.GaugeValue, success, name)
 }
 

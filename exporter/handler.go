@@ -42,7 +42,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Warn("couldn't create filtered metrics handler:", "err", err)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(fmt.Sprintf("couldn't create filtered metrics handler: %s", err)))
+
+		_, err := w.Write([]byte(fmt.Sprintf("couldn't create filtered metrics handler: %s", err))) //nolint:staticcheck
+		if err != nil {
+			h.logger.Warn("failed to write filtered metrics error", "err", err)
+		}
 
 		return
 	}
@@ -107,7 +111,8 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	r := prometheus.NewRegistry()
 	r.MustRegister(version.NewCollector("prometheus_podman_exporter"))
 
-	if err := r.Register(podc); err != nil {
+	err = r.Register(podc)
+	if err != nil {
 		return nil, fmt.Errorf("couldn't register podman collector: %w", err)
 	}
 

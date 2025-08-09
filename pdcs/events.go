@@ -46,6 +46,7 @@ func StartEventStreamer(logger *slog.Logger, updateImage bool) { //nolint:cyclop
 				case event, ok := <-eventChannel:
 					if !ok {
 						logger.Error("podman received event not ok")
+
 						restartChannel <- true
 
 						return

@@ -52,13 +52,15 @@ func Start(cmd *cobra.Command, _ []string) error {
 		logLevel = "debug"
 	}
 
-	if err := promlogConfig.Level.Set(logLevel); err != nil {
+	err = promlogConfig.Level.Set(logLevel)
+	if err != nil {
 		return err
 	}
 
 	logger := promslog.New(promlogConfig)
 
-	if err := setEnabledCollectors(cmdOptions); err != nil {
+	err = setEnabledCollectors(cmdOptions)
+	if err != nil {
 		logger.Error("cannot set enabled collectors", "err", err)
 
 		return err
@@ -71,25 +73,27 @@ func Start(cmd *cobra.Command, _ []string) error {
 		cmdOptions.webTelemetryPath,
 		newHandler(cmdOptions.webDisableExporterMetrics, cmdOptions.webMaxRequests, logger),
 	)
+
 	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`<html>
+		_, err := w.Write([]byte(`<html>
 			<head><title>Podman Exporter</title></head>
 			<body>
 			<h1>Podman Exporter</h1>
 			<p><a href="` + "/metrics" + `">Metrics</a></p>
 			</body>
 			</html>`))
+		if err != nil {
+			logger.Warn("failed to write index page", "err", err)
+		}
 	})
 
 	// setup podman registry
 	pdcs.SetupRegistry()
 	// start podman event streamer and initiate first update.
-	updateImages := false
-	if cmdOptions.enableAll || cmdOptions.enableImages {
-		updateImages = true
-	}
+	updateImages := cmdOptions.enableAll || cmdOptions.enableImages
 
 	go pdcs.StartEventStreamer(logger, updateImages)
+
 	pdcs.StartCacheSizeTicker(logger, cmdOptions.cacheDuration)
 
 	logger.Info("Listening on", "addresses", cmdOptions.webListen)
@@ -105,7 +109,8 @@ func Start(cmd *cobra.Command, _ []string) error {
 	toolkitFlag.WebListenAddresses = &serverWebListen
 	toolkitFlag.WebConfigFile = &cmdOptions.webConfigFile
 
-	if err := web.ListenAndServe(server, toolkitFlag, logger); err != nil {
+	err = web.ListenAndServe(server, toolkitFlag, logger)
+	if err != nil {
 		return err
 	}
 

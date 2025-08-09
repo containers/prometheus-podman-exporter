@@ -1,34 +1,45 @@
+version: "2"
 run:
-  timeout: 10m
-  deadline: 5m
-linters:
-  enable-all: true
-  disable:
-    - wrapcheck
-    - gochecknoinits
-    - varnamelen
-    - exhaustruct
-    - ireturn
-    - gochecknoglobals
-    - funlen
-    - forbidigo
-    - gomoddirectives
-    - depguard
-    # deprecated
-    - tenv
-    - rowserrcheck
-    - wastedassign
-linters-settings:
-  errcheck:
-    check-blank: false
-    exclude-functions:
-      # Used in HTTP handlers, any error is handled by the server itself.
-      - (net/http.ResponseWriter).Write
-      # Never check the logger error.
-      - (github.com/go-kit/log.Logger).Log
-  nolintlint:
-    require-specific: true
+  modules-download-mode: readonly
 
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: disable
+
+linters:
+  default: all
+  disable:
+    - gochecknoglobals
+    - gochecknoinits
+    - funlen
+    - ireturn
+    - exhaustruct
+    - varnamelen
+    - wsl
+    - depguard
+    - wrapcheck
+  settings:
+    errcheck:
+      check-blank: false
+      exclude-functions:
+        # Used in HTTP handlers, any error is handled by the server itself.
+        - (net/http.ResponseWriter).Write
+        # Never check the logger error.
+        - (github.com/go-kit/log.Logger).Log
+        - fmt:.*
+    nolintlint:
+      require-specific: true
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+  exclusions:
+    paths:
+      - test/
+      - ".*_test.go"
 issues:
-  exclude-files:
-    - ".*_test.go"
+  max-issues-per-linter: 0
+  max-same-issues: 0

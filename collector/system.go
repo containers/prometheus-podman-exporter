@@ -62,8 +62,11 @@ func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	ch <- c.podmanVer.mustNewConstMetric(1, info.Podman)
+
 	ch <- c.runtimeVer.mustNewConstMetric(1, info.Runtime)
+
 	ch <- c.conmonVer.mustNewConstMetric(1, info.Conmon)
+
 	ch <- c.buildahVer.mustNewConstMetric(1, info.Buildah)
 
 	return nil
