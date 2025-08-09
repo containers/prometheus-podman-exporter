@@ -155,6 +155,7 @@ func (c *containerCollector) Update(ch chan<- prometheus.Metric) error {
 		cntStat := getContainerStat(rep.ID, statReports)
 
 		ch <- c.info.mustNewConstMetric(1, cntLabelsInfo.labelsValue...)
+
 		c.updateInfo(ch, &rep, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics)
 		c.updateStats(ch, &rep, cntStat, cntLabelsInfo, defaultContainersLabel, enhanceAllMetrics)
 	}
@@ -229,24 +230,38 @@ func (c *containerCollector) updateInfo(
 
 	if enhance {
 		ch <- c.state.mustNewConstMetric(float64(rep.State), cntLabelsInfo.labelsValue...)
+
 		ch <- c.health.mustNewConstMetric(float64(rep.Health), cntLabelsInfo.labelsValue...)
+
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), cntLabelsInfo.labelsValue...)
+
 		ch <- c.started.mustNewConstMetric(float64(rep.Started), cntLabelsInfo.labelsValue...)
+
 		ch <- c.exited.mustNewConstMetric(float64(rep.Exited), cntLabelsInfo.labelsValue...)
+
 		ch <- c.exitCode.mustNewConstMetric(float64(rep.ExitCode), cntLabelsInfo.labelsValue...)
+
 		ch <- c.rwSize.mustNewConstMetric(float64(rep.RwSize), cntLabelsInfo.labelsValue...)
+
 		ch <- c.rootFsSize.mustNewConstMetric(float64(rep.RootFsSize), cntLabelsInfo.labelsValue...)
 
 		return
 	}
 
 	ch <- c.state.mustNewConstMetric(float64(rep.State), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.health.mustNewConstMetric(float64(rep.Health), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.started.mustNewConstMetric(float64(rep.Started), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.exited.mustNewConstMetric(float64(rep.Exited), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.exitCode.mustNewConstMetric(float64(rep.ExitCode), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.rwSize.mustNewConstMetric(float64(rep.RwSize), rep.ID, rep.PodID, rep.PodName)
+
 	ch <- c.rootFsSize.mustNewConstMetric(float64(rep.RootFsSize), rep.ID, rep.PodID, rep.PodName)
 }
 
@@ -367,19 +382,33 @@ func (c *containerCollector) updateStats(
 	if enhance {
 		if cntStat != nil {
 			ch <- c.pids.mustNewConstMetric(float64(cntStat.PIDs), cntLabelsInfo.labelsValue...)
+
 			ch <- c.cpu.mustNewConstMetric(cntStat.CPU, cntLabelsInfo.labelsValue...)
+
 			ch <- c.cpuSystem.mustNewConstMetric(cntStat.CPUSystem, cntLabelsInfo.labelsValue...)
+
 			ch <- c.memUsage.mustNewConstMetric(float64(cntStat.MemUsage), cntLabelsInfo.labelsValue...)
+
 			ch <- c.memLimit.mustNewConstMetric(float64(cntStat.MemLimit), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netInput.mustNewConstMetric(float64(cntStat.NetInput), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netInputDropped.mustNewConstMetric(float64(cntStat.NetInputDropped), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netInputErrors.mustNewConstMetric(float64(cntStat.NetInputErrors), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netInputPackets.mustNewConstMetric(float64(cntStat.NetInputPackets), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netOutput.mustNewConstMetric(float64(cntStat.NetOutput), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netOutputDropped.mustNewConstMetric(float64(cntStat.NetOutputDropped), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netOutputErrors.mustNewConstMetric(float64(cntStat.NetOutputErrors), cntLabelsInfo.labelsValue...)
+
 			ch <- c.netOutputPackets.mustNewConstMetric(float64(cntStat.NetOutputPackets), cntLabelsInfo.labelsValue...)
+
 			ch <- c.blockInput.mustNewConstMetric(float64(cntStat.BlockInput), cntLabelsInfo.labelsValue...)
+
 			ch <- c.blockOutput.mustNewConstMetric(float64(cntStat.BlockOutput), cntLabelsInfo.labelsValue...)
 		}
 
@@ -388,19 +417,33 @@ func (c *containerCollector) updateStats(
 
 	if cntStat != nil {
 		ch <- c.pids.mustNewConstMetric(float64(cntStat.PIDs), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.cpu.mustNewConstMetric(cntStat.CPU, rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.cpuSystem.mustNewConstMetric(cntStat.CPUSystem, rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.memUsage.mustNewConstMetric(float64(cntStat.MemUsage), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.memLimit.mustNewConstMetric(float64(cntStat.MemLimit), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netInput.mustNewConstMetric(float64(cntStat.NetInput), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netInputDropped.mustNewConstMetric(float64(cntStat.NetInputDropped), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netInputErrors.mustNewConstMetric(float64(cntStat.NetInputErrors), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netInputPackets.mustNewConstMetric(float64(cntStat.NetInputPackets), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netOutput.mustNewConstMetric(float64(cntStat.NetOutput), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netOutputDropped.mustNewConstMetric(float64(cntStat.NetOutputDropped), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netOutputErrors.mustNewConstMetric(float64(cntStat.NetOutputErrors), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.netOutputPackets.mustNewConstMetric(float64(cntStat.NetOutputPackets), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.blockInput.mustNewConstMetric(float64(cntStat.BlockInput), rep.ID, rep.PodID, rep.PodName)
+
 		ch <- c.blockOutput.mustNewConstMetric(float64(cntStat.BlockOutput), rep.ID, rep.PodID, rep.PodName)
 	}
 }

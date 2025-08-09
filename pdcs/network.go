@@ -44,8 +44,8 @@ func Networks() ([]Network, error) {
 }
 
 func (n listPrintReports) labels() string {
-	list := make([]string, 0, len(n.Network.Labels))
-	for k, v := range n.Network.Labels {
+	list := make([]string, 0, len(n.Labels))
+	for k, v := range n.Labels {
 		list = append(list, k+"="+v)
 	}
 

@@ -80,11 +80,11 @@ type conReporter struct {
 }
 
 func (con conReporter) ports() string {
-	if len(con.ListContainer.Ports) < 1 {
+	if len(con.Ports) < 1 {
 		return ""
 	}
 
-	return portsToString(con.ListContainer.Ports)
+	return portsToString(con.Ports)
 }
 
 func (con conReporter) state() int {

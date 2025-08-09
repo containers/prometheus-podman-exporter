@@ -42,7 +42,7 @@ func preRun(cmd *cobra.Command, _ []string) error {
 	}
 
 	if printVersion {
-		fmt.Println(cmd.Use, version.Info())
+		fmt.Println(cmd.Use, version.Info()) //nolint:forbidigo
 		os.Exit(1)
 	}
 
@@ -50,7 +50,8 @@ func preRun(cmd *cobra.Command, _ []string) error {
 }
 
 func run(cmd *cobra.Command, args []string) {
-	if err := exporter.Start(cmd, args); err != nil {
+	err := exporter.Start(cmd, args)
+	if err != nil {
 		log.Print(err.Error())
 		os.Exit(1)
 	}
@@ -58,7 +59,8 @@ func run(cmd *cobra.Command, args []string) {
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	if err != nil {
 		log.Print(err.Error())
 		os.Exit(1)
 	}

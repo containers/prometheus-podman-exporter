@@ -81,12 +81,14 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 
 		if enhanceAllMetrics {
 			ch <- c.size.mustNewConstMetric(float64(rep.Size), imageLabelsInfo.labelsValue...)
+
 			ch <- c.created.mustNewConstMetric(float64(rep.Created), imageLabelsInfo.labelsValue...)
 
 			continue
 		}
 
 		ch <- c.size.mustNewConstMetric(float64(rep.Size), rep.ID, rep.Repository, rep.Tag)
+
 		ch <- c.created.mustNewConstMetric(float64(rep.Created), rep.ID, rep.Repository, rep.Tag)
 	}
 
