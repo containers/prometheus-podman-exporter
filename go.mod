@@ -3,7 +3,7 @@ module github.com/containers/prometheus-podman-exporter
 go 1.23.3
 
 require (
-	github.com/containers/common v0.63.1
+	github.com/containers/common v0.64.1
 	github.com/containers/image/v5 v5.36.1
 	github.com/containers/podman/v5 v5.5.2
 	github.com/onsi/ginkgo/v2 v2.23.4
@@ -39,7 +39,7 @@ require (
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/containerd/typeurl/v2 v2.2.3 // indirect
 	github.com/containernetworking/cni v1.3.0 // indirect
-	github.com/containernetworking/plugins v1.6.2 // indirect
+	github.com/containernetworking/plugins v1.7.1 // indirect
 	github.com/containers/buildah v1.40.1 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
@@ -114,12 +114,12 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f // indirect
 	github.com/nxadm/tail v1.4.11 // indirect
-	github.com/opencontainers/cgroups v0.0.1 // indirect
+	github.com/opencontainers/cgroups v0.0.4 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/opencontainers/runc v1.2.6 // indirect
+	github.com/opencontainers/runc v1.3.0 // indirect
 	github.com/opencontainers/runtime-spec v1.2.1 // indirect
-	github.com/opencontainers/runtime-tools v0.9.1-0.20250303011046-260e151b8552 // indirect
+	github.com/opencontainers/runtime-tools v0.9.1-0.20250523060157-0ea5ed0382a2 // indirect
 	github.com/opencontainers/selinux v1.12.0 // indirect
 	github.com/openshift/imagebuilder v1.2.16-0.20250224193648-e87e4e105fd8 // indirect
 	github.com/pkg/sftp v1.13.9 // indirect
@@ -129,7 +129,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/seccomp/libseccomp-golang v0.10.0 // indirect
+	github.com/seccomp/libseccomp-golang v0.11.0 // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.9.0 // indirect
 	github.com/sigstore/fulcio v1.6.6 // indirect
 	github.com/sigstore/protobuf-specs v0.4.1 // indirect
@@ -139,13 +139,12 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6 // indirect
 	github.com/sylabs/sif/v2 v2.21.1 // indirect
-	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635 // indirect
 	github.com/tchap/go-patricia/v2 v2.3.3 // indirect
 	github.com/titanous/rocacheck v0.0.0-20171023193734-afe73141d399 // indirect
 	github.com/ulikunitz/xz v0.5.12 // indirect
 	github.com/vbatts/tar-split v0.12.1 // indirect
 	github.com/vbauerster/mpb/v8 v8.10.2 // indirect
-	github.com/vishvananda/netlink v1.3.1-0.20250221194427-0af32151e72b // indirect
+	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	go.etcd.io/bbolt v1.4.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -155,6 +154,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
@@ -173,7 +173,7 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	sigs.k8s.io/yaml v1.5.0 // indirect
 	tags.cncf.io/container-device-interface v1.0.1 // indirect
 	tags.cncf.io/container-device-interface/specs-go v1.0.0 // indirect
 )
