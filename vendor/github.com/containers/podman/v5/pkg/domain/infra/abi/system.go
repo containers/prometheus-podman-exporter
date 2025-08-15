@@ -15,11 +15,11 @@ import (
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/domain/entities/reports"
+	"github.com/containers/podman/v5/pkg/emulation"
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/directory"
 	"github.com/containers/storage/pkg/fileutils"
-	"github.com/sirupsen/logrus"
 )
 
 func (ic *ContainerEngine) Info(ctx context.Context) (*define.Info, error) {
@@ -27,6 +27,9 @@ func (ic *ContainerEngine) Info(ctx context.Context) (*define.Info, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	info.Host.EmulatedArchitectures = emulation.Registered()
+
 	info.Host.RemoteSocket = &define.RemoteSocket{Path: ic.Libpod.RemoteURI()}
 
 	// `podman system connection add` invokes podman via ssh to fill in connection string. Here
@@ -305,12 +308,6 @@ func (ic *ContainerEngine) Renumber(ctx context.Context) error {
 
 func (ic *ContainerEngine) Migrate(ctx context.Context, options entities.SystemMigrateOptions) error {
 	return ic.Libpod.Migrate(options.NewRuntime)
-}
-
-func (se SystemEngine) Shutdown(ctx context.Context) {
-	if err := se.Libpod.Shutdown(false); err != nil {
-		logrus.Error(err)
-	}
 }
 
 func unshareEnv(graphroot, runroot string) []string {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -46,15 +47,28 @@ const (
 	// manifest, suitable for specifying as a value of the
 	// PreferredManifestType member of a CommitOptions structure.
 	Dockerv2ImageManifest = define.Dockerv2ImageManifest
+	// containerExcludesDir is the subdirectory of the container data
+	// directory where we drop exclusions
+	containerExcludesDir = "commit-excludes"
+	// containerPulledUpDir is the subdirectory of the container
+	// data directory where we drop exclusions when we're not squashing
+	containerPulledUpDir = "commit-pulled-up"
+	// containerExcludesSubstring is the suffix of files under
+	// $cdir/containerExcludesDir and $cdir/containerPulledUpDir which
+	// should be ignored, as they only exist because we use CreateTemp() to
+	// create uniquely-named files, but we don't want to try to use their
+	// contents until after they've been written to
+	containerExcludesSubstring = ".tmp"
 )
 
 // ExtractRootfsOptions is consumed by ExtractRootfs() which allows users to
 // control whether various information like the like setuid and setgid bits and
 // xattrs are preserved when extracting file system objects.
 type ExtractRootfsOptions struct {
-	StripSetuidBit bool // strip the setuid bit off of items being extracted.
-	StripSetgidBit bool // strip the setgid bit off of items being extracted.
-	StripXattrs    bool // don't record extended attributes of items being extracted.
+	StripSetuidBit bool       // strip the setuid bit off of items being extracted.
+	StripSetgidBit bool       // strip the setgid bit off of items being extracted.
+	StripXattrs    bool       // don't record extended attributes of items being extracted.
+	ForceTimestamp *time.Time // force timestamps in output content
 }
 
 type containerImageRef struct {
@@ -71,6 +85,8 @@ type containerImageRef struct {
 	dconfig               []byte
 	created               *time.Time
 	createdBy             string
+	layerModTime          *time.Time
+	layerLatestModTime    *time.Time
 	historyComment        string
 	annotations           map[string]string
 	preferredManifestType string
@@ -78,6 +94,7 @@ type containerImageRef struct {
 	confidentialWorkload  ConfidentialWorkloadOptions
 	omitHistory           bool
 	emptyLayer            bool
+	omitLayerHistoryEntry bool
 	idMappingOptions      *define.IDMappingOptions
 	parent                string
 	blobDirectory         string
@@ -89,6 +106,12 @@ type containerImageRef struct {
 	overrideConfig        *manifest.Schema2Config
 	extraImageContent     map[string]string
 	compatSetParent       types.OptionalBool
+	layerExclusions       []copier.ConditionalRemovePath
+	layerMountTargets     []copier.ConditionalRemovePath
+	layerPullUps          []copier.EnsureParentPath
+	unsetAnnotations      []string
+	setAnnotations        []string
+	createdAnnotation     types.OptionalBool
 }
 
 type blobLayerInfo struct {
@@ -146,36 +169,6 @@ func expectedDockerDiffIDs(image docker.V2Image) int {
 		}
 	}
 	return expected
-}
-
-// Compute the media types which we need to attach to a layer, given the type of
-// compression that we'll be applying.
-func computeLayerMIMEType(what string, layerCompression archive.Compression) (omediaType, dmediaType string, err error) {
-	omediaType = v1.MediaTypeImageLayer
-	dmediaType = docker.V2S2MediaTypeUncompressedLayer
-	if layerCompression != archive.Uncompressed {
-		switch layerCompression {
-		case archive.Gzip:
-			omediaType = v1.MediaTypeImageLayerGzip
-			dmediaType = manifest.DockerV2Schema2LayerMediaType
-			logrus.Debugf("compressing %s with gzip", what)
-		case archive.Bzip2:
-			// Until the image specs define a media type for bzip2-compressed layers, even if we know
-			// how to decompress them, we can't try to compress layers with bzip2.
-			return "", "", errors.New("media type for bzip2-compressed layers is not defined")
-		case archive.Xz:
-			// Until the image specs define a media type for xz-compressed layers, even if we know
-			// how to decompress them, we can't try to compress layers with xz.
-			return "", "", errors.New("media type for xz-compressed layers is not defined")
-		case archive.Zstd:
-			// Until the image specs define a media type for zstd-compressed layers, even if we know
-			// how to decompress them, we can't try to compress layers with zstd.
-			return "", "", errors.New("media type for zstd-compressed layers is not defined")
-		default:
-			logrus.Debugf("compressing %s with unknown compressor(?)", what)
-		}
-	}
-	return omediaType, dmediaType, nil
 }
 
 // Extract the container's whole filesystem as a filesystem image, wrapped
@@ -254,15 +247,16 @@ func (i *containerImageRef) extractRootfs(opts ExtractRootfsOptions) (io.ReadClo
 	pipeReader, pipeWriter := io.Pipe()
 	errChan := make(chan error, 1)
 	go func() {
+		defer pipeWriter.Close()
 		defer close(errChan)
 		if len(i.extraImageContent) > 0 {
 			// Abuse the tar format and _prepend_ the synthesized
 			// data items to the archive we'll get from
 			// copier.Get(), in a way that looks right to a reader
 			// as long as we DON'T Close() the tar Writer.
-			filename, _, _, err := i.makeExtraImageContentDiff(false)
+			filename, _, _, err := i.makeExtraImageContentDiff(false, opts.ForceTimestamp)
 			if err != nil {
-				errChan <- err
+				errChan <- fmt.Errorf("creating part of archive with extra content: %w", err)
 				return
 			}
 			file, err := os.Open(filename)
@@ -272,7 +266,7 @@ func (i *containerImageRef) extractRootfs(opts ExtractRootfsOptions) (io.ReadClo
 			}
 			defer file.Close()
 			if _, err = io.Copy(pipeWriter, file); err != nil {
-				errChan <- err
+				errChan <- fmt.Errorf("writing contents of %q: %w", filename, err)
 				return
 			}
 		}
@@ -285,10 +279,10 @@ func (i *containerImageRef) extractRootfs(opts ExtractRootfsOptions) (io.ReadClo
 			StripSetuidBit: opts.StripSetuidBit,
 			StripSetgidBit: opts.StripSetgidBit,
 			StripXattrs:    opts.StripXattrs,
+			Timestamp:      opts.ForceTimestamp,
 		}
 		err := copier.Get(mountPoint, mountPoint, copierOptions, []string{"."}, pipeWriter)
 		errChan <- err
-		pipeWriter.Close()
 	}()
 	return ioutils.NewReadCloserWrapper(pipeReader, func() error {
 		if err = pipeReader.Close(); err != nil {
@@ -304,34 +298,41 @@ func (i *containerImageRef) extractRootfs(opts ExtractRootfsOptions) (io.ReadClo
 	}), errChan, nil
 }
 
+type manifestBuilder interface {
+	// addLayer adds notes to the manifest and config about the layer.  The layer blobs are
+	// identified by their possibly-compressed blob digests and sizes in the manifest, and by
+	// their uncompressed digests (diffIDs) in the config.
+	addLayer(layerBlobSum digest.Digest, layerBlobSize int64, diffID digest.Digest)
+	computeLayerMIMEType(what string, layerCompression archive.Compression) error
+	buildHistory(extraImageContentDiff string, extraImageContentDiffDigest digest.Digest) error
+	manifestAndConfig() ([]byte, []byte, error)
+}
+
+type dockerSchema2ManifestBuilder struct {
+	i              *containerImageRef
+	layerMediaType string
+	dimage         docker.V2Image
+	dmanifest      docker.V2S2Manifest
+}
+
 // Build fresh copies of the container configuration structures so that we can edit them
-// without making unintended changes to the original Builder.
-func (i *containerImageRef) createConfigsAndManifests() (v1.Image, v1.Manifest, docker.V2Image, docker.V2S2Manifest, error) {
+// without making unintended changes to the original Builder (Docker schema 2).
+func (i *containerImageRef) newDockerSchema2ManifestBuilder() (manifestBuilder, error) {
 	created := time.Now().UTC()
 	if i.created != nil {
 		created = *i.created
 	}
 
 	// Build an empty image, and then decode over it.
-	oimage := v1.Image{}
-	if err := json.Unmarshal(i.oconfig, &oimage); err != nil {
-		return v1.Image{}, v1.Manifest{}, docker.V2Image{}, docker.V2S2Manifest{}, err
-	}
-	// Always replace this value, since we're newer than our base image.
-	oimage.Created = &created
-	// Clear the list of diffIDs, since we always repopulate it.
-	oimage.RootFS.Type = docker.TypeLayers
-	oimage.RootFS.DiffIDs = []digest.Digest{}
-	// Only clear the history if we're squashing, otherwise leave it be so that we can append
-	// entries to it.
-	if i.confidentialWorkload.Convert || i.squash || i.omitHistory {
-		oimage.History = []v1.History{}
-	}
-
-	// Build an empty image, and then decode over it.
 	dimage := docker.V2Image{}
 	if err := json.Unmarshal(i.dconfig, &dimage); err != nil {
-		return v1.Image{}, v1.Manifest{}, docker.V2Image{}, docker.V2S2Manifest{}, err
+		return nil, err
+	}
+	// Suppress the hostname and domainname if we're running with the
+	// equivalent of either --timestamp or --source-date-epoch.
+	if i.created != nil {
+		dimage.Config.Hostname = "sandbox"
+		dimage.Config.Domainname = ""
 	}
 	// Set the parent, but only if we want to be compatible with "classic" docker build.
 	if i.compatSetParent == types.OptionalBoolTrue {
@@ -339,6 +340,9 @@ func (i *containerImageRef) createConfigsAndManifests() (v1.Image, v1.Manifest, 
 	}
 	// Set the container ID and containerConfig in the docker format.
 	dimage.Container = i.containerID
+	if i.created != nil {
+		dimage.Container = ""
+	}
 	if dimage.Config != nil {
 		dimage.ContainerConfig = *dimage.Config
 	}
@@ -358,64 +362,497 @@ func (i *containerImageRef) createConfigsAndManifests() (v1.Image, v1.Manifest, 
 
 	// If we were supplied with a configuration, copy fields from it to
 	// matching fields in both formats.
-	if err := config.Override(dimage.Config, &oimage.Config, i.overrideChanges, i.overrideConfig); err != nil {
-		return v1.Image{}, v1.Manifest{}, docker.V2Image{}, docker.V2S2Manifest{}, fmt.Errorf("applying changes: %w", err)
+	if err := config.OverrideDocker(dimage.Config, i.overrideChanges, i.overrideConfig); err != nil {
+		return nil, fmt.Errorf("applying changes: %w", err)
 	}
 
 	// If we're producing a confidential workload, override the command and
 	// assorted other settings that aren't expected to work correctly.
 	if i.confidentialWorkload.Convert {
 		dimage.Config.Entrypoint = []string{"/entrypoint"}
-		oimage.Config.Entrypoint = []string{"/entrypoint"}
 		dimage.Config.Cmd = nil
-		oimage.Config.Cmd = nil
 		dimage.Config.User = ""
-		oimage.Config.User = ""
 		dimage.Config.WorkingDir = ""
-		oimage.Config.WorkingDir = ""
 		dimage.Config.Healthcheck = nil
 		dimage.Config.Shell = nil
 		dimage.Config.Volumes = nil
-		oimage.Config.Volumes = nil
 		dimage.Config.ExposedPorts = nil
+	}
+
+	// Return partial manifest.  The Layers lists will be populated later.
+	return &dockerSchema2ManifestBuilder{
+		i:              i,
+		layerMediaType: docker.V2S2MediaTypeUncompressedLayer,
+		dimage:         dimage,
+		dmanifest: docker.V2S2Manifest{
+			V2Versioned: docker.V2Versioned{
+				SchemaVersion: 2,
+				MediaType:     manifest.DockerV2Schema2MediaType,
+			},
+			Config: docker.V2S2Descriptor{
+				MediaType: manifest.DockerV2Schema2ConfigMediaType,
+			},
+			Layers: []docker.V2S2Descriptor{},
+		},
+	}, nil
+}
+
+func (mb *dockerSchema2ManifestBuilder) addLayer(layerBlobSum digest.Digest, layerBlobSize int64, diffID digest.Digest) {
+	dlayerDescriptor := docker.V2S2Descriptor{
+		MediaType: mb.layerMediaType,
+		Digest:    layerBlobSum,
+		Size:      layerBlobSize,
+	}
+	mb.dmanifest.Layers = append(mb.dmanifest.Layers, dlayerDescriptor)
+	// Note this layer in the list of diffIDs, again using the uncompressed digest.
+	mb.dimage.RootFS.DiffIDs = append(mb.dimage.RootFS.DiffIDs, diffID)
+}
+
+// Compute the media types which we need to attach to a layer, given the type of
+// compression that we'll be applying.
+func (mb *dockerSchema2ManifestBuilder) computeLayerMIMEType(what string, layerCompression archive.Compression) error {
+	dmediaType := docker.V2S2MediaTypeUncompressedLayer
+	if layerCompression != archive.Uncompressed {
+		switch layerCompression {
+		case archive.Gzip:
+			dmediaType = manifest.DockerV2Schema2LayerMediaType
+			logrus.Debugf("compressing %s with gzip", what)
+		case archive.Bzip2:
+			// Until the image specs define a media type for bzip2-compressed layers, even if we know
+			// how to decompress them, we can't try to compress layers with bzip2.
+			return errors.New("media type for bzip2-compressed layers is not defined")
+		case archive.Xz:
+			// Until the image specs define a media type for xz-compressed layers, even if we know
+			// how to decompress them, we can't try to compress layers with xz.
+			return errors.New("media type for xz-compressed layers is not defined")
+		case archive.Zstd:
+			// Until the image specs define a media type for zstd-compressed layers, even if we know
+			// how to decompress them, we can't try to compress layers with zstd.
+			return errors.New("media type for zstd-compressed layers is not defined")
+		default:
+			logrus.Debugf("compressing %s with unknown compressor(?)", what)
+		}
+	}
+	mb.layerMediaType = dmediaType
+	return nil
+}
+
+func (mb *dockerSchema2ManifestBuilder) buildHistory(extraImageContentDiff string, extraImageContentDiffDigest digest.Digest) error {
+	// Build history notes in the image configuration.
+	appendHistory := func(history []v1.History, empty bool) {
+		for i := range history {
+			var created time.Time
+			if history[i].Created != nil {
+				created = *history[i].Created
+			}
+			dnews := docker.V2S2History{
+				Created:    created,
+				CreatedBy:  history[i].CreatedBy,
+				Author:     history[i].Author,
+				Comment:    history[i].Comment,
+				EmptyLayer: empty,
+			}
+			mb.dimage.History = append(mb.dimage.History, dnews)
+		}
+	}
+
+	// Keep track of how many entries the base image's history had
+	// before we started adding to it.
+	baseImageHistoryLen := len(mb.dimage.History)
+
+	// Add history entries for prepended empty layers.
+	appendHistory(mb.i.preEmptyLayers, true)
+	// Add history entries for prepended API-supplied layers.
+	for _, h := range mb.i.preLayers {
+		appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
+	}
+	// Add a history entry for this layer, empty or not.
+	created := time.Now().UTC()
+	if mb.i.created != nil {
+		created = (*mb.i.created).UTC()
+	}
+	if !mb.i.omitLayerHistoryEntry {
+		dnews := docker.V2S2History{
+			Created:    created,
+			CreatedBy:  mb.i.createdBy,
+			Author:     mb.dimage.Author,
+			EmptyLayer: mb.i.emptyLayer,
+			Comment:    mb.i.historyComment,
+		}
+		mb.dimage.History = append(mb.dimage.History, dnews)
+	}
+	// Add a history entry for the extra image content if we added a layer for it.
+	// This diff was added to the list of layers before API-supplied layers that
+	// needed to be appended, and we need to keep the order of history entries for
+	// not-empty layers consistent with that.
+	if extraImageContentDiff != "" {
+		createdBy := fmt.Sprintf(`/bin/sh -c #(nop) ADD dir:%s in /",`, extraImageContentDiffDigest.Encoded())
+		dnews := docker.V2S2History{
+			Created:   created,
+			CreatedBy: createdBy,
+		}
+		mb.dimage.History = append(mb.dimage.History, dnews)
+	}
+	// Add history entries for appended empty layers.
+	appendHistory(mb.i.postEmptyLayers, true)
+	// Add history entries for appended API-supplied layers.
+	for _, h := range mb.i.postLayers {
+		appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
+	}
+
+	// Assemble a comment indicating which base image was used, if it
+	// wasn't just an image ID, and add it to the first history entry we
+	// added, if we indeed added one.
+	if len(mb.dimage.History) > baseImageHistoryLen {
+		var fromComment string
+		if strings.Contains(mb.i.parent, mb.i.fromImageID) && mb.i.fromImageName != "" && !strings.HasPrefix(mb.i.fromImageID, mb.i.fromImageName) {
+			if mb.dimage.History[baseImageHistoryLen].Comment != "" {
+				fromComment = " "
+			}
+			fromComment += "FROM " + mb.i.fromImageName
+		}
+		mb.dimage.History[baseImageHistoryLen].Comment += fromComment
+	}
+
+	// Confidence check that we didn't just create a mismatch between non-empty layers in the
+	// history and the number of diffIDs.  Only applicable if the base image (if there was
+	// one) provided us at least one entry to use as a starting point.
+	if baseImageHistoryLen != 0 {
+		expectedDiffIDs := expectedDockerDiffIDs(mb.dimage)
+		if len(mb.dimage.RootFS.DiffIDs) != expectedDiffIDs {
+			return fmt.Errorf("internal error: history lists %d non-empty layers, but we have %d layers on disk", expectedDiffIDs, len(mb.dimage.RootFS.DiffIDs))
+		}
+	}
+	return nil
+}
+
+func (mb *dockerSchema2ManifestBuilder) manifestAndConfig() ([]byte, []byte, error) {
+	// Encode the image configuration blob.
+	dconfig, err := json.Marshal(&mb.dimage)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding %#v as json: %w", mb.dimage, err)
+	}
+	logrus.Debugf("Docker v2s2 config = %s", dconfig)
+
+	// Add the configuration blob to the manifest.
+	mb.dmanifest.Config.Digest = digest.Canonical.FromBytes(dconfig)
+	mb.dmanifest.Config.Size = int64(len(dconfig))
+	mb.dmanifest.Config.MediaType = manifest.DockerV2Schema2ConfigMediaType
+
+	// Encode the manifest.
+	dmanifestbytes, err := json.Marshal(&mb.dmanifest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding %#v as json: %w", mb.dmanifest, err)
+	}
+	logrus.Debugf("Docker v2s2 manifest = %s", dmanifestbytes)
+
+	return dmanifestbytes, dconfig, nil
+}
+
+type ociManifestBuilder struct {
+	i              *containerImageRef
+	layerMediaType string
+	oimage         v1.Image
+	omanifest      v1.Manifest
+}
+
+// Build fresh copies of the container configuration structures so that we can edit them
+// without making unintended changes to the original Builder (OCI manifest).
+func (i *containerImageRef) newOCIManifestBuilder() (manifestBuilder, error) {
+	created := time.Now().UTC()
+	if i.created != nil {
+		created = *i.created
+	}
+
+	// Build an empty image, and then decode over it.
+	oimage := v1.Image{}
+	if err := json.Unmarshal(i.oconfig, &oimage); err != nil {
+		return nil, err
+	}
+	// Always replace this value, since we're newer than our base image.
+	oimage.Created = &created
+	// Clear the list of diffIDs, since we always repopulate it.
+	oimage.RootFS.Type = docker.TypeLayers
+	oimage.RootFS.DiffIDs = []digest.Digest{}
+	// Only clear the history if we're squashing, otherwise leave it be so that we can append
+	// entries to it.
+	if i.confidentialWorkload.Convert || i.squash || i.omitHistory {
+		oimage.History = []v1.History{}
+	}
+
+	// If we were supplied with a configuration, copy fields from it to
+	// matching fields in both formats.
+	if err := config.OverrideOCI(&oimage.Config, i.overrideChanges, i.overrideConfig); err != nil {
+		return nil, fmt.Errorf("applying changes: %w", err)
+	}
+
+	// If we're producing a confidential workload, override the command and
+	// assorted other settings that aren't expected to work correctly.
+	if i.confidentialWorkload.Convert {
+		oimage.Config.Entrypoint = []string{"/entrypoint"}
+		oimage.Config.Cmd = nil
+		oimage.Config.User = ""
+		oimage.Config.WorkingDir = ""
+		oimage.Config.Volumes = nil
 		oimage.Config.ExposedPorts = nil
 	}
 
-	// Build empty manifests.  The Layers lists will be populated later.
-	omanifest := v1.Manifest{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2,
-		},
-		MediaType: v1.MediaTypeImageManifest,
-		Config: v1.Descriptor{
-			MediaType: v1.MediaTypeImageConfig,
-		},
-		Layers:      []v1.Descriptor{},
-		Annotations: i.annotations,
+	// Return partial manifest.  The Layers lists will be populated later.
+	annotations := make(map[string]string)
+	maps.Copy(annotations, i.annotations)
+	switch i.createdAnnotation {
+	case types.OptionalBoolFalse:
+		delete(annotations, v1.AnnotationCreated)
+	default:
+		fallthrough
+	case types.OptionalBoolTrue, types.OptionalBoolUndefined:
+		annotations[v1.AnnotationCreated] = created.UTC().Format(time.RFC3339Nano)
 	}
-
-	dmanifest := docker.V2S2Manifest{
-		V2Versioned: docker.V2Versioned{
-			SchemaVersion: 2,
-			MediaType:     manifest.DockerV2Schema2MediaType,
-		},
-		Config: docker.V2S2Descriptor{
-			MediaType: manifest.DockerV2Schema2ConfigMediaType,
-		},
-		Layers: []docker.V2S2Descriptor{},
+	for _, k := range i.unsetAnnotations {
+		delete(annotations, k)
 	}
-
-	return oimage, omanifest, dimage, dmanifest, nil
+	for _, kv := range i.setAnnotations {
+		k, v, _ := strings.Cut(kv, "=")
+		annotations[k] = v
+	}
+	return &ociManifestBuilder{
+		i: i,
+		// The default layer media type assumes no compression.
+		layerMediaType: v1.MediaTypeImageLayer,
+		oimage:         oimage,
+		omanifest: v1.Manifest{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2,
+			},
+			MediaType: v1.MediaTypeImageManifest,
+			Config: v1.Descriptor{
+				MediaType: v1.MediaTypeImageConfig,
+			},
+			Layers:      []v1.Descriptor{},
+			Annotations: annotations,
+		},
+	}, nil
 }
 
-func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemContext) (src types.ImageSource, err error) {
-	// Decide which type of manifest and configuration output we're going to provide.
-	manifestType := i.preferredManifestType
-	// If it's not a format we support, return an error.
-	if manifestType != v1.MediaTypeImageManifest && manifestType != manifest.DockerV2Schema2MediaType {
-		return nil, fmt.Errorf("no supported manifest types (attempted to use %q, only know %q and %q)",
-			manifestType, v1.MediaTypeImageManifest, manifest.DockerV2Schema2MediaType)
+func (mb *ociManifestBuilder) addLayer(layerBlobSum digest.Digest, layerBlobSize int64, diffID digest.Digest) {
+	olayerDescriptor := v1.Descriptor{
+		MediaType: mb.layerMediaType,
+		Digest:    layerBlobSum,
+		Size:      layerBlobSize,
 	}
+	mb.omanifest.Layers = append(mb.omanifest.Layers, olayerDescriptor)
+	// Note this layer in the list of diffIDs, again using the uncompressed digest.
+	mb.oimage.RootFS.DiffIDs = append(mb.oimage.RootFS.DiffIDs, diffID)
+}
+
+// Compute the media types which we need to attach to a layer, given the type of
+// compression that we'll be applying.
+func (mb *ociManifestBuilder) computeLayerMIMEType(what string, layerCompression archive.Compression) error {
+	omediaType := v1.MediaTypeImageLayer
+	if layerCompression != archive.Uncompressed {
+		switch layerCompression {
+		case archive.Gzip:
+			omediaType = v1.MediaTypeImageLayerGzip
+			logrus.Debugf("compressing %s with gzip", what)
+		case archive.Bzip2:
+			// Until the image specs define a media type for bzip2-compressed layers, even if we know
+			// how to decompress them, we can't try to compress layers with bzip2.
+			return errors.New("media type for bzip2-compressed layers is not defined")
+		case archive.Xz:
+			// Until the image specs define a media type for xz-compressed layers, even if we know
+			// how to decompress them, we can't try to compress layers with xz.
+			return errors.New("media type for xz-compressed layers is not defined")
+		case archive.Zstd:
+			omediaType = v1.MediaTypeImageLayerZstd
+			logrus.Debugf("compressing %s with zstd", what)
+		default:
+			logrus.Debugf("compressing %s with unknown compressor(?)", what)
+		}
+	}
+	mb.layerMediaType = omediaType
+	return nil
+}
+
+func (mb *ociManifestBuilder) buildHistory(extraImageContentDiff string, extraImageContentDiffDigest digest.Digest) error {
+	// Build history notes in the image configuration.
+	appendHistory := func(history []v1.History, empty bool) {
+		for i := range history {
+			var created *time.Time
+			if history[i].Created != nil {
+				copiedTimestamp := *history[i].Created
+				created = &copiedTimestamp
+			}
+			onews := v1.History{
+				Created:    created,
+				CreatedBy:  history[i].CreatedBy,
+				Author:     history[i].Author,
+				Comment:    history[i].Comment,
+				EmptyLayer: empty,
+			}
+			mb.oimage.History = append(mb.oimage.History, onews)
+		}
+	}
+
+	// Keep track of how many entries the base image's history had
+	// before we started adding to it.
+	baseImageHistoryLen := len(mb.oimage.History)
+
+	// Add history entries for prepended empty layers.
+	appendHistory(mb.i.preEmptyLayers, true)
+	// Add history entries for prepended API-supplied layers.
+	for _, h := range mb.i.preLayers {
+		appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
+	}
+	// Add a history entry for this layer, empty or not.
+	created := time.Now().UTC()
+	if mb.i.created != nil {
+		created = (*mb.i.created).UTC()
+	}
+	if !mb.i.omitLayerHistoryEntry {
+		onews := v1.History{
+			Created:    &created,
+			CreatedBy:  mb.i.createdBy,
+			Author:     mb.oimage.Author,
+			EmptyLayer: mb.i.emptyLayer,
+			Comment:    mb.i.historyComment,
+		}
+		mb.oimage.History = append(mb.oimage.History, onews)
+	}
+	// Add a history entry for the extra image content if we added a layer for it.
+	// This diff was added to the list of layers before API-supplied layers that
+	// needed to be appended, and we need to keep the order of history entries for
+	// not-empty layers consistent with that.
+	if extraImageContentDiff != "" {
+		createdBy := fmt.Sprintf(`/bin/sh -c #(nop) ADD dir:%s in /",`, extraImageContentDiffDigest.Encoded())
+		onews := v1.History{
+			Created:   &created,
+			CreatedBy: createdBy,
+		}
+		mb.oimage.History = append(mb.oimage.History, onews)
+	}
+	// Add history entries for appended empty layers.
+	appendHistory(mb.i.postEmptyLayers, true)
+	// Add history entries for appended API-supplied layers.
+	for _, h := range mb.i.postLayers {
+		appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
+	}
+
+	// Assemble a comment indicating which base image was used, if it
+	// wasn't just an image ID, and add it to the first history entry we
+	// added, if we indeed added one.
+	if len(mb.oimage.History) > baseImageHistoryLen {
+		var fromComment string
+		if strings.Contains(mb.i.parent, mb.i.fromImageID) && mb.i.fromImageName != "" && !strings.HasPrefix(mb.i.fromImageID, mb.i.fromImageName) {
+			if mb.oimage.History[baseImageHistoryLen].Comment != "" {
+				fromComment = " "
+			}
+			fromComment += "FROM " + mb.i.fromImageName
+		}
+		mb.oimage.History[baseImageHistoryLen].Comment += fromComment
+	}
+
+	// Confidence check that we didn't just create a mismatch between non-empty layers in the
+	// history and the number of diffIDs.  Only applicable if the base image (if there was
+	// one) provided us at least one entry to use as a starting point.
+	if baseImageHistoryLen != 0 {
+		expectedDiffIDs := expectedOCIDiffIDs(mb.oimage)
+		if len(mb.oimage.RootFS.DiffIDs) != expectedDiffIDs {
+			return fmt.Errorf("internal error: history lists %d non-empty layers, but we have %d layers on disk", expectedDiffIDs, len(mb.oimage.RootFS.DiffIDs))
+		}
+	}
+	return nil
+}
+
+func (mb *ociManifestBuilder) manifestAndConfig() ([]byte, []byte, error) {
+	// Encode the image configuration blob.
+	oconfig, err := json.Marshal(&mb.oimage)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding %#v as json: %w", mb.oimage, err)
+	}
+	logrus.Debugf("OCIv1 config = %s", oconfig)
+
+	// Add the configuration blob to the manifest.
+	mb.omanifest.Config.Digest = digest.Canonical.FromBytes(oconfig)
+	mb.omanifest.Config.Size = int64(len(oconfig))
+	mb.omanifest.Config.MediaType = v1.MediaTypeImageConfig
+
+	// Encode the manifest.
+	omanifestbytes, err := json.Marshal(&mb.omanifest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding %#v as json: %w", mb.omanifest, err)
+	}
+	logrus.Debugf("OCIv1 manifest = %s", omanifestbytes)
+
+	return omanifestbytes, oconfig, nil
+}
+
+// filterExclusionsByImage returns a slice of the members of "exclusions" which are present in the image with the specified ID
+func (i containerImageRef) filterExclusionsByImage(ctx context.Context, exclusions []copier.EnsureParentPath, imageID string) ([]copier.EnsureParentPath, error) {
+	if len(exclusions) == 0 || imageID == "" {
+		return nil, nil
+	}
+	var paths []copier.EnsureParentPath
+	mountPoint, err := i.store.MountImage(imageID, nil, i.mountLabel)
+	cleanup := func() {
+		if _, err := i.store.UnmountImage(imageID, false); err != nil {
+			logrus.Debugf("unmounting image %q: %v", imageID, err)
+		}
+	}
+	if err != nil && errors.Is(err, storage.ErrLayerUnknown) {
+		// if an imagestore is being used, this could be expected
+		if b, err2 := NewBuilder(ctx, i.store, BuilderOptions{
+			FromImage:       imageID,
+			PullPolicy:      define.PullNever,
+			ContainerSuffix: "tmp",
+		}); err2 == nil {
+			mountPoint, err = b.Mount(i.mountLabel)
+			cleanup = func() {
+				cid := b.ContainerID
+				if err := b.Delete(); err != nil {
+					logrus.Debugf("unmounting image %q as container %q: %v", imageID, cid, err)
+				}
+			}
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mounting image %q to examine its contents: %w", imageID, err)
+	}
+	defer cleanup()
+	globs := make([]string, 0, len(exclusions))
+	for _, exclusion := range exclusions {
+		globs = append(globs, exclusion.Path)
+	}
+	options := copier.StatOptions{}
+	stats, err := copier.Stat(mountPoint, mountPoint, options, globs)
+	if err != nil {
+		return nil, fmt.Errorf("checking for potential exclusion items in image %q: %w", imageID, err)
+	}
+	for _, stat := range stats {
+		for _, exclusion := range exclusions {
+			if stat.Glob != exclusion.Path {
+				continue
+			}
+			for result, stat := range stat.Results {
+				if result != exclusion.Path {
+					continue
+				}
+				if exclusion.ModTime != nil && !exclusion.ModTime.Equal(stat.ModTime) {
+					continue
+				}
+				if exclusion.Mode != nil && *exclusion.Mode != stat.Mode {
+					continue
+				}
+				if exclusion.Owner != nil && (int64(exclusion.Owner.UID) != stat.UID && int64(exclusion.Owner.GID) != stat.GID) {
+					continue
+				}
+				paths = append(paths, exclusion)
+			}
+		}
+	}
+	return paths, nil
+}
+
+func (i *containerImageRef) NewImageSource(ctx context.Context, _ *types.SystemContext) (src types.ImageSource, err error) {
 	// These maps will let us check if a layer ID is part of one group or another.
 	parentLayerIDs := make(map[string]bool)
 	apiLayerIDs := make(map[string]bool)
@@ -492,9 +929,21 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 
 	// Build fresh copies of the configurations and manifest so that we don't mess with any
 	// values in the Builder object itself.
-	oimage, omanifest, dimage, dmanifest, err := i.createConfigsAndManifests()
-	if err != nil {
-		return nil, err
+	var mb manifestBuilder
+	switch i.preferredManifestType {
+	case v1.MediaTypeImageManifest:
+		mb, err = i.newOCIManifestBuilder()
+		if err != nil {
+			return nil, err
+		}
+	case manifest.DockerV2Schema2MediaType:
+		mb, err = i.newDockerSchema2ManifestBuilder()
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("no supported manifest types (attempted to use %q, only know %q and %q)",
+			i.preferredManifestType, v1.MediaTypeImageManifest, manifest.DockerV2Schema2MediaType)
 	}
 
 	// Extract each layer and compute its digests, both compressed (if requested) and uncompressed.
@@ -512,9 +961,6 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		if apiLayerIDs[layerID] {
 			what = layerID
 		}
-		// The default layer media type assumes no compression.
-		omediaType := v1.MediaTypeImageLayer
-		dmediaType := docker.V2S2MediaTypeUncompressedLayer
 		// Look up this layer.
 		var layerUncompressedDigest digest.Digest
 		var layerUncompressedSize int64
@@ -526,7 +972,7 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 			layerUncompressedSize = apiLayers[apiLayerIndex].size
 		} else if layerID == synthesizedLayerID {
 			// layer diff consisting of extra files to synthesize into a layer
-			diffFilename, digest, size, err := i.makeExtraImageContentDiff(true)
+			diffFilename, digest, size, err := i.makeExtraImageContentDiff(true, nil)
 			if err != nil {
 				return nil, fmt.Errorf("unable to generate layer for additional content: %w", err)
 			}
@@ -552,21 +998,7 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 			layerBlobSize := layerUncompressedSize
 			diffID := layerUncompressedDigest
 			// Note this layer in the manifest, using the appropriate blobsum.
-			olayerDescriptor := v1.Descriptor{
-				MediaType: omediaType,
-				Digest:    layerBlobSum,
-				Size:      layerBlobSize,
-			}
-			omanifest.Layers = append(omanifest.Layers, olayerDescriptor)
-			dlayerDescriptor := docker.V2S2Descriptor{
-				MediaType: dmediaType,
-				Digest:    layerBlobSum,
-				Size:      layerBlobSize,
-			}
-			dmanifest.Layers = append(dmanifest.Layers, dlayerDescriptor)
-			// Note this layer in the list of diffIDs, again using the uncompressed digest.
-			oimage.RootFS.DiffIDs = append(oimage.RootFS.DiffIDs, diffID)
-			dimage.RootFS.DiffIDs = append(dimage.RootFS.DiffIDs, diffID)
+			mb.addLayer(layerBlobSum, layerBlobSize, diffID)
 			blobLayers[diffID] = blobLayerInfo{
 				ID:   layerID,
 				Size: layerBlobSize,
@@ -574,8 +1006,7 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 			continue
 		}
 		// Figure out if we need to change the media type, in case we've changed the compression.
-		omediaType, dmediaType, err = computeLayerMIMEType(what, i.compression)
-		if err != nil {
+		if err := mb.computeLayerMIMEType(what, i.compression); err != nil {
 			return nil, err
 		}
 		// Start reading either the layer or the whole container rootfs.
@@ -585,6 +1016,7 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		}
 		var rc io.ReadCloser
 		var errChan chan error
+		var layerExclusions []copier.ConditionalRemovePath
 		if i.confidentialWorkload.Convert {
 			// Convert the root filesystem into an encrypted disk image.
 			rc, err = i.extractConfidentialWorkloadFS(i.confidentialWorkload)
@@ -617,6 +1049,18 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 				if i.emptyLayer && layerID == i.layerID {
 					continue
 				}
+				if layerID == i.layerID {
+					// We need to filter out any mount targets that we created.
+					layerExclusions = append(slices.Clone(i.layerExclusions), i.layerMountTargets...)
+					// And we _might_ need to filter out directories that modified
+					// by creating and removing mount targets, _if_ they were the
+					// same in the base image for this stage.
+					layerPullUps, err := i.filterExclusionsByImage(ctx, i.layerPullUps, i.fromImageID)
+					if err != nil {
+						return nil, fmt.Errorf("checking which exclusions are in base image %q: %w", i.fromImageID, err)
+					}
+					layerExclusions = append(layerExclusions, layerPullUps...)
+				}
 				// Extract this layer, one of possibly many.
 				rc, err = i.store.Diff("", layerID, diffOptions)
 				if err != nil {
@@ -635,8 +1079,12 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		counter := ioutils.NewWriteCounter(layerFile)
 		var destHasher digest.Digester
 		var multiWriter io.Writer
-		// Avoid rehashing when we do not compress.
-		if i.compression != archive.Uncompressed {
+		// Avoid rehashing when we compress or mess with the layer contents somehow.
+		// At this point, there are multiple ways that can happen.
+		diffBeingAltered := i.compression != archive.Uncompressed
+		diffBeingAltered = diffBeingAltered || i.layerModTime != nil || i.layerLatestModTime != nil
+		diffBeingAltered = diffBeingAltered || len(layerExclusions) != 0
+		if diffBeingAltered {
 			destHasher = digest.Canonical.Digester()
 			multiWriter = io.MultiWriter(counter, destHasher.Hash())
 		} else {
@@ -651,47 +1099,29 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 			return nil, fmt.Errorf("compressing %s: %w", what, err)
 		}
 		writer := io.MultiWriter(writeCloser, srcHasher.Hash())
-		{
-			// Tweak the contents of layers we're creating.
-			nestedWriteCloser := ioutils.NewWriteCloserWrapper(writer, writeCloser.Close)
-			writeCloser = newTarFilterer(nestedWriteCloser, func(hdr *tar.Header) (bool, bool, io.Reader) {
-				// Scrub any local user names that might correspond to UIDs or GIDs of
-				// files in this layer.
-				hdr.Uname, hdr.Gname = "", ""
-				// Use specified timestamps in the layer, if we're doing that for history
-				// entries.
-				if i.created != nil {
-					// Changing a zeroed field to a non-zero field can affect the
-					// format that the library uses for writing the header, so only
-					// change fields that are already set to avoid changing the
-					// format (and as a result, changing the length) of the header
-					// that we write.
-					if !hdr.ModTime.IsZero() {
-						hdr.ModTime = *i.created
-					}
-					if !hdr.AccessTime.IsZero() {
-						hdr.AccessTime = *i.created
-					}
-					if !hdr.ChangeTime.IsZero() {
-						hdr.ChangeTime = *i.created
-					}
-					return false, false, nil
-				}
-				return false, false, nil
-			})
-			writer = io.Writer(writeCloser)
-		}
+
+		// Use specified timestamps in the layer, if we're doing that for history
+		// entries.
+		nestedWriteCloser := ioutils.NewWriteCloserWrapper(writer, writeCloser.Close)
+		writeCloser = makeFilteredLayerWriteCloser(nestedWriteCloser, i.layerModTime, i.layerLatestModTime, layerExclusions)
+		writer = writeCloser
 		// Okay, copy from the raw diff through the filter, compressor, and counter and
 		// digesters.
 		size, err := io.Copy(writer, rc)
+		if err != nil {
+			writeCloser.Close()
+			layerFile.Close()
+			rc.Close()
+			return nil, fmt.Errorf("storing %s to file: on copy: %w", what, err)
+		}
 		if err := writeCloser.Close(); err != nil {
 			layerFile.Close()
 			rc.Close()
-			return nil, fmt.Errorf("storing %s to file: %w on pipe close", what, err)
+			return nil, fmt.Errorf("storing %s to file: on pipe close: %w", what, err)
 		}
 		if err := layerFile.Close(); err != nil {
 			rc.Close()
-			return nil, fmt.Errorf("storing %s to file: %w on file close", what, err)
+			return nil, fmt.Errorf("storing %s to file: on file close: %w", what, err)
 		}
 		rc.Close()
 
@@ -705,12 +1135,12 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		if err != nil {
 			return nil, fmt.Errorf("storing %s to file: %w", what, err)
 		}
-		if i.compression == archive.Uncompressed {
+		if diffBeingAltered {
+			size = counter.Count
+		} else {
 			if size != counter.Count {
 				return nil, fmt.Errorf("storing %s to file: inconsistent layer size (copied %d, wrote %d)", what, size, counter.Count)
 			}
-		} else {
-			size = counter.Count
 		}
 		logrus.Debugf("%s size is %d bytes, uncompressed digest %s, possibly-compressed digest %s", what, size, srcHasher.Digest().String(), destHasher.Digest().String())
 		// Rename the layer so that we can more easily find it by digest later.
@@ -718,189 +1148,19 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		if err = os.Rename(filepath.Join(path, "layer"), finalBlobName); err != nil {
 			return nil, fmt.Errorf("storing %s to file while renaming %q to %q: %w", what, filepath.Join(path, "layer"), finalBlobName, err)
 		}
-		// Add a note in the manifest about the layer.  The blobs are identified by their possibly-
-		// compressed blob digests.
-		olayerDescriptor := v1.Descriptor{
-			MediaType: omediaType,
-			Digest:    destHasher.Digest(),
-			Size:      size,
-		}
-		omanifest.Layers = append(omanifest.Layers, olayerDescriptor)
-		dlayerDescriptor := docker.V2S2Descriptor{
-			MediaType: dmediaType,
-			Digest:    destHasher.Digest(),
-			Size:      size,
-		}
-		dmanifest.Layers = append(dmanifest.Layers, dlayerDescriptor)
-		// Add a note about the diffID, which is always the layer's uncompressed digest.
-		oimage.RootFS.DiffIDs = append(oimage.RootFS.DiffIDs, srcHasher.Digest())
-		dimage.RootFS.DiffIDs = append(dimage.RootFS.DiffIDs, srcHasher.Digest())
-	}
-
-	// Build history notes in the image configurations.
-	appendHistory := func(history []v1.History, empty bool) {
-		for i := range history {
-			var created *time.Time
-			if history[i].Created != nil {
-				copiedTimestamp := *history[i].Created
-				created = &copiedTimestamp
-			}
-			onews := v1.History{
-				Created:    created,
-				CreatedBy:  history[i].CreatedBy,
-				Author:     history[i].Author,
-				Comment:    history[i].Comment,
-				EmptyLayer: empty,
-			}
-			oimage.History = append(oimage.History, onews)
-			if created == nil {
-				created = &time.Time{}
-			}
-			dnews := docker.V2S2History{
-				Created:    *created,
-				CreatedBy:  history[i].CreatedBy,
-				Author:     history[i].Author,
-				Comment:    history[i].Comment,
-				EmptyLayer: empty,
-			}
-			dimage.History = append(dimage.History, dnews)
-		}
+		mb.addLayer(destHasher.Digest(), size, srcHasher.Digest())
 	}
 
 	// Only attempt to append history if history was not disabled explicitly.
 	if !i.omitHistory {
-		// Keep track of how many entries the base image's history had
-		// before we started adding to it.
-		baseImageHistoryLen := len(oimage.History)
-
-		// Add history entries for prepended empty layers.
-		appendHistory(i.preEmptyLayers, true)
-		// Add history entries for prepended API-supplied layers.
-		for _, h := range i.preLayers {
-			appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
-		}
-		// Add a history entry for this layer, empty or not.
-		created := time.Now().UTC()
-		if i.created != nil {
-			created = (*i.created).UTC()
-		}
-		onews := v1.History{
-			Created:    &created,
-			CreatedBy:  i.createdBy,
-			Author:     oimage.Author,
-			EmptyLayer: i.emptyLayer,
-			Comment:    i.historyComment,
-		}
-		oimage.History = append(oimage.History, onews)
-		dnews := docker.V2S2History{
-			Created:    created,
-			CreatedBy:  i.createdBy,
-			Author:     dimage.Author,
-			EmptyLayer: i.emptyLayer,
-			Comment:    i.historyComment,
-		}
-		dimage.History = append(dimage.History, dnews)
-		// Add a history entry for the extra image content if we added a layer for it.
-		// This diff was added to the list of layers before API-supplied layers that
-		// needed to be appended, and we need to keep the order of history entries for
-		// not-empty layers consistent with that.
-		if extraImageContentDiff != "" {
-			createdBy := fmt.Sprintf(`/bin/sh -c #(nop) ADD dir:%s in /",`, extraImageContentDiffDigest.Encoded())
-			onews := v1.History{
-				Created:   &created,
-				CreatedBy: createdBy,
-			}
-			oimage.History = append(oimage.History, onews)
-			dnews := docker.V2S2History{
-				Created:   created,
-				CreatedBy: createdBy,
-			}
-			dimage.History = append(dimage.History, dnews)
-		}
-		// Add history entries for appended empty layers.
-		appendHistory(i.postEmptyLayers, true)
-		// Add history entries for appended API-supplied layers.
-		for _, h := range i.postLayers {
-			appendHistory([]v1.History{h.linkedLayer.History}, h.linkedLayer.History.EmptyLayer)
-		}
-
-		// Assemble a comment indicating which base image was used, if it wasn't
-		// just an image ID, and add it to the first history entry we added.
-		var fromComment string
-		if strings.Contains(i.parent, i.fromImageID) && i.fromImageName != "" && !strings.HasPrefix(i.fromImageID, i.fromImageName) {
-			if oimage.History[baseImageHistoryLen].Comment != "" {
-				fromComment = " "
-			}
-			fromComment += "FROM " + i.fromImageName
-		}
-		oimage.History[baseImageHistoryLen].Comment += fromComment
-		dimage.History[baseImageHistoryLen].Comment += fromComment
-
-		// Confidence check that we didn't just create a mismatch between non-empty layers in the
-		// history and the number of diffIDs.  Only applicable if the base image (if there was
-		// one) provided us at least one entry to use as a starting point.
-		if baseImageHistoryLen != 0 {
-			expectedDiffIDs := expectedOCIDiffIDs(oimage)
-			if len(oimage.RootFS.DiffIDs) != expectedDiffIDs {
-				return nil, fmt.Errorf("internal error: history lists %d non-empty layers, but we have %d layers on disk", expectedDiffIDs, len(oimage.RootFS.DiffIDs))
-			}
-			expectedDiffIDs = expectedDockerDiffIDs(dimage)
-			if len(dimage.RootFS.DiffIDs) != expectedDiffIDs {
-				return nil, fmt.Errorf("internal error: history lists %d non-empty layers, but we have %d layers on disk", expectedDiffIDs, len(dimage.RootFS.DiffIDs))
-			}
+		if err := mb.buildHistory(extraImageContentDiff, extraImageContentDiffDigest); err != nil {
+			return nil, err
 		}
 	}
 
-	// Encode the image configuration blob.
-	oconfig, err := json.Marshal(&oimage)
+	imageManifest, config, err := mb.manifestAndConfig()
 	if err != nil {
-		return nil, fmt.Errorf("encoding %#v as json: %w", oimage, err)
-	}
-	logrus.Debugf("OCIv1 config = %s", oconfig)
-
-	// Add the configuration blob to the manifest.
-	omanifest.Config.Digest = digest.Canonical.FromBytes(oconfig)
-	omanifest.Config.Size = int64(len(oconfig))
-	omanifest.Config.MediaType = v1.MediaTypeImageConfig
-
-	// Encode the manifest.
-	omanifestbytes, err := json.Marshal(&omanifest)
-	if err != nil {
-		return nil, fmt.Errorf("encoding %#v as json: %w", omanifest, err)
-	}
-	logrus.Debugf("OCIv1 manifest = %s", omanifestbytes)
-
-	// Encode the image configuration blob.
-	dconfig, err := json.Marshal(&dimage)
-	if err != nil {
-		return nil, fmt.Errorf("encoding %#v as json: %w", dimage, err)
-	}
-	logrus.Debugf("Docker v2s2 config = %s", dconfig)
-
-	// Add the configuration blob to the manifest.
-	dmanifest.Config.Digest = digest.Canonical.FromBytes(dconfig)
-	dmanifest.Config.Size = int64(len(dconfig))
-	dmanifest.Config.MediaType = manifest.DockerV2Schema2ConfigMediaType
-
-	// Encode the manifest.
-	dmanifestbytes, err := json.Marshal(&dmanifest)
-	if err != nil {
-		return nil, fmt.Errorf("encoding %#v as json: %w", dmanifest, err)
-	}
-	logrus.Debugf("Docker v2s2 manifest = %s", dmanifestbytes)
-
-	// Decide which manifest and configuration blobs we'll actually output.
-	var config []byte
-	var imageManifest []byte
-	switch manifestType {
-	case v1.MediaTypeImageManifest:
-		imageManifest = omanifestbytes
-		config = oconfig
-	case manifest.DockerV2Schema2MediaType:
-		imageManifest = dmanifestbytes
-		config = dconfig
-	default:
-		panic("unreachable code: unsupported manifest type")
+		return nil, err
 	}
 	src = &containerImageSource{
 		path:          path,
@@ -914,7 +1174,7 @@ func (i *containerImageRef) NewImageSource(_ context.Context, _ *types.SystemCon
 		config:        config,
 		configDigest:  digest.Canonical.FromBytes(config),
 		manifest:      imageManifest,
-		manifestType:  manifestType,
+		manifestType:  i.preferredManifestType,
 		blobDirectory: i.blobDirectory,
 		blobLayers:    blobLayers,
 	}
@@ -1038,7 +1298,7 @@ func (i *containerImageSource) GetBlob(_ context.Context, blob types.BlobInfo, _
 // makeExtraImageContentDiff creates an archive file containing the contents of
 // files named in i.extraImageContent.  The footer that marks the end of the
 // archive may be omitted.
-func (i *containerImageRef) makeExtraImageContentDiff(includeFooter bool) (_ string, _ digest.Digest, _ int64, retErr error) {
+func (i *containerImageRef) makeExtraImageContentDiff(includeFooter bool, timestamp *time.Time) (_ string, _ digest.Digest, _ int64, retErr error) {
 	cdir, err := i.store.ContainerDirectory(i.containerID)
 	if err != nil {
 		return "", "", -1, err
@@ -1056,9 +1316,12 @@ func (i *containerImageRef) makeExtraImageContentDiff(includeFooter bool) (_ str
 	digester := digest.Canonical.Digester()
 	counter := ioutils.NewWriteCounter(digester.Hash())
 	tw := tar.NewWriter(io.MultiWriter(diff, counter))
-	created := time.Now()
-	if i.created != nil {
-		created = *i.created
+	if timestamp == nil {
+		now := time.Now()
+		timestamp = &now
+		if i.created != nil {
+			timestamp = i.created
+		}
 	}
 	for path, contents := range i.extraImageContent {
 		if err := func() error {
@@ -1075,32 +1338,91 @@ func (i *containerImageRef) makeExtraImageContentDiff(includeFooter bool) (_ str
 				Name:     path,
 				Typeflag: tar.TypeReg,
 				Mode:     0o644,
-				ModTime:  created,
+				ModTime:  *timestamp,
 				Size:     st.Size(),
 			}); err != nil {
-				return err
+				return fmt.Errorf("writing header for %q: %w", path, err)
 			}
 			if _, err := io.Copy(tw, content); err != nil {
-				return err
+				return fmt.Errorf("writing content for %q: %w", path, err)
 			}
 			if err := tw.Flush(); err != nil {
-				return err
+				return fmt.Errorf("flushing content for %q: %w", path, err)
 			}
 			return nil
 		}(); err != nil {
-			return "", "", -1, err
+			return "", "", -1, fmt.Errorf("writing %q to prepend-to-archive blob: %w", contents, err)
 		}
 	}
-	if !includeFooter {
-		return diff.Name(), "", -1, nil
+	if includeFooter {
+		if err = tw.Close(); err != nil {
+			return "", "", -1, fmt.Errorf("closingprepend-to-archive blob after final write: %w", err)
+		}
+	} else {
+		if err = tw.Flush(); err != nil {
+			return "", "", -1, fmt.Errorf("flushing prepend-to-archive blob after final write: %w", err)
+		}
 	}
-	tw.Close()
 	return diff.Name(), digester.Digest(), counter.Count, nil
+}
+
+// makeFilteredLayerWriteCloser returns either the passed-in WriteCloser, or if
+// layerModeTime or layerLatestModTime are set, a WriteCloser which modifies
+// the tarball that's written to it so that timestamps in headers are set to
+// layerModTime exactly (if a value is provided for it), and then clamped to be
+// no later than layerLatestModTime (if a value is provided for it).
+// This implies that if both values are provided, the archive's timestamps will
+// be set to the earlier of the two values.
+func makeFilteredLayerWriteCloser(wc io.WriteCloser, layerModTime, layerLatestModTime *time.Time, exclusions []copier.ConditionalRemovePath) io.WriteCloser {
+	if layerModTime == nil && layerLatestModTime == nil && len(exclusions) == 0 {
+		return wc
+	}
+	exclusionsMap := make(map[string]copier.ConditionalRemovePath)
+	for _, exclusionSpec := range exclusions {
+		pathSpec := strings.Trim(path.Clean(exclusionSpec.Path), "/")
+		if pathSpec == "" {
+			continue
+		}
+		exclusionsMap[pathSpec] = exclusionSpec
+	}
+	wc = newTarFilterer(wc, func(hdr *tar.Header) (skip, replaceContents bool, replacementContents io.Reader) {
+		// Changing a zeroed field to a non-zero field can affect the
+		// format that the library uses for writing the header, so only
+		// change fields that are already set to avoid changing the
+		// format (and as a result, changing the length) of the header
+		// that we write.
+		modTime := hdr.ModTime
+		nameSpec := strings.Trim(path.Clean(hdr.Name), "/")
+		if conditions, ok := exclusionsMap[nameSpec]; ok {
+			if (conditions.ModTime == nil || conditions.ModTime.Equal(modTime)) &&
+				(conditions.Owner == nil || (conditions.Owner.UID == hdr.Uid && conditions.Owner.GID == hdr.Gid)) &&
+				(conditions.Mode == nil || (*conditions.Mode&os.ModePerm == os.FileMode(hdr.Mode)&os.ModePerm)) {
+				return true, false, nil
+			}
+		}
+		if layerModTime != nil {
+			modTime = *layerModTime
+		}
+		if layerLatestModTime != nil && layerLatestModTime.Before(modTime) {
+			modTime = *layerLatestModTime
+		}
+		if !hdr.ModTime.IsZero() {
+			hdr.ModTime = modTime
+		}
+		if !hdr.AccessTime.IsZero() {
+			hdr.AccessTime = modTime
+		}
+		if !hdr.ChangeTime.IsZero() {
+			hdr.ChangeTime = modTime
+		}
+		return false, false, nil
+	})
+	return wc
 }
 
 // makeLinkedLayerInfos calculates the size and digest information for a layer
 // we intend to add to the image that we're committing.
-func (b *Builder) makeLinkedLayerInfos(layers []LinkedLayer, layerType string) ([]commitLinkedLayerInfo, error) {
+func (b *Builder) makeLinkedLayerInfos(layers []LinkedLayer, layerType string, layerModTime, layerLatestModTime *time.Time) ([]commitLinkedLayerInfo, error) {
 	if layers == nil {
 		return nil, nil
 	}
@@ -1124,48 +1446,50 @@ func (b *Builder) makeLinkedLayerInfos(layers []LinkedLayer, layerType string) (
 			linkedLayer: layer,
 		}
 		if err = func() error {
+			cdir, err := b.store.ContainerDirectory(b.ContainerID)
+			if err != nil {
+				return fmt.Errorf("determining directory for working container: %w", err)
+			}
+			f, err := os.CreateTemp(cdir, "")
+			if err != nil {
+				return fmt.Errorf("creating temporary file to hold blob for %q: %w", info.linkedLayer.BlobPath, err)
+			}
+			defer f.Close()
+			var rc io.ReadCloser
+			var what string
 			if st.IsDir() {
 				// if it's a directory, archive it and digest the archive while we're storing a copy somewhere
-				cdir, err := b.store.ContainerDirectory(b.ContainerID)
-				if err != nil {
-					return fmt.Errorf("determining directory for working container: %w", err)
-				}
-				f, err := os.CreateTemp(cdir, "")
-				if err != nil {
-					return fmt.Errorf("creating temporary file to hold blob for %q: %w", info.linkedLayer.BlobPath, err)
-				}
-				defer f.Close()
-				rc, err := chrootarchive.Tar(info.linkedLayer.BlobPath, nil, info.linkedLayer.BlobPath)
+				what = "directory"
+				rc, err = chrootarchive.Tar(info.linkedLayer.BlobPath, nil, info.linkedLayer.BlobPath)
 				if err != nil {
 					return fmt.Errorf("generating a layer blob from %q: %w", info.linkedLayer.BlobPath, err)
 				}
-				digester := digest.Canonical.Digester()
-				sizeCounter := ioutils.NewWriteCounter(digester.Hash())
-				_, copyErr := io.Copy(f, io.TeeReader(rc, sizeCounter))
-				if err := rc.Close(); err != nil {
-					return fmt.Errorf("storing a copy of %q: %w", info.linkedLayer.BlobPath, err)
-				}
-				if copyErr != nil {
-					return fmt.Errorf("storing a copy of %q: %w", info.linkedLayer.BlobPath, copyErr)
-				}
-				info.uncompressedDigest = digester.Digest()
-				info.size = sizeCounter.Count
-				info.linkedLayer.BlobPath = f.Name()
 			} else {
-				// if it's not a directory, just digest it
-				f, err := os.Open(info.linkedLayer.BlobPath)
+				what = "file"
+				// if it's not a directory, just digest it while we're storing a copy somewhere
+				rc, err = os.Open(info.linkedLayer.BlobPath)
 				if err != nil {
 					return err
 				}
-				defer f.Close()
-				sizeCounter := ioutils.NewWriteCounter(io.Discard)
-				uncompressedDigest, err := digest.Canonical.FromReader(io.TeeReader(f, sizeCounter))
-				if err != nil {
-					return err
-				}
-				info.uncompressedDigest = uncompressedDigest
-				info.size = sizeCounter.Count
 			}
+
+			digester := digest.Canonical.Digester()
+			sizeCountedFile := ioutils.NewWriteCounter(io.MultiWriter(digester.Hash(), f))
+			wc := makeFilteredLayerWriteCloser(ioutils.NopWriteCloser(sizeCountedFile), layerModTime, layerLatestModTime, nil)
+			_, copyErr := io.Copy(wc, rc)
+			wcErr := wc.Close()
+			if err := rc.Close(); err != nil {
+				return fmt.Errorf("storing a copy of %s %q: closing reader: %w", what, info.linkedLayer.BlobPath, err)
+			}
+			if copyErr != nil {
+				return fmt.Errorf("storing a copy of %s %q: copying data: %w", what, info.linkedLayer.BlobPath, copyErr)
+			}
+			if wcErr != nil {
+				return fmt.Errorf("storing a copy of %s %q: closing writer: %w", what, info.linkedLayer.BlobPath, wcErr)
+			}
+			info.uncompressedDigest = digester.Digest()
+			info.size = sizeCountedFile.Count
+			info.linkedLayer.BlobPath = f.Name()
 			return nil
 		}(); err != nil {
 			return nil, err
@@ -1194,6 +1518,60 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 			name = parsed
 		}
 	}
+
+	cdir, err := b.store.ContainerDirectory(b.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("getting the per-container data directory for %q: %w", b.ContainerID, err)
+	}
+
+	gatherExclusions := func(excludesFiles []string) ([]copier.ConditionalRemovePath, error) {
+		var excludes []copier.ConditionalRemovePath
+		for _, excludesFile := range excludesFiles {
+			if strings.Contains(excludesFile, containerExcludesSubstring) {
+				continue
+			}
+			excludesData, err := os.ReadFile(excludesFile)
+			if err != nil {
+				return nil, fmt.Errorf("reading commit exclusions for %q: %w", b.ContainerID, err)
+			}
+			var theseExcludes []copier.ConditionalRemovePath
+			if err := json.Unmarshal(excludesData, &theseExcludes); err != nil {
+				return nil, fmt.Errorf("parsing commit exclusions for %q: %w", b.ContainerID, err)
+			}
+			excludes = append(excludes, theseExcludes...)
+		}
+		return excludes, nil
+	}
+	mountTargetFiles, err := filepath.Glob(filepath.Join(cdir, containerExcludesDir, "*"))
+	if err != nil {
+		return nil, fmt.Errorf("checking for commit exclusions for %q: %w", b.ContainerID, err)
+	}
+	pulledUpFiles, err := filepath.Glob(filepath.Join(cdir, containerPulledUpDir, "*"))
+	if err != nil {
+		return nil, fmt.Errorf("checking for commit pulled-up items for %q: %w", b.ContainerID, err)
+	}
+	layerMountTargets, err := gatherExclusions(mountTargetFiles)
+	if err != nil {
+		return nil, err
+	}
+	if len(layerMountTargets) > 0 {
+		logrus.Debugf("these items were created for use as mount targets: %#v", layerMountTargets)
+	}
+	layerPullUps, err := gatherExclusions(pulledUpFiles)
+	if err != nil {
+		return nil, err
+	}
+	if len(layerPullUps) > 0 {
+		logrus.Debugf("these items appear to have been pulled up: %#v", layerPullUps)
+	}
+	var layerExclusions []copier.ConditionalRemovePath
+	if options.CompatLayerOmissions == types.OptionalBoolTrue {
+		layerExclusions = slices.Clone(compatLayerExclusions)
+	}
+	if len(layerExclusions) > 0 {
+		logrus.Debugf("excluding these items from committed layer: %#v", layerExclusions)
+	}
+
 	manifestType := options.PreferredManifestType
 	if manifestType == "" {
 		manifestType = define.OCIv1ImageManifest
@@ -1210,10 +1588,18 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 	if err != nil {
 		return nil, fmt.Errorf("encoding docker-format image configuration %#v: %w", b.Docker, err)
 	}
-	var created *time.Time
+	var created, layerModTime, layerLatestModTime *time.Time
 	if options.HistoryTimestamp != nil {
 		historyTimestampUTC := options.HistoryTimestamp.UTC()
 		created = &historyTimestampUTC
+		layerModTime = &historyTimestampUTC
+	}
+	if options.SourceDateEpoch != nil {
+		sourceDateEpochUTC := options.SourceDateEpoch.UTC()
+		created = &sourceDateEpochUTC
+		if options.RewriteTimestamp {
+			layerLatestModTime = &sourceDateEpochUTC
+		}
 	}
 	createdBy := b.CreatedBy()
 	if createdBy == "" {
@@ -1241,11 +1627,11 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 		}
 	}
 
-	preLayerInfos, err := b.makeLinkedLayerInfos(append(slices.Clone(b.PrependedLinkedLayers), slices.Clone(options.PrependedLinkedLayers)...), "prepended layer")
+	preLayerInfos, err := b.makeLinkedLayerInfos(append(slices.Clone(b.PrependedLinkedLayers), slices.Clone(options.PrependedLinkedLayers)...), "prepended layer", layerModTime, layerLatestModTime)
 	if err != nil {
 		return nil, err
 	}
-	postLayerInfos, err := b.makeLinkedLayerInfos(append(slices.Clone(options.AppendedLinkedLayers), slices.Clone(b.AppendedLinkedLayers)...), "appended layer")
+	postLayerInfos, err := b.makeLinkedLayerInfos(append(slices.Clone(options.AppendedLinkedLayers), slices.Clone(b.AppendedLinkedLayers)...), "appended layer", layerModTime, layerLatestModTime)
 	if err != nil {
 		return nil, err
 	}
@@ -1264,13 +1650,18 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 		dconfig:               dconfig,
 		created:               created,
 		createdBy:             createdBy,
+		layerModTime:          layerModTime,
+		layerLatestModTime:    layerLatestModTime,
 		historyComment:        b.HistoryComment(),
 		annotations:           b.Annotations(),
+		setAnnotations:        slices.Clone(options.Annotations),
+		unsetAnnotations:      slices.Clone(options.UnsetAnnotations),
 		preferredManifestType: manifestType,
 		squash:                options.Squash,
 		confidentialWorkload:  options.ConfidentialWorkloadOptions,
 		omitHistory:           options.OmitHistory || forceOmitHistory,
-		emptyLayer:            options.EmptyLayer && !options.Squash && !options.ConfidentialWorkloadOptions.Convert,
+		emptyLayer:            (options.EmptyLayer || options.OmitLayerHistoryEntry) && !options.Squash && !options.ConfidentialWorkloadOptions.Convert,
+		omitLayerHistoryEntry: options.OmitLayerHistoryEntry && !options.Squash && !options.ConfidentialWorkloadOptions.Convert,
 		idMappingOptions:      &b.IDMappingOptions,
 		parent:                parent,
 		blobDirectory:         options.BlobDirectory,
@@ -1282,6 +1673,10 @@ func (b *Builder) makeContainerImageRef(options CommitOptions) (*containerImageR
 		overrideConfig:        options.OverrideConfig,
 		extraImageContent:     maps.Clone(options.ExtraImageContent),
 		compatSetParent:       options.CompatSetParent,
+		layerExclusions:       layerExclusions,
+		layerMountTargets:     layerMountTargets,
+		layerPullUps:          layerPullUps,
+		createdAnnotation:     options.CreatedAnnotation,
 	}
 	if ref.created != nil {
 		for i := range ref.preEmptyLayers {

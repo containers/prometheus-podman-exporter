@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 
 	buildahDefine "github.com/containers/buildah/define"
 	"github.com/containers/buildah/imagebuildah"
@@ -15,7 +13,6 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
-	"github.com/containers/podman/v5/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,9 +20,10 @@ import (
 
 // RemoveContainersForImageCallback returns a callback that can be used in
 // `libimage`.  When forcefully removing images, containers using the image
-// should be removed as well.  The callback allows for more graceful removal as
-// we can use the libpod-internal removal logic.
-func (r *Runtime) RemoveContainersForImageCallback(ctx context.Context) libimage.RemoveContainerFunc {
+// should be removed as well unless the request comes from the Docker compat API.
+// The callback allows for more graceful removal as we can use the libpod-internal
+// removal logic.
+func (r *Runtime) RemoveContainersForImageCallback(ctx context.Context, force bool) libimage.RemoveContainerFunc {
 	return func(imageID string) error {
 		if !r.valid {
 			return define.ErrRuntimeStopped
@@ -44,12 +42,12 @@ func (r *Runtime) RemoveContainersForImageCallback(ctx context.Context) libimage
 				if err != nil {
 					return fmt.Errorf("container %s is in pod %s, but pod cannot be retrieved: %w", ctr.ID(), ctr.config.Pod, err)
 				}
-				if _, err := r.removePod(ctx, pod, true, true, timeout); err != nil {
+				if _, err := r.removePod(ctx, pod, true, force, timeout); err != nil {
 					return fmt.Errorf("removing image %s: container %s using image could not be removed: %w", imageID, ctr.ID(), err)
 				}
 			} else {
 				opts := ctrRmOpts{
-					Force:   true,
+					Force:   force,
 					Timeout: timeout,
 				}
 				if _, _, err := r.removeContainer(ctx, ctr, opts); err != nil {
@@ -128,23 +126,4 @@ func (r *Runtime) Build(ctx context.Context, options buildahDefine.BuildOptions,
 	// Write event for build completion
 	r.newImageBuildCompleteEvent(id)
 	return id, ref, err
-}
-
-// DownloadFromFile reads all of the content from the reader and temporarily
-// saves in it $TMPDIR/importxyz, which is deleted after the image is imported
-func DownloadFromFile(reader *os.File) (string, error) {
-	outFile, err := os.CreateTemp(util.Tmpdir(), "import")
-	if err != nil {
-		return "", fmt.Errorf("creating file: %w", err)
-	}
-	defer outFile.Close()
-
-	logrus.Debugf("saving %s to %s", reader.Name(), outFile.Name())
-
-	_, err = io.Copy(outFile, reader)
-	if err != nil {
-		return "", fmt.Errorf("saving %s to %s: %w", reader.Name(), outFile.Name(), err)
-	}
-
-	return outFile.Name(), nil
 }

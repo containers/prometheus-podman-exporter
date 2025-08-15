@@ -4,6 +4,8 @@ package abi
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -66,7 +68,7 @@ func (ir *ImageEngine) ArtifactPull(ctx context.Context, name string, opts entit
 	if opts.RetryDelay != "" {
 		duration, err := time.ParseDuration(opts.RetryDelay)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to parse value provided %q: %w", opts.RetryDelay, err)
 		}
 		pullOptions.RetryDelay = &duration
 	}
@@ -78,7 +80,14 @@ func (ir *ImageEngine) ArtifactPull(ctx context.Context, name string, opts entit
 	if err != nil {
 		return nil, err
 	}
-	return nil, artStore.Pull(ctx, name, *pullOptions)
+	artifactDigest, err := artStore.Pull(ctx, name, *pullOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	return &entities.ArtifactPullReport{
+		ArtifactDigest: &artifactDigest,
+	}, nil
 }
 
 func (ir *ImageEngine) ArtifactRm(ctx context.Context, name string, opts entities.ArtifactRemoveOptions) (*entities.ArtifactRemoveReport, error) {
@@ -178,24 +187,30 @@ func (ir *ImageEngine) ArtifactPush(ctx context.Context, name string, opts entit
 		IdentityToken:                    "",
 		Writer:                           opts.Writer,
 	}
+	artifactDigest, err := artStore.Push(ctx, name, name, copyOpts)
+	if err != nil {
+		return nil, err
+	}
 
-	err = artStore.Push(ctx, name, name, copyOpts)
-	return &entities.ArtifactPushReport{}, err
+	return &entities.ArtifactPushReport{
+		ArtifactDigest: &artifactDigest,
+	}, nil
 }
-func (ir *ImageEngine) ArtifactAdd(ctx context.Context, name string, paths []string, opts *entities.ArtifactAddOptions) (*entities.ArtifactAddReport, error) {
+
+func (ir *ImageEngine) ArtifactAdd(ctx context.Context, name string, artifactBlobs []entities.ArtifactBlob, opts entities.ArtifactAddOptions) (*entities.ArtifactAddReport, error) {
 	artStore, err := ir.Libpod.ArtifactStore()
 	if err != nil {
 		return nil, err
 	}
 
 	addOptions := types.AddOptions{
-		Annotations:  opts.Annotations,
-		ArtifactType: opts.ArtifactType,
-		Append:       opts.Append,
-		FileType:     opts.FileType,
+		Annotations:      opts.Annotations,
+		ArtifactMIMEType: opts.ArtifactMIMEType,
+		Append:           opts.Append,
+		FileMIMEType:     opts.FileMIMEType,
 	}
 
-	artifactDigest, err := artStore.Add(ctx, name, paths, &addOptions)
+	artifactDigest, err := artStore.Add(ctx, name, artifactBlobs, &addOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -204,17 +219,33 @@ func (ir *ImageEngine) ArtifactAdd(ctx context.Context, name string, paths []str
 	}, nil
 }
 
-func (ir *ImageEngine) ArtifactExtract(ctx context.Context, name string, target string, opts *entities.ArtifactExtractOptions) error {
+func (ir *ImageEngine) ArtifactExtract(ctx context.Context, name string, target string, opts entities.ArtifactExtractOptions) error {
 	artStore, err := ir.Libpod.ArtifactStore()
 	if err != nil {
 		return err
 	}
-	extractOpt := &types.ExtractOptions{
+	extractOpt := types.ExtractOptions{
 		FilterBlobOptions: types.FilterBlobOptions{
 			Digest: opts.Digest,
 			Title:  opts.Title,
 		},
 	}
 
-	return artStore.Extract(ctx, name, target, extractOpt)
+	return artStore.Extract(ctx, name, target, &extractOpt)
+}
+
+func (ir *ImageEngine) ArtifactExtractTarStream(ctx context.Context, w io.Writer, name string, opts entities.ArtifactExtractOptions) error {
+	artStore, err := ir.Libpod.ArtifactStore()
+	if err != nil {
+		return err
+	}
+	extractOpt := types.ExtractOptions{
+		FilterBlobOptions: types.FilterBlobOptions{
+			Digest: opts.Digest,
+			Title:  opts.Title,
+		},
+		ExcludeTitle: opts.ExcludeTitle,
+	}
+
+	return artStore.ExtractTarStream(ctx, w, name, &extractOpt)
 }

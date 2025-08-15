@@ -393,6 +393,28 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 		}
 	}
 
+	if cpuset, ok := annotations[define.CpusetAnnotation+"/"+opts.Container.Name]; ok {
+		s.Annotations[define.CpusetAnnotation] = cpuset
+		if s.ResourceLimits == nil {
+			s.ResourceLimits = &spec.LinuxResources{}
+		}
+		if s.ResourceLimits.CPU == nil {
+			s.ResourceLimits.CPU = &spec.LinuxCPU{}
+		}
+		s.ResourceLimits.CPU.Cpus = cpuset
+	}
+
+	if memNodes, ok := annotations[define.MemoryNodesAnnotation+"/"+opts.Container.Name]; ok {
+		s.Annotations[define.MemoryNodesAnnotation] = memNodes
+		if s.ResourceLimits == nil {
+			s.ResourceLimits = &spec.LinuxResources{}
+		}
+		if s.ResourceLimits.CPU == nil {
+			s.ResourceLimits.CPU = &spec.LinuxCPU{}
+		}
+		s.ResourceLimits.CPU.Mems = memNodes
+	}
+
 	if label, ok := opts.Annotations[define.InspectAnnotationLabel+"/"+opts.Container.Name]; ok {
 		if label == "nested" {
 			s.ContainerSecurityConfig.LabelNested = &localTrue
@@ -632,6 +654,14 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	if opts.TerminationGracePeriodSeconds != nil {
 		timeout := uint(*opts.TerminationGracePeriodSeconds)
 		s.StopTimeout = &timeout
+	}
+
+	if lifecycle := opts.Container.Lifecycle; lifecycle != nil && lifecycle.StopSignal != nil {
+		stopSignal, err := util.ParseSignal(*lifecycle.StopSignal)
+		if err != nil {
+			return nil, err
+		}
+		s.StopSignal = &stopSignal
 	}
 
 	return s, nil
