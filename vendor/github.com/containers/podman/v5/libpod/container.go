@@ -300,6 +300,11 @@ type ContainerArtifactVolume struct {
 	// the title annotation exist.
 	// Optional. Conflicts with Title.
 	Digest string `json:"digest"`
+	// Name is the name that should be used for the path inside the container. When a single blob
+	// is mounted the name is used as is. If multiple blobs are mounted then mount them as
+	// "<name>-x" where x is a 0 indexed integer based on the layer order.
+	// Optional.
+	Name string `json:"name,omitempty"`
 }
 
 // ContainerSecret is a secret that is mounted in a container
@@ -662,6 +667,14 @@ func (c *Container) LogPath() string {
 // LogTag returns the tag to the container's log file
 func (c *Container) LogTag() string {
 	return c.config.LogTag
+}
+
+// LogSizeMax returns the maximum size of the container's log file.
+func (c *Container) LogSizeMax() int64 {
+	if c.config.LogSize > 0 {
+		return c.config.LogSize
+	}
+	return c.runtime.config.Containers.LogSizeMax
 }
 
 // RestartPolicy returns the container's restart policy.

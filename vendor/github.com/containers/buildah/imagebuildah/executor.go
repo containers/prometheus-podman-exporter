@@ -14,6 +14,7 @@ import (
 
 	"github.com/containers/buildah"
 	"github.com/containers/buildah/define"
+	"github.com/containers/buildah/internal"
 	internalUtil "github.com/containers/buildah/internal/util"
 	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/buildah/pkg/sshagent"
@@ -43,18 +44,19 @@ import (
 // instruction in the Dockerfile, since that's usually an indication of a user
 // error, but for these values we make exceptions and ignore them.
 var builtinAllowedBuildArgs = map[string]struct{}{
-	"HTTP_PROXY":     {},
-	"http_proxy":     {},
-	"HTTPS_PROXY":    {},
-	"https_proxy":    {},
-	"FTP_PROXY":      {},
-	"ftp_proxy":      {},
-	"NO_PROXY":       {},
-	"no_proxy":       {},
-	"TARGETARCH":     {},
-	"TARGETOS":       {},
-	"TARGETPLATFORM": {},
-	"TARGETVARIANT":  {},
+	"HTTP_PROXY":                 {},
+	"http_proxy":                 {},
+	"HTTPS_PROXY":                {},
+	"https_proxy":                {},
+	"FTP_PROXY":                  {},
+	"ftp_proxy":                  {},
+	"NO_PROXY":                   {},
+	"no_proxy":                   {},
+	"TARGETARCH":                 {},
+	"TARGETOS":                   {},
+	"TARGETPLATFORM":             {},
+	"TARGETVARIANT":              {},
+	internal.SourceDateEpochName: {},
 }
 
 // Executor is a buildah-based implementation of the imagebuilder.Executor
@@ -83,6 +85,7 @@ type Executor struct {
 	log                            func(format string, args ...any) // can be nil
 	in                             io.Reader
 	inheritLabels                  types.OptionalBool
+	inheritAnnotations             types.OptionalBool
 	out                            io.Writer
 	err                            io.Writer
 	signaturePolicyPath            string
@@ -151,9 +154,10 @@ type Executor struct {
 	logPrefix                               string
 	unsetEnvs                               []string
 	unsetLabels                             []string
-	processLabel                            string // Shares processLabel of first stage container with containers of other stages in same build
-	mountLabel                              string // Shares mountLabel of first stage container with containers of other stages in same build
-	buildOutput                             string // Specifies instructions for any custom build output
+	unsetAnnotations                        []string
+	processLabel                            string   // Shares processLabel of first stage container with containers of other stages in same build
+	mountLabel                              string   // Shares mountLabel of first stage container with containers of other stages in same build
+	buildOutputs                            []string // Specifies instructions for any custom build output
 	osVersion                               string
 	osFeatures                              []string
 	envs                                    []string
@@ -163,7 +167,11 @@ type Executor struct {
 	compatSetParent                         types.OptionalBool
 	compatVolumes                           types.OptionalBool
 	compatScratchConfig                     types.OptionalBool
+	compatLayerOmissions                    types.OptionalBool
 	noPivotRoot                             bool
+	sourceDateEpoch                         *time.Time
+	rewriteTimestamp                        bool
+	createdAnnotation                       types.OptionalBool
 }
 
 type imageTypeAndHistoryAndDiffIDs struct {
@@ -171,6 +179,8 @@ type imageTypeAndHistoryAndDiffIDs struct {
 	history      []v1.History
 	diffIDs      []digest.Digest
 	err          error
+	architecture string
+	os           string
 }
 
 // newExecutor creates a new instance of the imagebuilder.Executor interface.
@@ -229,6 +239,11 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		}
 	}
 
+	buildOutputs := slices.Clone(options.BuildOutputs)
+	if options.BuildOutput != "" { //nolint:staticcheck
+		buildOutputs = append(buildOutputs, options.BuildOutput) //nolint:staticcheck
+	}
+
 	exec := Executor{
 		args:                                    options.Args,
 		cacheFrom:                               options.CacheFrom,
@@ -263,6 +278,7 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		reportWriter:                            writer,
 		isolation:                               options.Isolation,
 		inheritLabels:                           options.InheritLabels,
+		inheritAnnotations:                      options.InheritAnnotations,
 		namespaceOptions:                        options.NamespaceOptions,
 		configureNetwork:                        options.ConfigureNetwork,
 		cniPluginPath:                           options.CNIPluginPath,
@@ -314,7 +330,8 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		logPrefix:                               logPrefix,
 		unsetEnvs:                               slices.Clone(options.UnsetEnvs),
 		unsetLabels:                             slices.Clone(options.UnsetLabels),
-		buildOutput:                             options.BuildOutput,
+		unsetAnnotations:                        slices.Clone(options.UnsetAnnotations),
+		buildOutputs:                            buildOutputs,
 		osVersion:                               options.OSVersion,
 		osFeatures:                              slices.Clone(options.OSFeatures),
 		envs:                                    slices.Clone(options.Envs),
@@ -324,8 +341,17 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		compatSetParent:                         options.CompatSetParent,
 		compatVolumes:                           options.CompatVolumes,
 		compatScratchConfig:                     options.CompatScratchConfig,
+		compatLayerOmissions:                    options.CompatLayerOmissions,
 		noPivotRoot:                             options.NoPivotRoot,
+		sourceDateEpoch:                         options.SourceDateEpoch,
+		rewriteTimestamp:                        options.RewriteTimestamp,
+		createdAnnotation:                       options.CreatedAnnotation,
 	}
+	// sort unsetAnnotations because we will later write these
+	// values to the history of the image therefore we want to
+	// make sure that order is always consistent.
+	slices.Sort(exec.unsetAnnotations)
+
 	if exec.err == nil {
 		exec.err = os.Stderr
 	}
@@ -452,30 +478,30 @@ func (b *Executor) waitForStage(ctx context.Context, name string, stages imagebu
 	}
 }
 
-// getImageTypeAndHistoryAndDiffIDs returns the manifest type, history, and diff IDs list of imageID.
-func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID string) (string, []v1.History, []digest.Digest, error) {
+// getImageTypeAndHistoryAndDiffIDs returns the os, architecture, manifest type, history, and diff IDs list of imageID.
+func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID string) (string, string, string, []v1.History, []digest.Digest, error) {
 	b.imageInfoLock.Lock()
 	imageInfo, ok := b.imageInfoCache[imageID]
 	b.imageInfoLock.Unlock()
 	if ok {
-		return imageInfo.manifestType, imageInfo.history, imageInfo.diffIDs, imageInfo.err
+		return imageInfo.os, imageInfo.architecture, imageInfo.manifestType, imageInfo.history, imageInfo.diffIDs, imageInfo.err
 	}
 	imageRef, err := storageTransport.Transport.ParseStoreReference(b.store, "@"+imageID)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting image reference %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting image reference %q: %w", imageID, err)
 	}
 	ref, err := imageRef.NewImage(ctx, nil)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("creating new image from reference to image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("creating new image from reference to image %q: %w", imageID, err)
 	}
 	defer ref.Close()
 	oci, err := ref.OCIConfig(ctx)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting possibly-converted OCI config of image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting possibly-converted OCI config of image %q: %w", imageID, err)
 	}
 	manifestBytes, manifestFormat, err := ref.Manifest(ctx)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting manifest of image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting manifest of image %q: %w", imageID, err)
 	}
 	if manifestFormat == "" && len(manifestBytes) > 0 {
 		manifestFormat = manifest.GuessMIMEType(manifestBytes)
@@ -486,9 +512,11 @@ func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID
 		history:      oci.History,
 		diffIDs:      oci.RootFS.DiffIDs,
 		err:          nil,
+		architecture: oci.Architecture,
+		os:           oci.OS,
 	}
 	b.imageInfoLock.Unlock()
-	return manifestFormat, oci.History, oci.RootFS.DiffIDs, nil
+	return oci.OS, oci.Architecture, manifestFormat, oci.History, oci.RootFS.DiffIDs, nil
 }
 
 func (b *Executor) buildStage(ctx context.Context, cleanupStages map[int]*StageExecutor, stages imagebuilder.Stages, stageIndex int) (imageID string, ref reference.Canonical, onlyBaseImage bool, err error) {
@@ -834,7 +862,7 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 							logrus.Debugf("stage %d name: %q resolves to %q", stageIndex, stageName, baseWithArg)
 							stageName = baseWithArg
 							// If --from=<index> convert index to name
-							if index, err := strconv.Atoi(stageName); err == nil {
+							if index, err := strconv.Atoi(stageName); err == nil && index >= 0 && index < stageIndex {
 								stageName = stages[index].Name
 							}
 							// Check if selected base is not an additional

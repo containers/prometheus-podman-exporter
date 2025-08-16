@@ -1,9 +1,9 @@
 export GOPROXY=https://proxy.golang.org
 
 APPARMORTAG := $(shell hack/apparmor_tag.sh)
-STORAGETAGS := $(shell ./btrfs_tag.sh) $(shell ./btrfs_installed_tag.sh) $(shell ./hack/libsubid_tag.sh)
+STORAGETAGS := $(shell ./btrfs_installed_tag.sh) $(shell ./hack/libsubid_tag.sh)
 SECURITYTAGS ?= seccomp $(APPARMORTAG)
-TAGS ?= $(SECURITYTAGS) $(STORAGETAGS) $(shell ./hack/systemd_tag.sh)
+TAGS ?= $(SECURITYTAGS) $(STORAGETAGS) $(shell ./hack/systemd_tag.sh) $(shell ./hack/sqlite_tag.sh)
 ifeq ($(shell uname -s),FreeBSD)
 # FreeBSD needs CNI until netavark is supported
 TAGS += cni
@@ -59,23 +59,7 @@ export GOLANGCI_LINT_VERSION := 2.1.0
 #     Note: Uses the -N -l go compiler options to disable compiler optimizations
 #           and inlining. Using these build options allows you to subsequently
 #           use source debugging tools like delve.
-all: bin/buildah bin/imgtype bin/copy bin/inet bin/tutorial bin/dumpspec docs
-
-# Update nix/nixpkgs.json its latest stable commit
-.PHONY: nixpkgs
-nixpkgs:
-	@nix run \
-		-f channel:nixos-20.09 nix-prefetch-git \
-		-c nix-prefetch-git \
-		--no-deepClone \
-		https://github.com/nixos/nixpkgs refs/heads/nixos-20.09 > nix/nixpkgs.json
-
-# Build statically linked binary
-.PHONY: static
-static:
-	@nix build -f nix/
-	mkdir -p ./bin
-	cp -rfp ./result/bin/* ./bin/
+all: bin/buildah bin/imgtype bin/copy bin/inet bin/tutorial bin/dumpspec bin/passwd docs
 
 bin/buildah: $(SOURCES) internal/mkcw/embed/entrypoint_amd64.gz
 	$(GO_BUILD) $(BUILDAH_LDFLAGS) $(GO_GCFLAGS) "$(GOGCFLAGS)" -o $@ $(BUILDFLAGS) ./cmd/buildah
@@ -122,9 +106,12 @@ bin/tutorial: $(SOURCES)
 bin/inet: tests/inet/inet.go
 	$(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ $(BUILDFLAGS) ./tests/inet/inet.go
 
+bin/passwd: tests/passwd/passwd.go
+	$(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ $(BUILDFLAGS) ./tests/passwd/passwd.go
+
 .PHONY: clean
 clean:
-	$(RM) -r bin tests/testreport/testreport
+	$(RM) -r bin tests/testreport/testreport tests/conformance/testdata/mount-targets/true
 	$(MAKE) -C docs clean
 
 .PHONY: docs
@@ -162,7 +149,7 @@ install.completions:
 	install -m 644 contrib/completions/bash/buildah $(DESTDIR)/$(BASHINSTALLDIR)/buildah
 
 .PHONY: test-conformance
-test-conformance:
+test-conformance: tests/conformance/testdata/mount-targets/true
 	$(GO_TEST) -v -tags "$(STORAGETAGS) $(SECURITYTAGS)" -cover -timeout 60m ./tests/conformance
 
 .PHONY: test-integration
@@ -171,6 +158,9 @@ test-integration: install.tools
 
 tests/testreport/testreport: tests/testreport/testreport.go
 	$(GO_BUILD) $(GO_LDFLAGS) "-linkmode external -extldflags -static" -tags "$(STORAGETAGS) $(SECURITYTAGS)" -o tests/testreport/testreport ./tests/testreport/testreport.go
+
+tests/conformance/testdata/mount-targets/true: tests/conformance/testdata/mount-targets/true.go
+	$(GO_BUILD) $(GO_LDFLAGS) "-linkmode external -extldflags -static" -o tests/conformance/testdata/mount-targets/true tests/conformance/testdata/mount-targets/true.go
 
 .PHONY: test-unit
 test-unit: tests/testreport/testreport
@@ -182,8 +172,8 @@ test-unit: tests/testreport/testreport
 
 vendor-in-container:
 	goversion=$(shell sed -e '/^go /!d' -e '/^go /s,.* ,,g' go.mod) ; \
-	if test -d `go env GOCACHE` && test -w `go env GOCACHE` ; then \
-		podman run --privileged --rm --env HOME=/root -v `go env GOCACHE`:/root/.cache/go-build --env GOCACHE=/root/.cache/go-build -v `pwd`:/src -w /src docker.io/library/golang:$$goversion make vendor ; \
+	if test -d `$(GO) env GOCACHE` && test -w `$(GO) env GOCACHE` ; then \
+		podman run --privileged --rm --env HOME=/root -v `$(GO) env GOCACHE`:/root/.cache/go-build --env GOCACHE=/root/.cache/go-build -v `pwd`:/src -w /src docker.io/library/golang:$$goversion make vendor ; \
 	else \
 		podman run --privileged --rm --env HOME=/root -v `pwd`:/src -w /src docker.io/library/golang:$$goversion make vendor ; \
 	fi
@@ -193,7 +183,7 @@ vendor:
 	$(GO) mod tidy
 	$(GO) mod vendor
 	$(GO) mod verify
-	if test -n "$(strip $(shell go env GOTOOLCHAIN))"; then go mod edit -toolchain none ; fi
+	if test -n "$(strip $(shell $(GO) env GOTOOLCHAIN))"; then go mod edit -toolchain none ; fi
 
 .PHONY: lint
 lint: install.tools

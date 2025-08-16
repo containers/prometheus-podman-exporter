@@ -58,7 +58,7 @@ func (ir *ImageEngine) Exists(_ context.Context, nameOrID string) (*entities.Boo
 
 func (ir *ImageEngine) Prune(ctx context.Context, opts entities.ImagePruneOptions) ([]*reports.PruneReport, error) {
 	pruneOptions := &libimage.RemoveImagesOptions{
-		RemoveContainerFunc:     ir.Libpod.RemoveContainersForImageCallback(ctx),
+		RemoveContainerFunc:     ir.Libpod.RemoveContainersForImageCallback(ctx, true),
 		IsExternalContainerFunc: ir.Libpod.IsExternalContainerCallback(ctx),
 		ExternalContainers:      opts.External,
 		Filters:                 append(opts.Filter, "readonly=false"),
@@ -666,7 +666,7 @@ func (ir *ImageEngine) Remove(ctx context.Context, images []string, opts entitie
 	if !opts.All {
 		libimageOptions.Filters = append(libimageOptions.Filters, "intermediate=false")
 	}
-	libimageOptions.RemoveContainerFunc = ir.Libpod.RemoveContainersForImageCallback(ctx)
+	libimageOptions.RemoveContainerFunc = ir.Libpod.RemoveContainersForImageCallback(ctx, !opts.DisableForceRemoveContainers)
 
 	libimageReport, libimageErrors := ir.Libpod.LibimageRuntime().RemoveImages(ctx, images, libimageOptions)
 
@@ -785,7 +785,7 @@ func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, opts entities.I
 	if err != nil {
 		return nil, err
 	}
-	if (report.LoadReport == nil && err == nil) && (report.Source != nil && report.Dest != nil) { // we need to execute the transfer
+	if report.LoadReport == nil && (report.Source != nil && report.Dest != nil) { // we need to execute the transfer
 		transferOpts := entities.ScpTransferOptions{}
 		transferOpts.ParentFlags = report.ParentFlags
 		_, err := Transfer(ctx, *report.Source, *report.Dest, transferOpts)

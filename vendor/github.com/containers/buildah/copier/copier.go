@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,7 @@ func init() {
 // "**" component in the pattern, filepath.Glob() will be called with the "**"
 // replaced with all of the subdirectories under that point, and the results
 // will be concatenated.
+// The matched paths are returned in lexical order, which makes the output deterministic.
 func extendedGlob(pattern string) (matches []string, err error) {
 	subdirs := func(dir string) []string {
 		var subdirectories []string
@@ -113,6 +115,7 @@ func extendedGlob(pattern string) (matches []string, err error) {
 		}
 		matches = append(matches, theseMatches...)
 	}
+	sort.Strings(matches)
 	return matches, nil
 }
 
@@ -138,30 +141,34 @@ func isArchivePath(path string) bool {
 type requestType string
 
 const (
-	requestEval   requestType = "EVAL"
-	requestStat   requestType = "STAT"
-	requestGet    requestType = "GET"
-	requestPut    requestType = "PUT"
-	requestMkdir  requestType = "MKDIR"
-	requestRemove requestType = "REMOVE"
-	requestQuit   requestType = "QUIT"
+	requestEval              requestType = "EVAL"
+	requestStat              requestType = "STAT"
+	requestGet               requestType = "GET"
+	requestPut               requestType = "PUT"
+	requestMkdir             requestType = "MKDIR"
+	requestRemove            requestType = "REMOVE"
+	requestQuit              requestType = "QUIT"
+	requestEnsure            requestType = "ENSURE"
+	requestConditionalRemove requestType = "CONDRM"
 )
 
 // Request encodes a single request.
 type request struct {
-	Request            requestType
-	Root               string // used by all requests
-	preservedRoot      string
-	rootPrefix         string // used to reconstruct paths being handed back to the caller
-	Directory          string // used by all requests
-	preservedDirectory string
-	Globs              []string `json:",omitempty"` // used by stat, get
-	preservedGlobs     []string
-	StatOptions        StatOptions   `json:",omitempty"`
-	GetOptions         GetOptions    `json:",omitempty"`
-	PutOptions         PutOptions    `json:",omitempty"`
-	MkdirOptions       MkdirOptions  `json:",omitempty"`
-	RemoveOptions      RemoveOptions `json:",omitempty"`
+	Request                  requestType
+	Root                     string // used by all requests
+	preservedRoot            string
+	rootPrefix               string // used to reconstruct paths being handed back to the caller
+	Directory                string // used by all requests
+	preservedDirectory       string
+	Globs                    []string `json:",omitempty"` // used by stat, get
+	preservedGlobs           []string
+	StatOptions              StatOptions              `json:",omitempty"`
+	GetOptions               GetOptions               `json:",omitempty"`
+	PutOptions               PutOptions               `json:",omitempty"`
+	MkdirOptions             MkdirOptions             `json:",omitempty"`
+	RemoveOptions            RemoveOptions            `json:",omitempty"`
+	EnsureOptions            EnsureOptions            `json:",omitempty"`
+	ConditionalRemoveOptions ConditionalRemoveOptions `json:",omitempty"`
 }
 
 func (req *request) Excludes() []string {
@@ -180,6 +187,10 @@ func (req *request) Excludes() []string {
 		return nil
 	case requestQuit:
 		return nil
+	case requestEnsure:
+		return nil
+	case requestConditionalRemove:
+		return nil
 	default:
 		panic(fmt.Sprintf("not an implemented request type: %q", req.Request))
 	}
@@ -190,7 +201,7 @@ func (req *request) UIDMap() []idtools.IDMap {
 	case requestEval:
 		return nil
 	case requestStat:
-		return nil
+		return req.StatOptions.UIDMap
 	case requestGet:
 		return req.GetOptions.UIDMap
 	case requestPut:
@@ -201,6 +212,10 @@ func (req *request) UIDMap() []idtools.IDMap {
 		return nil
 	case requestQuit:
 		return nil
+	case requestEnsure:
+		return req.EnsureOptions.UIDMap
+	case requestConditionalRemove:
+		return req.ConditionalRemoveOptions.UIDMap
 	default:
 		panic(fmt.Sprintf("not an implemented request type: %q", req.Request))
 	}
@@ -211,7 +226,7 @@ func (req *request) GIDMap() []idtools.IDMap {
 	case requestEval:
 		return nil
 	case requestStat:
-		return nil
+		return req.StatOptions.GIDMap
 	case requestGet:
 		return req.GetOptions.GIDMap
 	case requestPut:
@@ -222,6 +237,10 @@ func (req *request) GIDMap() []idtools.IDMap {
 		return nil
 	case requestQuit:
 		return nil
+	case requestEnsure:
+		return req.EnsureOptions.GIDMap
+	case requestConditionalRemove:
+		return req.ConditionalRemoveOptions.GIDMap
 	default:
 		panic(fmt.Sprintf("not an implemented request type: %q", req.Request))
 	}
@@ -229,13 +248,15 @@ func (req *request) GIDMap() []idtools.IDMap {
 
 // Response encodes a single response.
 type response struct {
-	Error  string         `json:",omitempty"`
-	Stat   statResponse   `json:",omitempty"`
-	Eval   evalResponse   `json:",omitempty"`
-	Get    getResponse    `json:",omitempty"`
-	Put    putResponse    `json:",omitempty"`
-	Mkdir  mkdirResponse  `json:",omitempty"`
-	Remove removeResponse `json:",omitempty"`
+	Error             string                    `json:",omitempty"`
+	Stat              statResponse              `json:",omitempty"`
+	Eval              evalResponse              `json:",omitempty"`
+	Get               getResponse               `json:",omitempty"`
+	Put               putResponse               `json:",omitempty"`
+	Mkdir             mkdirResponse             `json:",omitempty"`
+	Remove            removeResponse            `json:",omitempty"`
+	Ensure            ensureResponse            `json:",omitempty"`
+	ConditionalRemove conditionalRemoveResponse `json:",omitempty"`
 }
 
 // statResponse encodes a response for a single Stat request.
@@ -263,6 +284,7 @@ type StatForItem struct {
 	Size            int64       // dereferenced value for symlinks
 	Mode            os.FileMode // dereferenced value for symlinks
 	ModTime         time.Time   // dereferenced value for symlinks
+	UID, GID        int64       // usually in the uint32 range, set to -1 if unknown
 	IsSymlink       bool
 	IsDir           bool   // dereferenced value for symlinks
 	IsRegular       bool   // dereferenced value for symlinks
@@ -281,6 +303,17 @@ type mkdirResponse struct{}
 
 // removeResponse encodes a response for a single Remove request.
 type removeResponse struct{}
+
+// ensureResponse encodes a response to an Ensure request.
+type ensureResponse struct {
+	Created []string           // paths that were created because they weren't already present
+	Noted   []EnsureParentPath // preexisting paths that are parents of created items
+}
+
+// conditionalRemoveResponse encodes a response to a conditionalRemove request.
+type conditionalRemoveResponse struct {
+	Removed []string // paths that were removed
+}
 
 // EvalOptions controls parts of Eval()'s behavior.
 type EvalOptions struct{}
@@ -310,8 +343,9 @@ func Eval(root string, directory string, _ EvalOptions) (string, error) {
 
 // StatOptions controls parts of Stat()'s behavior.
 type StatOptions struct {
-	CheckForArchives bool     // check for and populate the IsArchive bit in returned values
-	Excludes         []string // contents to pretend don't exist, using the OS-specific path separator
+	UIDMap, GIDMap   []idtools.IDMap // map from hostIDs to containerIDs when returning results
+	CheckForArchives bool            // check for and populate the IsArchive bit in returned values
+	Excludes         []string        // contents to pretend don't exist, using the OS-specific path separator
 }
 
 // Stat globs the specified pattern in the specified directory and returns its
@@ -363,6 +397,7 @@ type GetOptions struct {
 	NoDerefSymlinks    bool              // don't follow symlinks when globs match them
 	IgnoreUnreadable   bool              // ignore errors reading items, instead of returning an error
 	NoCrossDevice      bool              // if a subdirectory is a mountpoint with a different device number, include it but skip its contents
+	Timestamp          *time.Time        // timestamp to force on all contents
 }
 
 // Get produces an archive containing items that match the specified glob
@@ -447,6 +482,7 @@ func Put(root string, directory string, options PutOptions, bulkReader io.Reader
 // MkdirOptions controls parts of Mkdir()'s behavior.
 type MkdirOptions struct {
 	UIDMap, GIDMap []idtools.IDMap // map from containerIDs to hostIDs when creating directories
+	ModTimeNew     *time.Time      // set mtime and atime of newly-created directories
 	ChownNew       *idtools.IDPair // set ownership of newly-created directories
 	ChmodNew       *os.FileMode    // set permissions on newly-created directories
 }
@@ -941,7 +977,7 @@ func copierHandler(bulkReader io.Reader, bulkWriter io.Writer, req request) (*re
 		resp := copierHandlerEval(req)
 		return resp, nil, nil
 	case requestStat:
-		resp := copierHandlerStat(req, pm)
+		resp := copierHandlerStat(req, pm, idMappings)
 		return resp, nil, nil
 	case requestGet:
 		return copierHandlerGet(bulkWriter, req, pm, idMappings)
@@ -951,6 +987,12 @@ func copierHandler(bulkReader io.Reader, bulkWriter io.Writer, req request) (*re
 		return copierHandlerMkdir(req, idMappings)
 	case requestRemove:
 		resp := copierHandlerRemove(req)
+		return resp, nil, nil
+	case requestEnsure:
+		resp := copierHandlerEnsure(req, idMappings)
+		return resp, nil, nil
+	case requestConditionalRemove:
+		resp := copierHandlerConditionalRemove(req, idMappings)
 		return resp, nil, nil
 	case requestQuit:
 		return nil, nil, nil
@@ -1062,7 +1104,7 @@ func copierHandlerEval(req request) *response {
 	return &response{Eval: evalResponse{Evaluated: filepath.Join(req.rootPrefix, resolvedTarget)}}
 }
 
-func copierHandlerStat(req request, pm *fileutils.PatternMatcher) *response {
+func copierHandlerStat(req request, pm *fileutils.PatternMatcher, idMappings *idtools.IDMappings) *response {
 	errorResponse := func(fmtspec string, args ...any) *response {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Stat: statResponse{}}
 	}
@@ -1120,6 +1162,17 @@ func copierHandlerStat(req request, pm *fileutils.PatternMatcher) *response {
 			}
 			result.Size = linfo.Size()
 			result.Mode = linfo.Mode()
+			result.UID, result.GID = -1, -1
+			if uid, gid, err := owner(linfo); err == nil {
+				if idMappings != nil && !idMappings.Empty() {
+					hostPair := idtools.IDPair{UID: uid, GID: gid}
+					uid, gid, err = idMappings.ToContainer(hostPair)
+					if err != nil {
+						return errorResponse("copier: stat: mapping host filesystem owners %#v to container filesystem owners: %w", hostPair, err)
+					}
+				}
+				result.UID, result.GID = int64(uid), int64(gid)
+			}
 			result.ModTime = linfo.ModTime()
 			result.IsDir = linfo.IsDir()
 			result.IsRegular = result.Mode.IsRegular()
@@ -1232,7 +1285,7 @@ func checkLinks(item string, req request, info os.FileInfo) (string, os.FileInfo
 func copierHandlerGet(bulkWriter io.Writer, req request, pm *fileutils.PatternMatcher, idMappings *idtools.IDMappings) (*response, func() error, error) {
 	statRequest := req
 	statRequest.Request = requestStat
-	statResponse := copierHandlerStat(req, pm)
+	statResponse := copierHandlerStat(req, pm, idMappings)
 	errorResponse := func(fmtspec string, args ...any) (*response, func() error, error) {
 		return &response{Error: fmt.Sprintf(fmtspec, args...), Stat: statResponse.Stat, Get: getResponse{}}, nil, nil
 	}
@@ -1551,6 +1604,7 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 	if name != "" {
 		hdr.Name = filepath.ToSlash(name)
 	}
+	hdr.Uname, hdr.Gname = "", ""
 	if options.Rename != nil {
 		hdr.Name = handleRename(options.Rename, hdr.Name)
 	}
@@ -1598,6 +1652,16 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 			for err == nil {
 				if options.Rename != nil {
 					hdr.Name = handleRename(options.Rename, hdr.Name)
+				}
+				if options.Timestamp != nil {
+					timestamp := options.Timestamp.UTC()
+					hdr.ModTime = timestamp
+					if !hdr.AccessTime.IsZero() {
+						hdr.AccessTime = timestamp
+					}
+					if !hdr.ChangeTime.IsZero() {
+						hdr.ChangeTime = timestamp
+					}
 				}
 				if err = tw.WriteHeader(hdr); err != nil {
 					return fmt.Errorf("writing tar header from %q to pipe: %w", contentPath, err)
@@ -1648,6 +1712,9 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 		if options.ChmodDirs != nil {
 			hdr.Mode = int64(*options.ChmodDirs)
 		}
+		if !strings.HasSuffix(hdr.Name, "/") {
+			hdr.Name += "/"
+		}
 	} else {
 		if options.ChownFiles != nil {
 			hdr.Uid, hdr.Gid = options.ChownFiles.UID, options.ChownFiles.GID
@@ -1676,6 +1743,16 @@ func copierHandlerGetOne(srcfi os.FileInfo, symlinkTarget, name, contentPath str
 			return fmt.Errorf("opening directory for adding its contents to archive: %w", err)
 		}
 		defer f.Close()
+	}
+	if options.Timestamp != nil {
+		timestamp := options.Timestamp.UTC()
+		hdr.ModTime = timestamp
+		if !hdr.AccessTime.IsZero() {
+			hdr.AccessTime = timestamp
+		}
+		if !hdr.ChangeTime.IsZero() {
+			hdr.ChangeTime = timestamp
+		}
 	}
 	// output the header
 	if err = tw.WriteHeader(hdr); err != nil {
@@ -1750,7 +1827,7 @@ func copierHandlerPut(bulkReader io.Reader, req request, idMappings *idtools.IDM
 					return fmt.Errorf("copier: put: error setting owner of %q to %d:%d: %w", path, defaultDirUID, defaultDirGID, err)
 				}
 				// make a conditional note to set this directory's permissions
-				// later, but not if we already had an explictly-provided mode
+				// later, but not if we already had an explicitly-provided mode
 				if _, ok := directoryModes[path]; !ok {
 					directoryModes[path] = defaultDirMode
 				}
@@ -2141,6 +2218,7 @@ func copierHandlerMkdir(req request, idMappings *idtools.IDMappings) (*response,
 	}
 
 	subdir := ""
+	var created []string
 	for _, component := range strings.Split(rel, string(os.PathSeparator)) {
 		subdir = filepath.Join(subdir, component)
 		path := filepath.Join(req.Root, subdir)
@@ -2151,11 +2229,23 @@ func copierHandlerMkdir(req request, idMappings *idtools.IDMappings) (*response,
 			if err = chmod(path, dirMode); err != nil {
 				return errorResponse("copier: mkdir: error setting permissions on %q to 0%o: %v", path, dirMode)
 			}
+			created = append(created, path)
 		} else {
 			// FreeBSD can return EISDIR for "mkdir /":
 			// https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=59739.
 			if !errors.Is(err, os.ErrExist) && !errors.Is(err, syscall.EISDIR) {
 				return errorResponse("copier: mkdir: error checking directory %q: %v", path, err)
+			}
+		}
+	}
+	// set timestamps last, in case we needed to create some nested directories, which would
+	// update the timestamps on directories that we'd just set timestamps on, if we had done
+	// that immediately
+	if req.MkdirOptions.ModTimeNew != nil {
+		when := *req.MkdirOptions.ModTimeNew
+		for _, newDirectory := range created {
+			if err = lutimes(false, newDirectory, when, when); err != nil {
+				return errorResponse("copier: mkdir: error setting datestamp on %q: %v", newDirectory, err)
 			}
 		}
 	}
@@ -2180,4 +2270,291 @@ func copierHandlerRemove(req request) *response {
 		return errorResponse("copier: remove %q: %v", req.Directory, err)
 	}
 	return &response{Error: "", Remove: removeResponse{}}
+}
+
+// EnsurePath is a single item being passed to an Ensure() call.
+type EnsurePath struct {
+	Path     string          // a pathname, relative to the Directory, possibly relative to the root
+	Typeflag byte            // can be either TypeReg or TypeDir, everything else is currently ignored
+	ModTime  *time.Time      // mtime to set on newly-created items, default is to leave them be
+	Chmod    *os.FileMode    // mode, defaults to 000 for files and 700 for directories
+	Chown    *idtools.IDPair // owner settings to set on newly-created items, defaults to 0:0
+}
+
+// EnsureOptions controls parts of Ensure()'s behavior.
+type EnsureOptions struct {
+	UIDMap, GIDMap []idtools.IDMap // map from containerIDs to hostIDs in the chroot
+	Paths          []EnsurePath
+}
+
+// EnsureParentPath is a parent (or grandparent, or...) directory of an item
+// created by Ensure(), along with information about it, from before the item
+// in question was created.  If the information about this directory hasn't
+// changed when commit-time rolls around, it's most likely that this directory
+// is only being considered for inclusion in the layer because it was pulled
+// up, and it was not actually changed.
+type EnsureParentPath = ConditionalRemovePath
+
+// Ensure ensures that the specified mount point targets exist under the root.
+// If the root directory is not specified, the current root directory is used.
+// If root is specified and the current OS supports it, and the calling process
+// has the necessary privileges, the operation is performed in a chrooted
+// context.
+// Returns a slice with the pathnames of items that needed to be created and a
+// slice of affected parent directories and information about them.
+func Ensure(root, directory string, options EnsureOptions) ([]string, []EnsureParentPath, error) {
+	req := request{
+		Request:       requestEnsure,
+		Root:          root,
+		Directory:     directory,
+		EnsureOptions: options,
+	}
+	resp, err := copier(nil, nil, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.Error != "" {
+		return nil, nil, errors.New(resp.Error)
+	}
+	return resp.Ensure.Created, resp.Ensure.Noted, nil
+}
+
+func copierHandlerEnsure(req request, idMappings *idtools.IDMappings) *response {
+	errorResponse := func(fmtspec string, args ...any) *response {
+		return &response{Error: fmt.Sprintf(fmtspec, args...), Ensure: ensureResponse{}}
+	}
+	slices.SortFunc(req.EnsureOptions.Paths, func(a, b EnsurePath) int { return strings.Compare(a.Path, b.Path) })
+	var created []string
+	notedByName := map[string]EnsureParentPath{}
+	for _, item := range req.EnsureOptions.Paths {
+		uid, gid := 0, 0
+		if item.Chown != nil {
+			uid, gid = item.Chown.UID, item.Chown.UID
+		}
+		var mode os.FileMode
+		switch item.Typeflag {
+		case tar.TypeReg:
+			mode = 0o000
+		case tar.TypeDir:
+			mode = 0o700
+		default:
+			continue
+		}
+		if item.Chmod != nil {
+			mode = *item.Chmod
+		}
+		if idMappings != nil && !idMappings.Empty() {
+			containerDirPair := idtools.IDPair{UID: uid, GID: gid}
+			hostDirPair, err := idMappings.ToHost(containerDirPair)
+			if err != nil {
+				return errorResponse("copier: ensure: error mapping container filesystem owner %d:%d to host filesystem owners: %v", uid, gid, err)
+			}
+			uid, gid = hostDirPair.UID, hostDirPair.GID
+		}
+		directory, err := resolvePath(req.Root, req.Directory, true, nil)
+		if err != nil {
+			return errorResponse("copier: ensure: error resolving %q: %v", req.Directory, err)
+		}
+
+		rel, err := convertToRelSubdirectory(req.Root, directory)
+		if err != nil {
+			return errorResponse("copier: ensure: error computing path of %q relative to %q: %v", directory, req.Root, err)
+		}
+
+		subdir := ""
+		components := strings.Split(filepath.Join(rel, item.Path), string(os.PathSeparator))
+		components = slices.DeleteFunc(components, func(s string) bool { return s == "" || s == "." })
+		for i, component := range components {
+			parentPath := subdir
+			if parentPath == "" {
+				parentPath = "."
+			}
+			leaf := filepath.Join(parentPath, component)
+			parentInfo, err := os.Stat(filepath.Join(req.Root, parentPath))
+			if err != nil {
+				return errorResponse("copier: ensure: checking datestamps on %q (%d: %v): %v", parentPath, i, components, err)
+			}
+			if parentPath != "." {
+				parentModTime := parentInfo.ModTime().UTC()
+				parentMode := parentInfo.Mode()
+				uid, gid, err := owner(parentInfo)
+				if err != nil {
+					return errorResponse("copier: ensure: error reading owner of %q: %v", parentPath, err)
+				}
+				notedByName[parentPath] = EnsureParentPath{
+					Path:    parentPath,
+					ModTime: &parentModTime,
+					Mode:    &parentMode,
+					Owner:   &idtools.IDPair{UID: uid, GID: gid},
+				}
+			}
+			if i < len(components)-1 || item.Typeflag == tar.TypeDir {
+				err = os.Mkdir(filepath.Join(req.Root, leaf), mode)
+				subdir = leaf
+			} else if item.Typeflag == tar.TypeReg {
+				var f *os.File
+				if f, err = os.OpenFile(filepath.Join(req.Root, leaf), os.O_CREATE|os.O_EXCL|os.O_RDWR, mode); err == nil {
+					f.Close()
+				}
+			} else {
+				continue
+			}
+			if err == nil {
+				createdLeaf := leaf
+				if len(createdLeaf) > 1 {
+					createdLeaf = strings.TrimPrefix(createdLeaf, string(os.PathSeparator))
+				}
+				created = append(created, createdLeaf)
+				if err = chown(filepath.Join(req.Root, leaf), uid, uid); err != nil {
+					return errorResponse("copier: ensure: error setting owner of %q to %d:%d: %v", leaf, uid, gid, err)
+				}
+				if err = chmod(filepath.Join(req.Root, leaf), mode); err != nil {
+					return errorResponse("copier: ensure: error setting permissions on %q to 0%o: %v", leaf, mode)
+				}
+				if item.ModTime != nil {
+					if err := os.Chtimes(filepath.Join(req.Root, leaf), *item.ModTime, *item.ModTime); err != nil {
+						return errorResponse("copier: ensure: resetting datestamp on %q: %v", leaf, err)
+					}
+				}
+			} else {
+				// FreeBSD can return EISDIR for "mkdir /":
+				// https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=59739.
+				if !errors.Is(err, os.ErrExist) && !errors.Is(err, syscall.EISDIR) {
+					return errorResponse("copier: ensure: error checking item %q: %v", leaf, err)
+				}
+			}
+			if err := os.Chtimes(filepath.Join(req.Root, parentPath), parentInfo.ModTime(), parentInfo.ModTime()); err != nil {
+				return errorResponse("copier: ensure: resetting datestamp on %q: %v", parentPath, err)
+			}
+		}
+	}
+	slices.Sort(created)
+	noted := make([]EnsureParentPath, 0, len(notedByName))
+	for _, n := range notedByName {
+		if slices.Contains(created, n.Path) {
+			continue
+		}
+		noted = append(noted, n)
+	}
+	slices.SortFunc(noted, func(a, b EnsureParentPath) int { return strings.Compare(a.Path, b.Path) })
+	return &response{Error: "", Ensure: ensureResponse{Created: created, Noted: noted}}
+}
+
+// ConditionalRemovePath is a single item being passed to an ConditionalRemove() call.
+type ConditionalRemovePath struct {
+	Path    string          // a pathname, relative to the Directory, possibly relative to the root
+	ModTime *time.Time      // mtime to expect this item to have, if it's a condition
+	Mode    *os.FileMode    // mode to expect this item to have, if it's a condition
+	Owner   *idtools.IDPair // owner to expect this item to have, if it's a condition
+}
+
+// ConditionalRemoveOptions controls parts of ConditionalRemove()'s behavior.
+type ConditionalRemoveOptions struct {
+	UIDMap, GIDMap []idtools.IDMap // map from containerIDs to hostIDs in the chroot
+	Paths          []ConditionalRemovePath
+}
+
+// ConditionalRemove removes the set of named items if they're present and
+// currently match the additional conditions, returning the list of items it
+// removed.  Directories will also only be removed if they have no contents,
+// and will be left in place otherwise.
+func ConditionalRemove(root, directory string, options ConditionalRemoveOptions) ([]string, error) {
+	req := request{
+		Request:                  requestConditionalRemove,
+		Root:                     root,
+		Directory:                directory,
+		ConditionalRemoveOptions: options,
+	}
+	resp, err := copier(nil, nil, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, errors.New(resp.Error)
+	}
+	return resp.ConditionalRemove.Removed, nil
+}
+
+func copierHandlerConditionalRemove(req request, idMappings *idtools.IDMappings) *response {
+	errorResponse := func(fmtspec string, args ...any) *response {
+		return &response{Error: fmt.Sprintf(fmtspec, args...), ConditionalRemove: conditionalRemoveResponse{}}
+	}
+	slices.SortFunc(req.ConditionalRemoveOptions.Paths, func(a, b ConditionalRemovePath) int { return strings.Compare(b.Path, a.Path) })
+	var removed []string
+	for _, item := range req.ConditionalRemoveOptions.Paths {
+		uid, gid := 0, 0
+		if item.Owner != nil {
+			uid, gid = item.Owner.UID, item.Owner.GID
+		}
+		if idMappings != nil && !idMappings.Empty() {
+			containerDirPair := idtools.IDPair{UID: uid, GID: gid}
+			hostDirPair, err := idMappings.ToHost(containerDirPair)
+			if err != nil {
+				return errorResponse("copier: conditionalRemove: error mapping container filesystem owner %d:%d to host filesystem owners: %v", uid, gid, err)
+			}
+			uid, gid = hostDirPair.UID, hostDirPair.GID
+		}
+		directory, err := resolvePath(req.Root, req.Directory, true, nil)
+		if err != nil {
+			return errorResponse("copier: conditionalRemove: error resolving %q: %v", req.Directory, err)
+		}
+
+		rel, err := convertToRelSubdirectory(req.Root, directory)
+		if err != nil {
+			return errorResponse("copier: conditionalRemove: error computing path of %q relative to %q: %v", directory, req.Root, err)
+		}
+
+		components := strings.Split(filepath.Join(rel, item.Path), string(os.PathSeparator))
+		components = slices.DeleteFunc(components, func(s string) bool { return s == "" || s == "." })
+		if len(components) == 0 {
+			continue
+		}
+		itemPath := filepath.Join(append([]string{req.Root}, components...)...)
+		itemInfo, err := os.Lstat(itemPath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return errorResponse("copier: conditionalRemove: checking on candidate %q: %v", itemPath, err)
+			}
+			// okay?
+			removed = append(removed, item.Path)
+			continue
+		}
+		parentPath := filepath.Dir(itemPath)
+		parentInfo, err := os.Stat(parentPath)
+		if err != nil {
+			return errorResponse("copier: conditionalRemove: checking on parent directory %q: %v", parentPath, err)
+		}
+
+		if item.Mode != nil && itemInfo.Mode().Perm()&fs.ModePerm != *item.Mode&fs.ModePerm {
+			// mismatch, modified? ignore
+			continue
+		}
+		if item.ModTime != nil && !item.ModTime.Equal(itemInfo.ModTime()) {
+			// mismatch, modified? ignore
+			continue
+		}
+		if item.Owner != nil {
+			ownerUID, ownerGID, err := owner(itemInfo)
+			if err != nil {
+				return errorResponse("copier: conditionalRemove: checking ownership of %q: %v", itemPath, err)
+			}
+			if uid != ownerUID || gid != ownerGID {
+				// mismatch, modified? ignore
+				continue
+			}
+		}
+		if err := os.Remove(itemPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.ENOTEMPTY) {
+				return errorResponse("copier: conditionalRemove: removing %q: %v", itemPath, err)
+			}
+			// okay? not removed, but it wasn't empty, so okay?
+			continue
+		}
+		removed = append(removed, item.Path)
+		if err := os.Chtimes(parentPath, parentInfo.ModTime(), parentInfo.ModTime()); err != nil {
+			return errorResponse("copier: conditionalRemove: resetting datestamp on %q: %v", parentPath, err)
+		}
+	}
+	slices.Sort(removed)
+	return &response{Error: "", ConditionalRemove: conditionalRemoveResponse{Removed: removed}}
 }
