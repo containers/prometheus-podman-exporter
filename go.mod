@@ -3,8 +3,8 @@ module github.com/containers/prometheus-podman-exporter
 go 1.24.0
 
 require (
-	github.com/containers/common v0.64.1
-	github.com/containers/image/v5 v5.36.1
+	github.com/containers/common v0.64.2
+	github.com/containers/image/v5 v5.36.2
 	github.com/containers/podman/v5 v5.6.0
 	github.com/onsi/ginkgo/v2 v2.25.3
 	github.com/onsi/gomega v1.38.2
@@ -150,7 +150,7 @@ require (
 	github.com/titanous/rocacheck v0.0.0-20171023193734-afe73141d399 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.9.0 // indirect
-	github.com/ulikunitz/xz v0.5.12 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vbatts/tar-split v0.12.1 // indirect
 	github.com/vbauerster/mpb/v8 v8.10.2 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect
