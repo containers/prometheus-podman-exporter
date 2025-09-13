@@ -84,12 +84,11 @@ popd
 %doc README.md MAINTAINERS.md SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md
 %{_bindir}/%{name}
 %{_bindir}/%{shortname}
-%{_sysconfdir}/sysconfig/%{name}
 %{_unitdir}/%{name}.service
 %{_unitdir}/%{shortname}.service
 %{_userunitdir}/%{name}.service
 %{_userunitdir}/%{shortname}.service
-
+%config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 
 %changelog
 * Wed Aug 27 2025 Navid Yaghoobi <navidys@fedoraproject.org> 1.19.0-dev-1
