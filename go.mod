@@ -1,6 +1,6 @@
 module github.com/containers/prometheus-podman-exporter
 
-go 1.24.0
+go 1.23.3
 
 require (
 	github.com/containers/common v0.64.2
@@ -77,7 +77,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.20.3 // indirect
 	github.com/google/go-intervals v0.0.2 // indirect
-	github.com/google/pprof v0.0.0-20250820193118-f64d9cf942d6 // indirect
+	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
