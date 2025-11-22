@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/containers/podman/v5/libpod/define"
-	"github.com/containers/storage"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+	"go.podman.io/storage"
 )
 
 const (
@@ -279,7 +279,7 @@ func (s *BoltState) getDBCon() (*bolt.DB, error) {
 	// https://www.sqlite.org/src/artifact/c230a7a24?ln=994-1081
 	s.dbLock.Lock()
 
-	db, err := bolt.Open(s.dbPath, 0600, nil)
+	db, err := bolt.Open(s.dbPath, 0o600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("opening database %s: %w", s.dbPath, err)
 	}
@@ -900,7 +900,7 @@ func (s *BoltState) removeContainer(ctr *Container, pod *Pod, tx *bolt.Tx) error
 	ctrExecSessionsBkt := ctrExists.Bucket(execBkt)
 	if ctrExecSessionsBkt != nil {
 		sessions := []string{}
-		err = ctrExecSessionsBkt.ForEach(func(id, value []byte) error {
+		err = ctrExecSessionsBkt.ForEach(func(id, _ []byte) error {
 			sessions = append(sessions, string(id))
 
 			return nil
@@ -919,7 +919,7 @@ func (s *BoltState) removeContainer(ctr *Container, pod *Pod, tx *bolt.Tx) error
 		return fmt.Errorf("container %s does not have a dependencies bucket: %w", ctr.ID(), define.ErrInternal)
 	}
 	deps := []string{}
-	err = ctrDepsBkt.ForEach(func(id, value []byte) error {
+	err = ctrDepsBkt.ForEach(func(id, _ []byte) error {
 		deps = append(deps, string(id))
 
 		return nil
@@ -1034,7 +1034,7 @@ func (s *BoltState) lookupContainerID(idOrName string, ctrBucket, namesBucket *b
 	// We were not given a full container ID or name.
 	// Search for partial ID matches.
 	exists := false
-	err := ctrBucket.ForEach(func(checkID, checkName []byte) error {
+	err := ctrBucket.ForEach(func(checkID, _ []byte) error {
 		if strings.HasPrefix(string(checkID), idOrName) {
 			if exists {
 				return fmt.Errorf("more than one result for container ID %s: %w", idOrName, define.ErrCtrExists)

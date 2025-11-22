@@ -10,17 +10,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod/define"
-	"github.com/containers/storage/pkg/fileutils"
 	"github.com/docker/go-plugins-helpers/sdk"
 	"github.com/docker/go-plugins-helpers/volume"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/storage/pkg/fileutils"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -106,15 +107,7 @@ func validatePlugin(newPlugin *VolumePlugin) error {
 		return fmt.Errorf("unmarshalling plugin %s activation response: %w", newPlugin.Name, err)
 	}
 
-	foundVolume := false
-	for _, pluginType := range respStruct.Implements {
-		if pluginType == volumePluginType {
-			foundVolume = true
-			break
-		}
-	}
-
-	if !foundVolume {
+	if !slices.Contains(respStruct.Implements, volumePluginType) {
 		return fmt.Errorf("plugin %s does not implement volume plugin, instead provides %s: %w", newPlugin.Name, strings.Join(respStruct.Implements, ", "), ErrNotVolumePlugin)
 	}
 
@@ -204,7 +197,7 @@ func (p *VolumePlugin) verifyReachable() error {
 
 // Send a request to the volume plugin for handling.
 // Callers *MUST* close the response when they are done.
-func (p *VolumePlugin) sendRequest(toJSON interface{}, endpoint string) (*http.Response, error) {
+func (p *VolumePlugin) sendRequest(toJSON any, endpoint string) (*http.Response, error) {
 	var (
 		reqJSON []byte
 		err     error

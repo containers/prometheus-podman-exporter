@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"os"
 	"reflect"
@@ -15,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/env"
@@ -30,6 +29,8 @@ import (
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
 )
 
 // GenerateForKube takes a slice of libpod containers and generates
@@ -119,7 +120,7 @@ func (p *Pod) getInfraContainer() (*Container, error) {
 	return p.runtime.GetContainer(infraID)
 }
 
-func GenerateForKubeDaemonSet(ctx context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLDaemonSet, error) {
+func GenerateForKubeDaemonSet(_ context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLDaemonSet, error) {
 	// Restart policy for DaemonSets can only be set to Always
 	if pod.Spec.RestartPolicy != "" && pod.Spec.RestartPolicy != v1.RestartPolicyAlways {
 		return nil, fmt.Errorf("k8s DaemonSets can only have restartPolicy set to Always")
@@ -176,7 +177,7 @@ func GenerateForKubeDaemonSet(ctx context.Context, pod *YAMLPod, options entitie
 
 // GenerateForKubeDeployment returns a YAMLDeployment from a YAMLPod that is then used to create a kubernetes Deployment
 // kind YAML.
-func GenerateForKubeDeployment(ctx context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLDeployment, error) {
+func GenerateForKubeDeployment(_ context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLDeployment, error) {
 	// Restart policy for Deployments can only be set to Always
 	if options.Type == define.K8sKindDeployment && (pod.Spec.RestartPolicy != "" && pod.Spec.RestartPolicy != v1.RestartPolicyAlways) {
 		return nil, fmt.Errorf("k8s Deployments can only have restartPolicy set to Always")
@@ -235,7 +236,7 @@ func GenerateForKubeDeployment(ctx context.Context, pod *YAMLPod, options entiti
 
 // GenerateForKubeJob returns a YAMLDeployment from a YAMLPod that is then used to create a kubernetes Job
 // kind YAML.
-func GenerateForKubeJob(ctx context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLJob, error) {
+func GenerateForKubeJob(_ context.Context, pod *YAMLPod, options entities.GenerateKubeOptions) (*YAMLJob, error) {
 	// Restart policy for Job cannot be set to Always
 	if options.Type == define.K8sKindJob && pod.Spec.RestartPolicy == v1.RestartPolicyAlways {
 		return nil, fmt.Errorf("k8s Jobs can not have restartPolicy set to Always; only Never and OnFailure policies allowed")
@@ -620,9 +621,7 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 				podAnnotations[fmt.Sprintf("%s/%s", k, removeUnderscores(ctr.Name()))] = v
 			}
 			// Convert auto-update labels into kube annotations
-			for k, v := range getAutoUpdateAnnotations(ctr.Name(), ctr.Labels()) {
-				podAnnotations[k] = v
-			}
+			maps.Copy(podAnnotations, getAutoUpdateAnnotations(ctr.Name(), ctr.Labels()))
 			isInit := ctr.IsInitCtr()
 			// Since hostname is only set at pod level, set the hostname to the hostname of the first container we encounter
 			if hostname == "" {
@@ -769,9 +768,7 @@ func simplePodWithV1Containers(ctx context.Context, ctrs []*Container, getServic
 		}
 
 		// Convert auto-update labels into kube annotations
-		for k, v := range getAutoUpdateAnnotations(ctr.Name(), ctr.Labels()) {
-			kubeAnnotations[k] = v
-		}
+		maps.Copy(kubeAnnotations, getAutoUpdateAnnotations(ctr.Name(), ctr.Labels()))
 
 		isInit := ctr.IsInitCtr()
 		// Since hostname is only set at pod level, set the hostname to the hostname of the first container we encounter
@@ -1084,8 +1081,7 @@ func containerToV1Container(ctx context.Context, c *Container, getService bool) 
 func portMappingToContainerPort(portMappings []types.PortMapping, getService bool) ([]v1.ContainerPort, error) {
 	containerPorts := make([]v1.ContainerPort, 0, len(portMappings))
 	for _, p := range portMappings {
-		protocols := strings.Split(p.Protocol, ",")
-		for _, proto := range protocols {
+		for proto := range strings.SplitSeq(p.Protocol, ",") {
 			var protocol v1.Protocol
 			switch strings.ToUpper(proto) {
 			case "TCP":
@@ -1360,7 +1356,7 @@ func generateKubeSecurityContext(c *Container) (*v1.SecurityContext, bool, error
 	}
 	var selinuxOpts v1.SELinuxOptions
 	selinuxHasData := false
-	for _, label := range strings.Split(c.config.Spec.Annotations[define.InspectAnnotationLabel], ",label=") {
+	for label := range strings.SplitSeq(c.config.Spec.Annotations[define.InspectAnnotationLabel], ",label=") {
 		opt, val, hasVal := strings.Cut(label, ":")
 		if hasVal {
 			switch opt {

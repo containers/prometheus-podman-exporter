@@ -17,15 +17,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/podman/v5/pkg/systemd"
 	"github.com/containers/podman/v5/pkg/systemd/parser"
 	systemdquadlet "github.com/containers/podman/v5/pkg/systemd/quadlet"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage/pkg/fileutils"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/storage/pkg/fileutils"
 )
 
 // deleteAsset reads .<name>.asset, deletes listed files, then deletes the asset file
@@ -126,7 +126,7 @@ func (ic *ContainerEngine) QuadletInstall(ctx context.Context, pathsOrURLs []str
 	installDir := systemdquadlet.GetInstallUnitDirPath(rootless.IsRootless())
 	logrus.Debugf("Going to install Quadlet to directory %s", installDir)
 
-	if err := os.MkdirAll(installDir, 0755); err != nil {
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return nil, fmt.Errorf("unable to create Quadlet install path %s: %w", installDir, err)
 	}
 
@@ -197,7 +197,7 @@ func (ic *ContainerEngine) QuadletInstall(ctx context.Context, pathsOrURLs []str
 				installReport.QuadletErrors[toInstall] = fmt.Errorf("populating temporary file: %w", err)
 				continue
 			}
-			installedPath, err := ic.installQuadlet(ctx, tmpFile.Name(), quadletFileName, installDir, assetFile, validateQuadletFile)
+			installedPath, err := ic.installQuadlet(ctx, tmpFile.Name(), quadletFileName, installDir, assetFile, validateQuadletFile, options.Replace)
 			if err != nil {
 				installReport.QuadletErrors[toInstall] = err
 				continue
@@ -210,7 +210,7 @@ func (ic *ContainerEngine) QuadletInstall(ctx context.Context, pathsOrURLs []str
 				continue
 			}
 			// If toInstall is a single file, execute the original logic
-			installedPath, err := ic.installQuadlet(ctx, toInstall, "", installDir, assetFile, validateQuadletFile)
+			installedPath, err := ic.installQuadlet(ctx, toInstall, "", installDir, assetFile, validateQuadletFile, options.Replace)
 			if err != nil {
 				installReport.QuadletErrors[toInstall] = err
 				continue
@@ -254,7 +254,7 @@ func getFileName(resp *http.Response, fileURL string) (string, error) {
 // Perform some minimal validation, but not much.
 // We can't know about a lot of problems without running the Quadlet binary, which we
 // only want to do once.
-func (ic *ContainerEngine) installQuadlet(_ context.Context, path, destName, installDir, assetFile string, isQuadletFile bool) (string, error) {
+func (ic *ContainerEngine) installQuadlet(_ context.Context, path, destName, installDir, assetFile string, isQuadletFile, replace bool) (string, error) {
 	// First, validate that the source path exists and is a file
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -274,9 +274,15 @@ func (ic *ContainerEngine) installQuadlet(_ context.Context, path, destName, ins
 		return "", fmt.Errorf("%q is not a supported Quadlet file type", filepath.Ext(finalPath))
 	}
 
-	file, err := os.OpenFile(finalPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	var osFlags = os.O_CREATE | os.O_WRONLY
+
+	if !replace {
+		osFlags |= os.O_EXCL
+	}
+
+	file, err := os.OpenFile(finalPath, osFlags, 0644)
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
+		if errors.Is(err, fs.ErrExist) && !replace {
 			return "", fmt.Errorf("a Quadlet with name %s already exists, refusing to overwrite", filepath.Base(finalPath))
 		}
 		return "", fmt.Errorf("unable to open file %s: %w", filepath.Base(finalPath), err)
@@ -309,7 +315,7 @@ func (ic *ContainerEngine) installQuadlet(_ context.Context, path, destName, ins
 // appendStringToFile appends the given text to the specified file.
 // If the file does not exist, it will be created with 0644 permissions.
 func appendStringToFile(filePath, text string) error {
-	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -546,7 +552,7 @@ func getQuadletPathByName(name string) (string, error) {
 	return "", fmt.Errorf("could not locate quadlet %q in any supported quadlet directory", name)
 }
 
-func (ic *ContainerEngine) QuadletPrint(ctx context.Context, quadlet string) (string, error) {
+func (ic *ContainerEngine) QuadletPrint(_ context.Context, quadlet string) (string, error) {
 	quadletPath, err := getQuadletPathByName(quadlet)
 	if err != nil {
 		return "", err

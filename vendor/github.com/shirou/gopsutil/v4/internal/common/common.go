@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func (i Invoke) Command(name string, arg ...string) ([]byte, error) {
 	return i.CommandWithContext(ctx, name, arg...)
 }
 
-func (i Invoke) CommandWithContext(ctx context.Context, name string, arg ...string) ([]byte, error) {
+func (Invoke) CommandWithContext(ctx context.Context, name string, arg ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, arg...)
 
 	var buf bytes.Buffer
@@ -290,22 +291,14 @@ func StringsHas(target []string, src string) bool {
 
 // StringsContains checks the src in any string of the target string slice
 func StringsContains(target []string, src string) bool {
-	for _, t := range target {
-		if strings.Contains(t, src) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(target, func(s string) bool {
+		return strings.Contains(s, src)
+	})
 }
 
 // IntContains checks the src in any int of the target int slice.
 func IntContains(target []int, src int) bool {
-	for _, t := range target {
-		if src == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(target, src)
 }
 
 // get struct attributes.

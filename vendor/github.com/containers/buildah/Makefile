@@ -8,7 +8,7 @@ ifeq ($(shell uname -s),FreeBSD)
 # FreeBSD needs CNI until netavark is supported
 TAGS += cni
 endif
-BUILDTAGS += $(TAGS)
+BUILDTAGS += $(TAGS) $(EXTRA_BUILD_TAGS)
 PREFIX := /usr/local
 BINDIR := $(PREFIX)/bin
 BASHINSTALLDIR = $(PREFIX)/share/bash-completion/completions
@@ -37,8 +37,9 @@ SOURCE_DATE_EPOCH ?= $(if $(shell date +%s),$(shell date +%s),$(error "date fail
 COMMENT := \#
 CNI_COMMIT := $(shell sed -n 's;^$(COMMENT) github.com/containernetworking/cni \([^ \n]*\).*$$;\1;p' vendor/modules.txt)
 
+SEQUOIA_SONAME_DIR =
 EXTRA_LDFLAGS ?=
-BUILDAH_LDFLAGS := $(GO_LDFLAGS) '-X main.GitCommit=$(GIT_COMMIT) -X main.buildInfo=$(SOURCE_DATE_EPOCH) -X main.cniVersion=$(CNI_COMMIT) $(EXTRA_LDFLAGS)'
+BUILDAH_LDFLAGS := $(GO_LDFLAGS) '-X main.GitCommit=$(GIT_COMMIT) -X main.buildInfo=$(SOURCE_DATE_EPOCH) -X main.cniVersion=$(CNI_COMMIT) -X go.podman.io/image/v5/signature/internal/sequoia.sequoiaLibraryDir="$(SEQUOIA_SONAME_DIR)" $(EXTRA_LDFLAGS)'
 
 # This isn't what we actually build; it's a superset, used for target
 # dependencies. Basically: all *.go and *.c files, except *_test.go,
@@ -59,7 +60,7 @@ export GOLANGCI_LINT_VERSION := 2.1.0
 #     Note: Uses the -N -l go compiler options to disable compiler optimizations
 #           and inlining. Using these build options allows you to subsequently
 #           use source debugging tools like delve.
-all: bin/buildah bin/imgtype bin/copy bin/inet bin/tutorial bin/dumpspec bin/passwd docs
+all: bin/buildah bin/imgtype bin/copy bin/inet bin/tutorial bin/dumpspec bin/passwd bin/crash bin/wait docs
 
 bin/buildah: $(SOURCES) internal/mkcw/embed/entrypoint_amd64.gz
 	$(GO_BUILD) $(BUILDAH_LDFLAGS) $(GO_GCFLAGS) "$(GOGCFLAGS)" -o $@ $(BUILDFLAGS) ./cmd/buildah
@@ -90,6 +91,12 @@ cross: $(LINUX_CROSS_TARGETS) $(DARWIN_CROSS_TARGETS) $(WINDOWS_CROSS_TARGETS) $
 bin/buildah.%: $(SOURCES)
 	mkdir -p ./bin
 	GOOS=$(word 2,$(subst ., ,$@)) GOARCH=$(word 3,$(subst ., ,$@)) $(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ -tags "containers_image_openpgp" ./cmd/buildah
+
+bin/crash: $(SOURCES)
+	$(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ $(BUILDFLAGS) ./tests/crash
+
+bin/wait: $(SOURCES)
+	$(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ $(BUILDFLAGS) ./tests/wait
 
 bin/dumpspec: $(SOURCES)
 	$(GO_BUILD) $(BUILDAH_LDFLAGS) -o $@ $(BUILDFLAGS) ./tests/dumpspec

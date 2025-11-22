@@ -43,7 +43,7 @@ func IsSystemdSessionValid(uid int) bool {
 			logrus.Debugf("systemd-logind: %s", err)
 			return false
 		}
-		activeSessionMap, ok := activeSession.Value().([]interface{})
+		activeSessionMap, ok := activeSession.Value().([]any)
 		if !ok || len(activeSessionMap) < 2 {
 			// unable to get active session map.
 			logrus.Debugf("systemd-logind: %s", err)
@@ -62,7 +62,7 @@ func IsSystemdSessionValid(uid int) bool {
 			logrus.Debugf("systemd-logind: %s", err)
 			return false
 		}
-		dbusUser, ok := sessionUser.Value().([]interface{})
+		dbusUser, ok := sessionUser.Value().([]any)
 		if !ok {
 			// not a valid user.
 			return false
@@ -128,7 +128,7 @@ func dbusAuthRootlessConnection(createBus func(opts ...godbus.ConnOption) (*godb
 
 func newRootlessConnection() (*dbus.Conn, error) {
 	return dbus.NewConnection(func() (*godbus.Conn, error) {
-		return dbusAuthRootlessConnection(func(opts ...godbus.ConnOption) (*godbus.Conn, error) {
+		return dbusAuthRootlessConnection(func(_ ...godbus.ConnOption) (*godbus.Conn, error) {
 			path := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "systemd", "private")
 			path, err := filepath.EvalSymlinks(path)
 			if err != nil {

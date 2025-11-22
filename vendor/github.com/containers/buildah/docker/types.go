@@ -7,8 +7,8 @@ package docker
 import (
 	"time"
 
-	"github.com/containers/image/v5/pkg/strslice"
 	digest "github.com/opencontainers/go-digest"
+	"go.podman.io/image/v5/pkg/strslice"
 )
 
 // github.com/moby/moby/image/rootfs.go
@@ -124,7 +124,7 @@ type V1Compatibility struct {
 	Created         time.Time `json:"created"`
 	ContainerConfig struct {
 		Cmd []string
-	} `json:"container_config,omitempty"`
+	} `json:"container_config"`
 	Author    string `json:"author,omitempty"`
 	ThrowAway bool   `json:"throwaway,omitempty"`
 }
@@ -143,7 +143,7 @@ type V1Image struct {
 	// Container is the id of the container used to commit
 	Container string `json:"container,omitempty"`
 	// ContainerConfig is the configuration of the container that is committed into the image
-	ContainerConfig Config `json:"container_config,omitempty"`
+	ContainerConfig Config `json:"container_config"`
 	// DockerVersion specifies the version of Docker that was used to build the image
 	DockerVersion string `json:"docker_version,omitempty"`
 	// Author is the name of the author that was specified when committing the image

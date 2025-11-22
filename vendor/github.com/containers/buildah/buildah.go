@@ -13,13 +13,13 @@ import (
 
 	"github.com/containers/buildah/define"
 	"github.com/containers/buildah/docker"
-	nettypes "github.com/containers/common/libnetwork/types"
-	"github.com/containers/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/ioutils"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	nettypes "go.podman.io/common/libnetwork/types"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/ioutils"
 )
 
 const (
@@ -132,8 +132,8 @@ type Builder struct {
 	ImageHistoryComment string `json:"history-comment,omitempty"`
 
 	// Image metadata and runtime settings, in multiple formats.
-	OCIv1  v1.Image       `json:"ociv1,omitempty"`
-	Docker docker.V2Image `json:"docker,omitempty"`
+	OCIv1  v1.Image       `json:"ociv1"`
+	Docker docker.V2Image `json:"docker"`
 	// DefaultMountsFilePath is the file path holding the mounts to be mounted in "host-path:container-path" format.
 	DefaultMountsFilePath string `json:"defaultMountsFilePath,omitempty"`
 

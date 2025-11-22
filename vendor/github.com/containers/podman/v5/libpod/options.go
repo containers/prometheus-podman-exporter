@@ -5,28 +5,32 @@ package libpod
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/containers/buildah/pkg/parse"
-	nettypes "github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/secrets"
-	"github.com/containers/image/v5/manifest"
-	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/pkg/namespaces"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/fileutils"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/regexp"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
+	nettypes "go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/secrets"
+	"go.podman.io/image/v5/manifest"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/fileutils"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/regexp"
 )
 
 var umaskRegex = regexp.Delayed(`^[0-7]{1,4}$`)
@@ -83,10 +87,7 @@ func WithStorageConfig(config storage.StoreOptions) RuntimeOption {
 		}
 
 		if config.PullOptions != nil {
-			rt.storageConfig.PullOptions = make(map[string]string)
-			for k, v := range config.PullOptions {
-				rt.storageConfig.PullOptions[k] = v
-			}
+			rt.storageConfig.PullOptions = maps.Clone(config.PullOptions)
 		}
 
 		// If any one of runroot, graphroot, graphdrivername,
@@ -276,10 +277,8 @@ func WithHooksDir(hooksDirs ...string) RuntimeOption {
 			return define.ErrRuntimeFinalized
 		}
 
-		for _, hooksDir := range hooksDirs {
-			if hooksDir == "" {
-				return fmt.Errorf("empty-string hook directories are not supported: %w", define.ErrInvalidArg)
-			}
+		if slices.Contains(hooksDirs, "") {
+			return fmt.Errorf("empty-string hook directories are not supported: %w", define.ErrInvalidArg)
 		}
 
 		rt.config.Engine.HooksDir.Set(hooksDirs)
@@ -704,9 +703,7 @@ func WithLabels(labels map[string]string) CtrCreateOption {
 		}
 
 		ctr.config.Labels = make(map[string]string)
-		for key, value := range labels {
-			ctr.config.Labels[key] = value
-		}
+		maps.Copy(ctr.config.Labels, labels)
 
 		return nil
 	}
@@ -1041,8 +1038,16 @@ func WithLogPath(path string) CtrCreateOption {
 		if path == "" {
 			return fmt.Errorf("log path must be set: %w", define.ErrInvalidArg)
 		}
+		if isDirectory(path) {
+			containerDir := filepath.Join(path, ctr.ID())
+			if err := os.Mkdir(containerDir, 0o755); err != nil {
+				return fmt.Errorf("failed to create container log directory %s: %w", containerDir, err)
+			}
 
-		ctr.config.LogPath = path
+			ctr.config.LogPath = filepath.Join(containerDir, "ctr.log")
+		} else {
+			ctr.config.LogPath = path
+		}
 
 		return nil
 	}
@@ -1614,9 +1619,7 @@ func WithVolumeLabels(labels map[string]string) VolumeCreateOption {
 		}
 
 		volume.config.Labels = make(map[string]string)
-		for key, value := range labels {
-			volume.config.Labels[key] = value
-		}
+		maps.Copy(volume.config.Labels, labels)
 
 		return nil
 	}
@@ -1642,9 +1645,7 @@ func WithVolumeOptions(options map[string]string) VolumeCreateOption {
 		}
 
 		volume.config.Options = make(map[string]string)
-		for key, value := range options {
-			volume.config.Options[key] = value
-		}
+		maps.Copy(volume.config.Options, options)
 
 		return nil
 	}
@@ -2013,9 +2014,7 @@ func WithPodLabels(labels map[string]string) PodCreateOption {
 		}
 
 		pod.config.Labels = make(map[string]string)
-		for key, value := range labels {
-			pod.config.Labels[key] = value
-		}
+		maps.Copy(pod.config.Labels, labels)
 
 		return nil
 	}

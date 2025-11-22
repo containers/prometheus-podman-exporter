@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,14 +23,6 @@ import (
 	"github.com/containers/buildah/copier"
 	"github.com/containers/buildah/pkg/overlay"
 	butil "github.com/containers/buildah/util"
-	"github.com/containers/common/libnetwork/etchosts"
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/common/pkg/chown"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/hooks"
-	"github.com/containers/common/pkg/hooks/exec"
-	"github.com/containers/common/pkg/timezone"
-	cutil "github.com/containers/common/pkg/util"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/libpod/shutdown"
@@ -41,19 +34,27 @@ import (
 	"github.com/containers/podman/v5/pkg/selinux"
 	"github.com/containers/podman/v5/pkg/systemd/notifyproxy"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/chrootarchive"
-	"github.com/containers/storage/pkg/fileutils"
-	"github.com/containers/storage/pkg/idmap"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/lockfile"
-	"github.com/containers/storage/pkg/mount"
 	"github.com/coreos/go-systemd/v22/daemon"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libnetwork/etchosts"
+	"go.podman.io/common/pkg/cgroups"
+	"go.podman.io/common/pkg/chown"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/hooks"
+	"go.podman.io/common/pkg/hooks/exec"
+	"go.podman.io/common/pkg/timezone"
+	cutil "go.podman.io/common/pkg/util"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/chrootarchive"
+	"go.podman.io/storage/pkg/fileutils"
+	"go.podman.io/storage/pkg/idmap"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/lockfile"
+	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
 )
 
@@ -350,12 +351,7 @@ func (c *Container) handleRestartPolicy(ctx context.Context) (_ bool, retErr err
 // Returns true if the container is in one of the given states,
 // or false otherwise.
 func (c *Container) ensureState(states ...define.ContainerStatus) bool {
-	for _, state := range states {
-		if state == c.state.State {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(states, c.state.State)
 }
 
 // Sync this container with on-disk state and runtime status
@@ -412,8 +408,8 @@ func (c *Container) setupStorageMapping(dest, from *storage.IDMappingOptions) {
 		dest.AutoUserNsOpts.GroupFile = overrides.ContainerEtcGroupPath
 		if c.config.User != "" {
 			initialSize := uint32(0)
-			parts := strings.Split(c.config.User, ":")
-			for _, p := range parts {
+			parts := strings.SplitSeq(c.config.User, ":")
+			for p := range parts {
 				s, err := strconv.ParseUint(p, 10, 32)
 				if err == nil && uint32(s) > initialSize {
 					initialSize = uint32(s)
@@ -476,19 +472,14 @@ func (c *Container) setupStorage(ctx context.Context) error {
 		// privileged containers or '--ipc host' only ProcessLabel will
 		// be set and so we will skip it for cases like that.
 		if options.Flags == nil {
-			options.Flags = make(map[string]interface{})
+			options.Flags = make(map[string]any)
 		}
 		options.Flags["ProcessLabel"] = c.config.ProcessLabel
 		options.Flags["MountLabel"] = c.config.MountLabel
 	}
 	if c.config.Privileged {
 		privOpt := func(opt string) bool {
-			for _, privopt := range []string{"nodev", "nosuid", "noexec"} {
-				if opt == privopt {
-					return true
-				}
-			}
-			return false
+			return slices.Contains([]string{"nodev", "nosuid", "noexec"}, opt)
 		}
 
 		defOptions, err := storage.GetMountOptions(c.runtime.store.GraphDriverName(), c.runtime.store.GraphOptions())
@@ -560,7 +551,7 @@ func (c *Container) setupStorage(ctx context.Context) error {
 	}
 
 	artifacts := filepath.Join(c.config.StaticDir, artifactsDir)
-	if err := os.MkdirAll(artifacts, 0755); err != nil {
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
 		return fmt.Errorf("creating artifacts directory: %w", err)
 	}
 
@@ -694,7 +685,7 @@ func (c *Container) refresh() error {
 			return err
 		}
 		root := filepath.Join(c.runtime.config.Engine.TmpDir, "containers-root", c.ID())
-		if err := os.MkdirAll(root, 0755); err != nil {
+		if err := os.MkdirAll(root, 0o755); err != nil {
 			return fmt.Errorf("creating userNS tmpdir for container %s: %w", c.ID(), err)
 		}
 		if err := idtools.SafeChown(root, c.RootUID(), c.RootGID()); err != nil {
@@ -1836,7 +1827,7 @@ func (c *Container) mountStorage() (_ string, deferredErr error) {
 	}
 	defer unix.Close(dirfd)
 
-	err = unix.Mkdirat(dirfd, "etc", 0755)
+	err = unix.Mkdirat(dirfd, "etc", 0o755)
 	if err != nil && !os.IsExist(err) {
 		return "", fmt.Errorf("create /etc: %w", err)
 	}
@@ -2446,7 +2437,7 @@ func (c *Container) saveSpec(spec *spec.Spec) error {
 	if err != nil {
 		return fmt.Errorf("exporting runtime spec for container %s to JSON: %w", c.ID(), err)
 	}
-	if err := os.WriteFile(jsonPath, fileJSON, 0644); err != nil {
+	if err := os.WriteFile(jsonPath, fileJSON, 0o644); err != nil {
 		return fmt.Errorf("writing runtime spec JSON for container %s to disk: %w", c.ID(), err)
 	}
 
@@ -2479,9 +2470,7 @@ func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[s
 			if len(ociHooks) > 0 || config.Hooks != nil {
 				logrus.Warnf("Implicit hook directories are deprecated; set --ociHooks-dir=%q explicitly to continue to load ociHooks from this directory", hDir)
 			}
-			for i, hook := range ociHooks {
-				allHooks[i] = hook
-			}
+			maps.Copy(allHooks, ociHooks)
 		}
 	} else {
 		manager, err := hooks.New(ctx, c.runtime.config.Engine.HooksDir.Get(), []string{"precreate", "poststop"})
@@ -2545,7 +2534,7 @@ func (c *Container) recreateIntermediateMountpointUser() (string, error) {
 			tmpDir = "/tmp"
 		}
 		dir := filepath.Join(tmpDir, fmt.Sprintf("intermediate-mountpoint-%d.%d", rootless.GetRootlessUID(), i))
-		err := os.Mkdir(dir, 0755)
+		err := os.Mkdir(dir, 0o755)
 		if err != nil {
 			if !errors.Is(err, os.ErrExist) {
 				return "", err
@@ -2776,7 +2765,7 @@ func (c *Container) extractSecretToCtrStorage(secr *ContainerSecret) error {
 	if err != nil {
 		return fmt.Errorf("unable to extract secret: %w", err)
 	}
-	err = os.WriteFile(secretFile, data, 0644)
+	err = os.WriteFile(secretFile, data, 0o644)
 	if err != nil {
 		return fmt.Errorf("unable to create %s: %w", secretFile, err)
 	}

@@ -17,13 +17,13 @@ import (
 	"github.com/containers/buildah"
 	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/buildah/pkg/util"
-	"github.com/containers/common/pkg/version"
-	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/linkmode"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/system"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/version"
+	"go.podman.io/image/v5/pkg/sysregistriesv2"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/system"
 )
 
 // Info returns the store and host information
@@ -47,7 +47,7 @@ func (r *Runtime) info() (*define.Info, error) {
 		return nil, fmt.Errorf("getting store info: %w", err)
 	}
 	info.Store = storeInfo
-	registries := make(map[string]interface{})
+	registries := make(map[string]any)
 
 	sys := r.SystemContext()
 	data, err := sysregistriesv2.GetRegistries(sys)
@@ -248,7 +248,7 @@ func (r *Runtime) storeInfo() (*define.StoreInfo, error) {
 		TransientStore:     r.store.TransientStore(),
 	}
 
-	graphOptions := map[string]interface{}{}
+	graphOptions := map[string]any{}
 	for _, o := range r.store.GraphOptions() {
 		split := strings.SplitN(o, "=", 2)
 		switch {
@@ -257,7 +257,7 @@ func (r *Runtime) storeInfo() (*define.StoreInfo, error) {
 			if err != nil {
 				logrus.Warnf("Failed to retrieve program version for %s: %v", split[1], err)
 			}
-			program := map[string]interface{}{}
+			program := map[string]any{}
 			program["Executable"] = split[1]
 			program["Version"] = ver
 			program["Package"] = version.Package(split[1])
@@ -306,17 +306,17 @@ func (r *Runtime) GetHostDistributionInfo() define.DistributionInfo {
 
 	l := bufio.NewScanner(f)
 	for l.Scan() {
-		if strings.HasPrefix(l.Text(), "ID=") {
-			dist.Distribution = strings.Trim(strings.TrimPrefix(l.Text(), "ID="), "\"")
+		if after, ok := strings.CutPrefix(l.Text(), "ID="); ok {
+			dist.Distribution = strings.Trim(after, "\"")
 		}
-		if strings.HasPrefix(l.Text(), "VARIANT_ID=") {
-			dist.Variant = strings.Trim(strings.TrimPrefix(l.Text(), "VARIANT_ID="), "\"")
+		if after, ok := strings.CutPrefix(l.Text(), "VARIANT_ID="); ok {
+			dist.Variant = strings.Trim(after, "\"")
 		}
-		if strings.HasPrefix(l.Text(), "VERSION_ID=") {
-			dist.Version = strings.Trim(strings.TrimPrefix(l.Text(), "VERSION_ID="), "\"")
+		if after, ok := strings.CutPrefix(l.Text(), "VERSION_ID="); ok {
+			dist.Version = strings.Trim(after, "\"")
 		}
-		if strings.HasPrefix(l.Text(), "VERSION_CODENAME=") {
-			dist.Codename = strings.Trim(strings.TrimPrefix(l.Text(), "VERSION_CODENAME="), "\"")
+		if after, ok := strings.CutPrefix(l.Text(), "VERSION_CODENAME="); ok {
+			dist.Codename = strings.Trim(after, "\"")
 		}
 	}
 	return dist

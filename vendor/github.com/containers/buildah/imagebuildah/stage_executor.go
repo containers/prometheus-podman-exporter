@@ -24,17 +24,6 @@ import (
 	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/buildah/pkg/rusage"
 	"github.com/containers/buildah/util"
-	config "github.com/containers/common/pkg/config"
-	cp "github.com/containers/image/v5/copy"
-	imagedocker "github.com/containers/image/v5/docker"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/manifest"
-	is "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/transports"
-	"github.com/containers/image/v5/types"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/chrootarchive"
-	"github.com/containers/storage/pkg/unshare"
 	docker "github.com/fsouza/go-dockerclient"
 	buildkitparser "github.com/moby/buildkit/frontend/dockerfile/parser"
 	digest "github.com/opencontainers/go-digest"
@@ -44,6 +33,17 @@ import (
 	"github.com/openshift/imagebuilder/dockerfile/command"
 	"github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/sirupsen/logrus"
+	config "go.podman.io/common/pkg/config"
+	cp "go.podman.io/image/v5/copy"
+	imagedocker "go.podman.io/image/v5/docker"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/manifest"
+	is "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/transports"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/chrootarchive"
+	"go.podman.io/storage/pkg/unshare"
 )
 
 // StageExecutor bundles up what we need to know when executing one stage of a
@@ -1298,7 +1298,7 @@ func (s *StageExecutor) Execute(ctx context.Context, base string) (imgID string,
 
 	if len(children) == 0 {
 		// There are no steps.
-		if s.builder.FromImageID == "" || s.executor.squash || s.executor.confidentialWorkload.Convert || len(s.executor.labels) > 0 || len(s.executor.annotations) > 0 || len(s.executor.unsetEnvs) > 0 || len(s.executor.unsetLabels) > 0 || len(s.executor.sbomScanOptions) > 0 || len(s.executor.unsetAnnotations) > 0 {
+		if s.builder.FromImageID == "" || s.executor.squash || s.executor.confidentialWorkload.Convert || len(s.executor.annotations) > 0 || len(s.executor.unsetEnvs) > 0 || len(s.executor.unsetLabels) > 0 || len(s.executor.sbomScanOptions) > 0 || len(s.executor.unsetAnnotations) > 0 || s.executor.inheritLabels == types.OptionalBoolFalse || s.executor.inheritAnnotations == types.OptionalBoolFalse {
 			// We either don't have a base image, or we need to
 			// transform the contents of the base image, or we need
 			// to make some changes to just the config blob.  Whichever
@@ -1913,7 +1913,7 @@ func (s *StageExecutor) getCreatedBy(node *parser.Node, addedContentSummary stri
 
 	switch command {
 	case "ARG":
-		for _, variable := range strings.Fields(node.Original) {
+		for variable := range strings.FieldsSeq(node.Original) {
 			if variable != "ARG" {
 				s.argsFromContainerfile = append(s.argsFromContainerfile, variable)
 			}

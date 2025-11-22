@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/config"
 	"golang.org/x/sys/unix"
 	"tags.cncf.io/container-device-interface/pkg/cdi"
 )
@@ -71,7 +71,7 @@ func DevicesFromPath(g *generate.Generator, devicePath string, config *config.Co
 		}
 
 		// mount the internal devices recursively
-		if err := filepath.WalkDir(resolvedDevicePath, func(dpath string, d fs.DirEntry, e error) error {
+		if err := filepath.WalkDir(resolvedDevicePath, func(dpath string, d fs.DirEntry, _ error) error {
 			if d.Type()&os.ModeDevice == os.ModeDevice {
 				found = true
 				device := fmt.Sprintf("%s:%s", dpath, filepath.Join(dest, strings.TrimPrefix(dpath, src)))

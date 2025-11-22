@@ -21,29 +21,29 @@ import (
 
 	bdefine "github.com/containers/buildah/define"
 	"github.com/containers/buildah/pkg/volumes"
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/libimage/filter"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/image/v5/docker"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/image"
-	"github.com/containers/image/v5/manifest"
-	"github.com/containers/image/v5/pkg/compression"
-	"github.com/containers/image/v5/signature"
-	"github.com/containers/image/v5/transports"
-	"github.com/containers/image/v5/transports/alltransports"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/domain/entities/reports"
 	domainUtils "github.com/containers/podman/v5/pkg/domain/utils"
 	"github.com/containers/podman/v5/pkg/errorhandling"
 	"github.com/containers/podman/v5/pkg/rootless"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/unshare"
-	"github.com/containers/storage/types"
 	"github.com/opencontainers/go-digest"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/libimage/filter"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/image/v5/docker"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/image"
+	"go.podman.io/image/v5/manifest"
+	"go.podman.io/image/v5/pkg/compression"
+	"go.podman.io/image/v5/signature"
+	"go.podman.io/image/v5/transports"
+	"go.podman.io/image/v5/transports/alltransports"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/unshare"
+	"go.podman.io/storage/types"
 )
 
 const UnknownDigestSuffix = docker.UnknownDigestSuffix
@@ -134,7 +134,7 @@ func toDomainHistoryLayer(layer *libimage.ImageHistory) entities.ImageHistoryLay
 	return l
 }
 
-func (ir *ImageEngine) History(ctx context.Context, nameOrID string, opts entities.ImageHistoryOptions) (*entities.ImageHistoryReport, error) {
+func (ir *ImageEngine) History(ctx context.Context, nameOrID string, _ entities.ImageHistoryOptions) (*entities.ImageHistoryReport, error) {
 	image, _, err := ir.Libpod.LibimageRuntime().LookupImage(nameOrID, nil)
 	if err != nil {
 		return nil, err
@@ -321,7 +321,7 @@ func (ir *ImageEngine) Pull(ctx context.Context, rawImage string, options entiti
 	return &entities.ImagePullReport{Images: pulledIDs}, nil
 }
 
-func (ir *ImageEngine) Inspect(ctx context.Context, namesOrIDs []string, opts entities.InspectOptions) ([]*entities.ImageInspectReport, []error, error) {
+func (ir *ImageEngine) Inspect(ctx context.Context, namesOrIDs []string, _ entities.InspectOptions) ([]*entities.ImageInspectReport, []error, error) {
 	reports := []*entities.ImageInspectReport{}
 	errs := []error{}
 
@@ -442,7 +442,7 @@ func (ir *ImageEngine) Push(ctx context.Context, source string, destination stri
 	return nil, pushError
 }
 
-func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, options entities.ImageTagOptions) error {
+func (ir *ImageEngine) Tag(_ context.Context, nameOrID string, tags []string, _ entities.ImageTagOptions) error {
 	// Allow tagging manifest list instead of resolving instances from manifest
 	lookupOptions := &libimage.LookupImageOptions{ManifestList: true}
 	image, _, err := ir.Libpod.LibimageRuntime().LookupImage(nameOrID, lookupOptions)
@@ -457,7 +457,7 @@ func (ir *ImageEngine) Tag(ctx context.Context, nameOrID string, tags []string, 
 	return nil
 }
 
-func (ir *ImageEngine) Untag(ctx context.Context, nameOrID string, tags []string, options entities.ImageUntagOptions) error {
+func (ir *ImageEngine) Untag(_ context.Context, nameOrID string, tags []string, _ entities.ImageUntagOptions) error {
 	image, _, err := ir.Libpod.LibimageRuntime().LookupImage(nameOrID, nil)
 	if err != nil {
 		return err
@@ -796,7 +796,7 @@ func (ir *ImageEngine) Scp(ctx context.Context, src, dst string, opts entities.I
 	return &entities.ImageScpReport{}, nil
 }
 
-func Transfer(ctx context.Context, source entities.ScpTransferImageOptions, dest entities.ScpTransferImageOptions, opts entities.ScpTransferOptions) (*entities.ScpTransferReport, error) {
+func Transfer(_ context.Context, source entities.ScpTransferImageOptions, dest entities.ScpTransferImageOptions, opts entities.ScpTransferOptions) (*entities.ScpTransferReport, error) {
 	if source.User == "" {
 		return nil, fmt.Errorf("you must define a user when transferring from root to rootless storage: %w", define.ErrInvalidArg)
 	}
@@ -999,7 +999,7 @@ func putSignature(manifestBlob []byte, mech signature.SigningMechanism, sigStore
 		return err
 	}
 	signatureDir := fmt.Sprintf("%s@%s=%s", sigStoreDir, instanceDigest.Algorithm(), instanceDigest.Hex())
-	if err := os.MkdirAll(signatureDir, 0751); err != nil {
+	if err := os.MkdirAll(signatureDir, 0o751); err != nil {
 		// The directory is allowed to exist
 		if !errors.Is(err, fs.ErrExist) {
 			return err
@@ -1009,5 +1009,5 @@ func putSignature(manifestBlob []byte, mech signature.SigningMechanism, sigStore
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(signatureDir, sigFilename), newSig, 0644)
+	return os.WriteFile(filepath.Join(signatureDir, sigFilename), newSig, 0o644)
 }

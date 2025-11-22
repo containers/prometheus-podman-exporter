@@ -20,14 +20,14 @@ import (
 	"github.com/containers/buildah/internal/tmpdir"
 	"github.com/containers/buildah/pkg/overlay"
 	"github.com/containers/luksy"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/ioutils"
-	"github.com/containers/storage/pkg/mount"
-	"github.com/containers/storage/pkg/system"
 	"github.com/docker/go-units"
 	digest "github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/ioutils"
+	"go.podman.io/storage/pkg/mount"
+	"go.podman.io/storage/pkg/system"
 )
 
 const minimumImageSize = 10 * 1024 * 1024
@@ -543,7 +543,7 @@ func slop(size int64, slop string) int64 {
 	if slop == "" {
 		return size * 5 / 4
 	}
-	for _, factor := range strings.Split(slop, "+") {
+	for factor := range strings.SplitSeq(slop, "+") {
 		factor = strings.TrimSpace(factor)
 		if factor == "" {
 			continue

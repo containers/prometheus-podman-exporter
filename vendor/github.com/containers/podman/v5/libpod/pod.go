@@ -5,14 +5,15 @@ package libpod
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/lock"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"go.podman.io/common/pkg/config"
 )
 
 // Pod represents a group of containers that are managed together.
@@ -286,9 +287,7 @@ func (p *Pod) VolumesFrom() []string {
 // Labels returns the pod's labels
 func (p *Pod) Labels() map[string]string {
 	labels := make(map[string]string)
-	for key, value := range p.config.Labels {
-		labels[key] = value
-	}
+	maps.Copy(labels, p.config.Labels)
 
 	return labels
 }

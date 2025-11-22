@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"os"
@@ -17,13 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/parse"
-	"github.com/containers/common/pkg/secrets"
-	"github.com/containers/image/v5/manifest"
-	itypes "github.com/containers/image/v5/types"
 	"github.com/containers/podman/v5/libpod/define"
 	ann "github.com/containers/podman/v5/pkg/annotations"
 	"github.com/containers/podman/v5/pkg/domain/entities"
@@ -38,11 +32,18 @@ import (
 	"github.com/docker/go-units"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/parse"
+	"go.podman.io/common/pkg/secrets"
+	"go.podman.io/image/v5/manifest"
+	itypes "go.podman.io/image/v5/types"
 	"sigs.k8s.io/yaml"
 	cdiparser "tags.cncf.io/container-device-interface/pkg/parser"
 )
 
-func ToPodOpt(ctx context.Context, podName string, p entities.PodCreateOptions, publishAllPorts bool, podYAML *v1.PodTemplateSpec) (entities.PodCreateOptions, error) {
+func ToPodOpt(_ context.Context, podName string, p entities.PodCreateOptions, publishAllPorts bool, podYAML *v1.PodTemplateSpec) (entities.PodCreateOptions, error) {
 	p.Net = &entities.NetOptions{NoHosts: p.Net.NoHosts, NoHostname: p.Net.NoHostname}
 
 	p.Name = podName
@@ -184,6 +185,8 @@ type CtrSpecGenOptions struct {
 	PodSecurityContext *v1.PodSecurityContext
 	// TerminationGracePeriodSeconds is the grace period given to a container to stop before being forcefully killed
 	TerminationGracePeriodSeconds *int64
+	// Don't use pod name as prefix in resulting container name.
+	NoPodPrefix bool
 }
 
 func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGenerator, error) {
@@ -216,7 +219,11 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 		return nil, errors.New("got empty pod name on container creation when playing kube")
 	}
 
-	s.Name = fmt.Sprintf("%s-%s", opts.PodName, opts.Container.Name)
+	if opts.NoPodPrefix {
+		s.Name = opts.Container.Name
+	} else {
+		s.Name = fmt.Sprintf("%s-%s", opts.PodName, opts.Container.Name)
+	}
 
 	s.Terminal = &opts.Container.TTY
 
@@ -227,6 +234,10 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	}
 
 	s.ImageVolumes = opts.ImageVolumes
+
+	if rtc.Containers.LogPath != "" {
+		s.LogConfiguration.Path = rtc.Containers.LogPath
+	}
 
 	s.LogConfiguration.Options = make(map[string]string)
 	for _, o := range opts.LogOptions {
@@ -289,8 +300,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 
 	ulimitVal, ok := opts.Annotations[define.UlimitAnnotation]
 	if ok {
-		ulimits := strings.Split(ulimitVal, ",")
-		for _, ul := range ulimits {
+		for ul := range strings.SplitSeq(ulimitVal, ",") {
 			parsed, err := units.ParseUlimit(ul)
 			if err != nil {
 				return nil, err
@@ -325,9 +335,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 			return nil, err
 		}
 
-		for k, v := range s.Expose {
-			exposed[k] = v
-		}
+		maps.Copy(exposed, s.Expose)
 		s.Expose = exposed
 		// Pull entrypoint and cmd from image
 		s.Entrypoint = imageData.Config.Entrypoint
@@ -486,9 +494,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 			return nil, err
 		}
 
-		for k, v := range cmEnvs {
-			envs[k] = v
-		}
+		maps.Copy(envs, cmEnvs)
 	}
 	s.Env = envs
 
@@ -631,9 +637,7 @@ func ToSpecGen(ctx context.Context, opts *CtrSpecGenOptions) (*specgen.SpecGener
 	} else {
 		// If there are already labels in the map, append the ones
 		// obtained from kube
-		for k, v := range opts.Labels {
-			s.Labels[k] = v
-		}
+		maps.Copy(s.Labels, opts.Labels)
 	}
 
 	if ro := opts.ReadOnly; ro != itypes.OptionalBoolUndefined {
@@ -1051,9 +1055,7 @@ func k8sSecretFromSecretManager(name string, secretsManager *secrets.SecretsMana
 			return nil, fmt.Errorf("secret %v is not valid JSON/YAML: %v", name, err)
 		}
 
-		for key, val := range secret.Data {
-			secrets[key] = val
-		}
+		maps.Copy(secrets, secret.Data)
 
 		for key, val := range secret.StringData {
 			secrets[key] = []byte(val)

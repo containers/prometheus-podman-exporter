@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/image/v5/manifest"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	ann "github.com/containers/podman/v5/pkg/annotations"
@@ -23,6 +21,9 @@ import (
 	"github.com/containers/podman/v5/pkg/specgen"
 	"github.com/openshift/imagebuilder"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/image/v5/manifest"
 )
 
 func getImageFromSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerator) (*libimage.Image, string, *libimage.ImageData, error) {
@@ -294,9 +295,7 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		annotations[k] = v
 	}
 	// now pass in the values from client
-	for k, v := range s.Annotations {
-		annotations[k] = v
-	}
+	maps.Copy(annotations, s.Annotations)
 	s.Annotations = annotations
 
 	if len(s.SeccompProfilePath) < 1 {
@@ -351,11 +350,13 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		return warnings, err
 	}
 
-	// Warn on net=host/container/pod/none and port mappings.
-	if (s.NetNS.NSMode == specgen.Host || s.NetNS.NSMode == specgen.FromContainer ||
-		s.NetNS.NSMode == specgen.FromPod || s.NetNS.NSMode == specgen.NoNetwork) &&
-		len(s.PortMappings) > 0 {
-		warnings = append(warnings, "Port mappings have been discarded as one of the Host, Container, Pod, and None network modes are in use")
+	// Warn if NetNS mode is not compatible with PorMappings
+	if len(s.PortMappings) > 0 {
+		nsMode := s.NetNS.NSMode
+		if nsMode != "" && !isPortMappingCompatibleNetNSMode(nsMode) {
+			warnings = append(warnings,
+				fmt.Sprintf("Port mappings have been discarded because \"%s\" network namespace mode does not support them", nsMode))
+		}
 	}
 
 	if len(s.ImageVolumeMode) == 0 {
@@ -623,4 +624,16 @@ func CheckName(rt *libpod.Runtime, n string, kind bool) string {
 		n += "-clone"
 	}
 	return n
+}
+
+// isPortMappingCompatibleNetNSMode validates if mode of the provided
+// Namespace mode is compatible with port mappings.
+// Note: Update `podman run --publish | -p` docs when modifying this function.
+func isPortMappingCompatibleNetNSMode(nsMode specgen.NamespaceMode) bool {
+	switch nsMode {
+	case specgen.Bridge, specgen.Slirp, specgen.Pasta:
+		return true
+	default:
+		return false
+	}
 }

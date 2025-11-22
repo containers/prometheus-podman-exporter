@@ -11,12 +11,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/containers/common/pkg/resize"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/pkg/domain/entities"
-	"github.com/containers/storage/pkg/archive"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/resize"
+	"go.podman.io/storage/pkg/archive"
 	"golang.org/x/sys/unix"
 )
 
@@ -948,7 +948,7 @@ func (c *Container) ReloadNetwork() error {
 }
 
 // Refresh is DEPRECATED and REMOVED.
-func (c *Container) Refresh(ctx context.Context) error {
+func (c *Container) Refresh(_ context.Context) error {
 	// This has been deprecated for a long while, and is in the process of
 	// being removed.
 	return define.ErrNotImplemented
@@ -965,6 +965,8 @@ type ContainerCheckpointOptions struct {
 	// TCPEstablished tells the API to checkpoint a container
 	// even if it contains established TCP connections
 	TCPEstablished bool
+	// TCPClose tells the API to close all TCP connections during restore
+	TCPClose bool
 	// TargetFile tells the API to read (or write) the checkpoint image
 	// from (or to) the filename set in TargetFile
 	TargetFile string
@@ -1078,7 +1080,7 @@ func (c *Container) Restore(ctx context.Context, options ContainerCheckpointOpti
 }
 
 // Indicate whether or not the container should restart
-func (c *Container) ShouldRestart(ctx context.Context) bool {
+func (c *Container) ShouldRestart(_ context.Context) bool {
 	logrus.Debugf("Checking if container %s should restart", c.ID())
 	if !c.batched {
 		c.lock.Lock()
@@ -1108,7 +1110,7 @@ func (c *Container) CopyFromArchive(_ context.Context, containerPath string, cho
 
 // CopyToArchive copies the contents from the specified path *inside* the
 // container to the tarStream.
-func (c *Container) CopyToArchive(ctx context.Context, containerPath string, tarStream io.Writer) (func() error, error) {
+func (c *Container) CopyToArchive(_ context.Context, containerPath string, tarStream io.Writer) (func() error, error) {
 	if !c.batched {
 		c.lock.Lock()
 		defer c.lock.Unlock()
@@ -1122,7 +1124,7 @@ func (c *Container) CopyToArchive(ctx context.Context, containerPath string, tar
 }
 
 // Stat the specified path *inside* the container and return a file info.
-func (c *Container) Stat(ctx context.Context, containerPath string) (*define.FileInfo, error) {
+func (c *Container) Stat(_ context.Context, containerPath string) (*define.FileInfo, error) {
 	if !c.batched {
 		c.lock.Lock()
 		defer c.lock.Unlock()

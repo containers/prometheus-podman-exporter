@@ -16,14 +16,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/api/handlers/utils/apiutil"
-	"github.com/containers/storage/pkg/fileutils"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/storage/pkg/fileutils"
 	"golang.org/x/sys/unix"
 )
 
@@ -64,7 +64,7 @@ func sortMounts(m []spec.Mount) []spec.Mount {
 
 // JSONDeepCopy performs a deep copy by performing a JSON encode/decode of the
 // given structures. From and To should be identically typed structs.
-func JSONDeepCopy(from, to interface{}) error {
+func JSONDeepCopy(from, to any) error {
 	tmp, err := json.Marshal(from)
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func checkDependencyContainer(depCtr, ctr *Container) error {
 // hijackWriteError writes an error to a hijacked HTTP session.
 func hijackWriteError(toWrite error, cid string, terminal bool, httpBuf *bufio.ReadWriter) {
 	if toWrite != nil && !errors.Is(toWrite, define.ErrDetach) {
-		errString := []byte(fmt.Sprintf("Error: %v\n", toWrite))
+		errString := fmt.Appendf(nil, "Error: %v\n", toWrite)
 		if !terminal {
 			// We need a header.
 			header := makeHTTPAttachHeader(2, uint32(len(errString)))
@@ -205,8 +205,7 @@ func writeHijackHeader(r *http.Request, conn io.Writer, tty bool) {
 func makeInspectPortBindings(bindings []types.PortMapping) map[string][]define.InspectHostPort {
 	portBindings := make(map[string][]define.InspectHostPort)
 	for _, port := range bindings {
-		protocols := strings.Split(port.Protocol, ",")
-		for _, protocol := range protocols {
+		for protocol := range strings.SplitSeq(port.Protocol, ",") {
 			for i := uint16(0); i < port.Range; i++ {
 				key := fmt.Sprintf("%d/%s", port.ContainerPort+i, protocol)
 				hostPorts := portBindings[key]
@@ -284,4 +283,12 @@ func evalSymlinksIfExists(toCheck string) (string, error) {
 		return filepath.Clean(toCheck), nil
 	}
 	return checkedVal, nil
+}
+
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
