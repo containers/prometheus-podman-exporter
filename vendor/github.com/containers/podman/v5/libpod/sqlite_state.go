@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/podman/v5/libpod/define"
-	"github.com/containers/storage"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/storage"
 
 	// SQLite backend for database/sql
 	_ "github.com/mattn/go-sqlite3"
@@ -66,7 +66,7 @@ func NewSqliteState(runtime *Runtime) (_ State, defErr error) {
 	// c/storage is set up *after* the DB - so even though we use the c/s
 	// root (or, for transient, runroot) dir, we need to make the dir
 	// ourselves.
-	if err := os.MkdirAll(basePath, 0700); err != nil {
+	if err := os.MkdirAll(basePath, 0o700); err != nil {
 		return nil, fmt.Errorf("creating root directory: %w", err)
 	}
 
@@ -306,7 +306,7 @@ func (s *SQLiteState) GetDBConfig() (*DBConfig, error) {
 }
 
 // ValidateDBConfig validates paths in the given runtime against the database
-func (s *SQLiteState) ValidateDBConfig(runtime *Runtime) (defErr error) {
+func (s *SQLiteState) ValidateDBConfig(_ *Runtime) (defErr error) {
 	if !s.valid {
 		return define.ErrDBClosed
 	}

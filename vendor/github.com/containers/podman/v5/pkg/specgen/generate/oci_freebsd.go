@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/specgen"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/pkg/config"
 )
 
 // SpecGenToOCI returns the base configuration for the container.
@@ -169,7 +169,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	return configSpec, nil
 }
 
-func WeightDevices(wtDevices map[string]spec.LinuxWeightDevice) ([]spec.LinuxWeightDevice, error) {
+func WeightDevices(_ map[string]spec.LinuxWeightDevice) ([]spec.LinuxWeightDevice, error) {
 	devs := []spec.LinuxWeightDevice{}
 	return devs, nil
 }

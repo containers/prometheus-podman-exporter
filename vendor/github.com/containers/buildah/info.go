@@ -12,12 +12,12 @@ import (
 	internalUtil "github.com/containers/buildah/internal/util"
 	putil "github.com/containers/buildah/pkg/util"
 	"github.com/containers/buildah/util"
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/system"
-	"github.com/containers/storage/pkg/unshare"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/cgroups"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/system"
+	"go.podman.io/storage/pkg/unshare"
 )
 
 // InfoData holds the info type, i.e store, host etc and the data for each type
@@ -133,6 +133,8 @@ func storeInfo(store storage.Store) (map[string]any, error) {
 	info := map[string]any{}
 	info["GraphRoot"] = store.GraphRoot()
 	info["RunRoot"] = store.RunRoot()
+	info["GraphImageStore"] = store.ImageStore()
+	info["GraphTransientStore"] = store.TransientStore()
 	info["GraphDriverName"] = store.GraphDriverName()
 	info["GraphOptions"] = store.GraphOptions()
 	statusPairs, err := store.Status()
@@ -144,6 +146,7 @@ func storeInfo(store storage.Store) (map[string]any, error) {
 		status[pair[0]] = pair[1]
 	}
 	info["GraphStatus"] = status
+
 	images, err := store.Images()
 	if err != nil {
 		logrus.Error(err, "error getting number of images")
@@ -180,11 +183,11 @@ func getHostDistributionInfo() map[string]string {
 
 	l := bufio.NewScanner(f)
 	for l.Scan() {
-		if strings.HasPrefix(l.Text(), "ID=") {
-			dist["Distribution"] = strings.TrimPrefix(l.Text(), "ID=")
+		if after, ok := strings.CutPrefix(l.Text(), "ID="); ok {
+			dist["Distribution"] = after
 		}
-		if strings.HasPrefix(l.Text(), "VERSION_ID=") {
-			dist["Version"] = strings.Trim(strings.TrimPrefix(l.Text(), "VERSION_ID="), "\"")
+		if after, ok := strings.CutPrefix(l.Text(), "VERSION_ID="); ok {
+			dist["Version"] = strings.Trim(after, "\"")
 		}
 	}
 	return dist

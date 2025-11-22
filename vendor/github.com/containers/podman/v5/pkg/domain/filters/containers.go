@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/filters"
-	"github.com/containers/common/pkg/util"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities/types"
-	"github.com/containers/storage"
+	"go.podman.io/common/pkg/filters"
+	"go.podman.io/common/pkg/util"
+	"go.podman.io/storage"
 )
 
 // GenerateContainerFilterFuncs return ContainerFilter functions based of filter.
@@ -55,10 +55,8 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 		return func(c *libpod.Container) bool {
 			ec, exited, err := c.ExitCode()
 			if err == nil && exited {
-				for _, exitCode := range exitCodes {
-					if ec == exitCode {
-						return true
-					}
+				if slices.Contains(exitCodes, ec) {
+					return true
 				}
 			}
 			return false
@@ -107,8 +105,13 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 					imageTag = tag
 				}
 
-				if (rootfsImageID == filterValue) ||
-					util.StringMatchRegexSlice(rootfsImageName, filterValues) ||
+				// Check for substring match on image ID (Docker compatibility)
+				if strings.Contains(rootfsImageID, filterValue) {
+					return true
+				}
+
+				// Check for regex match (advanced use cases)
+				if util.StringMatchRegexSlice(rootfsImageName, filterValues) ||
 					(util.StringMatchRegexSlice(imageNameWithoutTag, filterValues) && imageTag == "latest") {
 					return true
 				}
@@ -174,12 +177,7 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 			if err != nil {
 				return false
 			}
-			for _, filterValue := range filterValues {
-				if hcStatus == filterValue {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(filterValues, hcStatus)
 		}, nil
 	case "until":
 		return prepareUntilFilterFunc(filterValues)
@@ -294,7 +292,7 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 }
 
 // GeneratePruneContainerFilterFuncs return ContainerFilter functions based of filter for prune operation
-func GeneratePruneContainerFilterFuncs(filter string, filterValues []string, r *libpod.Runtime) (func(container *libpod.Container) bool, error) {
+func GeneratePruneContainerFilterFuncs(filter string, filterValues []string, _ *libpod.Runtime) (func(container *libpod.Container) bool, error) {
 	switch filter {
 	case "label":
 		return func(c *libpod.Container) bool {
@@ -363,8 +361,13 @@ func GenerateExternalContainerFilterFuncs(filter string, filterValues []string, 
 					imageTag = tag
 				}
 
-				if (listContainer.ImageID == filterValue) ||
-					util.StringMatchRegexSlice(listContainer.Image, filterValues) ||
+				// Check for substring match on image ID (Docker compatibility)
+				if strings.Contains(listContainer.ImageID, filterValue) {
+					return true
+				}
+
+				// Check for regex match (advanced use cases)
+				if util.StringMatchRegexSlice(listContainer.Image, filterValues) ||
 					(util.StringMatchRegexSlice(imageNameWithoutTag, filterValues) && imageTag == "latest") {
 					return true
 				}
@@ -460,10 +463,8 @@ func GenerateExternalContainerFilterFuncs(filter string, filterValues []string, 
 			ec := listContainer.ExitCode
 			exited := listContainer.Exited
 			if exited {
-				for _, exitCode := range exitCodes {
-					if ec == exitCode {
-						return true
-					}
+				if slices.Contains(exitCodes, ec) {
+					return true
 				}
 			}
 			return false

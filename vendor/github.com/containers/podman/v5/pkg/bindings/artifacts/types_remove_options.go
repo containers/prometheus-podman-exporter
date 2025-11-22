@@ -31,3 +31,33 @@ func (o *RemoveOptions) GetAll() bool {
 	}
 	return *o.All
 }
+
+// WithArtifacts set field Artifacts to given value
+func (o *RemoveOptions) WithArtifacts(value []string) *RemoveOptions {
+	o.Artifacts = value
+	return o
+}
+
+// GetArtifacts returns value of field Artifacts
+func (o *RemoveOptions) GetArtifacts() []string {
+	if o.Artifacts == nil {
+		var z []string
+		return z
+	}
+	return o.Artifacts
+}
+
+// WithIgnore set field Ignore to given value
+func (o *RemoveOptions) WithIgnore(value bool) *RemoveOptions {
+	o.Ignore = &value
+	return o
+}
+
+// GetIgnore returns value of field Ignore
+func (o *RemoveOptions) GetIgnore() bool {
+	if o.Ignore == nil {
+		var z bool
+		return z
+	}
+	return *o.Ignore
+}

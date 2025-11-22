@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage/pkg/fileutils"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/storage/pkg/fileutils"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -73,7 +73,7 @@ func DevicesFromPath(g *generate.Generator, devicePath string, config *config.Co
 		}
 
 		// mount the internal devices recursively
-		if err := filepath.WalkDir(resolvedDevicePath, func(dpath string, d fs.DirEntry, e error) error {
+		if err := filepath.WalkDir(resolvedDevicePath, func(dpath string, d fs.DirEntry, _ error) error {
 			if d.Type()&os.ModeDevice == os.ModeDevice {
 				found = true
 				device := fmt.Sprintf("%s:%s", dpath, filepath.Join(dest, strings.TrimPrefix(dpath, src)))
@@ -174,7 +174,7 @@ func shouldMask(mask string, unmask []string) bool {
 		if strings.ToLower(m) == "all" {
 			return false
 		}
-		for _, m1 := range strings.Split(m, ":") {
+		for m1 := range strings.SplitSeq(m, ":") {
 			match, err := filepath.Match(m1, mask)
 			if err != nil {
 				logrus.Error(err.Error())
