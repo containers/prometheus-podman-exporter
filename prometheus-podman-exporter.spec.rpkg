@@ -16,7 +16,7 @@
 %global git0 https://%{import_path}
 
 Name: prometheus-podman-exporter
-Version: 1.20.0
+Version: 1.21.0
 Release: dev.1%{?dist}
 Summary: Prometheus exporter for podman environment.
 License: ASL 2.0
@@ -91,7 +91,19 @@ popd
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 
 %changelog
-* Sat Oct 04 2025 Navid Yaghoobi <navidys@fedoraproject.org> 1.20.0-dev-1
+* Mon Dec 22 2025 Navid Yaghoobi <navidys@fedoraproject.org> 1.21.0-dev-1
+
+* Mon Dec 22 2025 Navid Yaghoobi <navidys@fedoraproject.org> 1.20.0-1
+- Bump podman to v5.7.1
+- Bump github.com/onsi/gomega from 1.38.2 to 1.38.3
+- Bump github.com/onsi/ginkgo/v2 from 2.27.2 to 2.27.3
+- Bump github.com/spf13/cobra from 1.10.1 to 1.10.2
+- Bump github.com/prometheus/common from 0.67.2 to 0.67.4
+- Bump github.com/prometheus/common from 0.67.1 to 0.67.2
+- Bump github.com/onsi/ginkgo/v2 from 2.27.1 to 2.27.2
+- Bump github.com/prometheus/exporter-toolkit from 0.14.1 to 0.15.0
+- Bump github.com/onsi/ginkgo/v2 from 2.26.0 to 2.27.1
+- Bump github.com/prometheus/common from 0.66.1 to 0.67.1
 
 * Sat Oct 04 2025 Navid Yaghoobi <navidys@fedoraproject.org> 1.19.0-1
 - Bump golang to 1.24.7 - CVE-2025-47910 and CVE-2025-47906
