@@ -12,13 +12,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/containers/common/pkg/resize"
-	"github.com/containers/common/pkg/util"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/pkg/pidhandle"
-	"github.com/containers/storage/pkg/stringid"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/resize"
+	"go.podman.io/common/pkg/util"
+	"go.podman.io/storage/pkg/stringid"
 	"golang.org/x/sys/unix"
 )
 
@@ -478,7 +478,7 @@ func (c *Container) execStartAndAttach(sessionID string, streams *define.AttachS
 // ExecHTTPStartAndAttach starts and performs an HTTP attach to an exec session.
 // newSize resizes the tty to this size before the process is started, must be nil if the exec session has no tty
 func (c *Container) ExecHTTPStartAndAttach(sessionID string, r *http.Request, w http.ResponseWriter,
-	streams *HTTPAttachStreams, detachKeys *string, cancel <-chan bool, hijackDone chan<- bool, newSize *resize.TerminalSize) error {
+	streams *HTTPAttachStreams, _ *string, cancel <-chan bool, hijackDone chan<- bool, newSize *resize.TerminalSize) error {
 	// TODO: How do we combine streams with the default streams set in the exec session?
 
 	// Ensure that we don't leak a goroutine here
@@ -991,7 +991,7 @@ func (c *Container) exec(config *ExecConfig, streams *define.AttachStreams, resi
 // errors.
 func (c *Container) cleanupExecBundle(sessionID string) (err error) {
 	path := c.execBundlePath(sessionID)
-	for attempts := 0; attempts < 50; attempts++ {
+	for range 50 {
 		err = os.RemoveAll(path)
 		if err == nil || os.IsNotExist(err) {
 			return nil

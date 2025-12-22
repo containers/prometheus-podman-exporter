@@ -7,9 +7,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v5/pkg/bindings/artifacts"
 	"github.com/containers/podman/v5/pkg/domain/entities"
+	"go.podman.io/image/v5/types"
 )
 
 func (ir *ImageEngine) ArtifactExtract(_ context.Context, name string, target string, opts entities.ArtifactExtractOptions) error {
@@ -22,15 +22,15 @@ func (ir *ImageEngine) ArtifactExtract(_ context.Context, name string, target st
 	return artifacts.Extract(ir.ClientCtx, name, target, &options)
 }
 
-func (ir *ImageEngine) ArtifactExtractTarStream(_ context.Context, w io.Writer, name string, opts entities.ArtifactExtractOptions) error {
+func (ir *ImageEngine) ArtifactExtractTarStream(_ context.Context, _ io.Writer, _ string, _ entities.ArtifactExtractOptions) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (ir *ImageEngine) ArtifactInspect(_ context.Context, name string, opts entities.ArtifactInspectOptions) (*entities.ArtifactInspectReport, error) {
+func (ir *ImageEngine) ArtifactInspect(_ context.Context, name string, _ entities.ArtifactInspectOptions) (*entities.ArtifactInspectReport, error) {
 	return artifacts.Inspect(ir.ClientCtx, name, &artifacts.InspectOptions{})
 }
 
-func (ir *ImageEngine) ArtifactList(_ context.Context, opts entities.ArtifactListOptions) ([]*entities.ArtifactListReport, error) {
+func (ir *ImageEngine) ArtifactList(_ context.Context, _ entities.ArtifactListOptions) ([]*entities.ArtifactListReport, error) {
 	return artifacts.List(ir.ClientCtx, &artifacts.ListOptions{})
 }
 
@@ -53,12 +53,14 @@ func (ir *ImageEngine) ArtifactPull(_ context.Context, name string, opts entitie
 	return artifacts.Pull(ir.ClientCtx, name, &options)
 }
 
-func (ir *ImageEngine) ArtifactRm(_ context.Context, name string, opts entities.ArtifactRemoveOptions) (*entities.ArtifactRemoveReport, error) {
-	if opts.All {
-		// Note: This will be added when artifacts remove all endpoint is implemented
-		return nil, fmt.Errorf("not implemented")
+func (ir *ImageEngine) ArtifactRm(_ context.Context, opts entities.ArtifactRemoveOptions) (*entities.ArtifactRemoveReport, error) {
+	removeOptions := artifacts.RemoveOptions{
+		All:       &opts.All,
+		Artifacts: opts.Artifacts,
+		Ignore:    &opts.Ignore,
 	}
-	return artifacts.Remove(ir.ClientCtx, name, &artifacts.RemoveOptions{})
+
+	return artifacts.Remove(ir.ClientCtx, "", &removeOptions)
 }
 
 func (ir *ImageEngine) ArtifactPush(_ context.Context, name string, opts entities.ArtifactPushOptions) (*entities.ArtifactPushReport, error) {
@@ -87,6 +89,7 @@ func (ir *ImageEngine) ArtifactAdd(_ context.Context, name string, artifactBlob 
 		Append:           &opts.Append,
 		ArtifactMIMEType: &opts.ArtifactMIMEType,
 		FileMIMEType:     &opts.FileMIMEType,
+		Replace:          &opts.Replace,
 	}
 
 	for k, v := range opts.Annotations {
@@ -106,7 +109,10 @@ func (ir *ImageEngine) ArtifactAdd(_ context.Context, name string, artifactBlob 
 
 		artifactAddReport, err = artifacts.Add(ir.ClientCtx, name, blob.FileName, f, &options)
 		if err != nil && i > 0 {
-			_, recoverErr := artifacts.Remove(ir.ClientCtx, name, &artifacts.RemoveOptions{})
+			removeOptions := artifacts.RemoveOptions{
+				Artifacts: []string{name},
+			}
+			_, recoverErr := artifacts.Remove(ir.ClientCtx, "", &removeOptions)
 			if recoverErr != nil {
 				return nil, fmt.Errorf("failed to cleanup unfinished artifact add: %w", errors.Join(err, recoverErr))
 			}

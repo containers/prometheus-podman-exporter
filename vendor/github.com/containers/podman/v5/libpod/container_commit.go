@@ -6,15 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/containers/buildah"
-	"github.com/containers/common/libimage"
-	is "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	is "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/types"
 )
 
 // ContainerCommitOptions is a struct used to commit a container to an image
@@ -130,14 +131,7 @@ func (c *Container) Commit(ctx context.Context, destImage string, options Contai
 		// Only include anonymous named volumes added by the user by
 		// default.
 		for _, v := range c.config.NamedVolumes {
-			include := false
-			for _, userVol := range c.config.UserVolumes {
-				if userVol == v.Dest {
-					include = true
-					break
-				}
-			}
-			if include {
+			if slices.Contains(c.config.UserVolumes, v.Dest) {
 				vol, err := c.runtime.GetVolume(v.Name)
 				if err != nil {
 					return nil, fmt.Errorf("volume %s used in container %s has been removed: %w", v.Name, c.ID(), err)

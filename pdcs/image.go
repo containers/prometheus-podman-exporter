@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/containers/image/v5/docker/reference"
 	"github.com/containers/podman/v5/cmd/podman/registry"
 	"github.com/containers/podman/v5/pkg/domain/entities"
+	"go.podman.io/image/v5/docker/reference"
 )
 
 var imageRep ImageReport

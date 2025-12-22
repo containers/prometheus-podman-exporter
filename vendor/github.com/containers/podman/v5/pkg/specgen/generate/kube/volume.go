@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 
-	"github.com/containers/common/pkg/parse"
-	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/podman/v5/libpod"
 	v1 "github.com/containers/podman/v5/pkg/k8s.io/api/core/v1"
-	"github.com/containers/storage/pkg/fileutils"
+	"go.podman.io/common/pkg/parse"
+	"go.podman.io/common/pkg/secrets"
+	"go.podman.io/storage/pkg/fileutils"
 
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -182,9 +183,7 @@ func VolumeFromSecret(secretSource *v1.SecretVolumeSource, secretsManager *secre
 		}
 	} else {
 		// add key: value pairs to the items array
-		for key, entry := range secret.Data {
-			kv.Items[key] = entry
-		}
+		maps.Copy(kv.Items, secret.Data)
 
 		for key, entry := range secret.StringData {
 			kv.Items[key] = []byte(entry)
@@ -257,9 +256,7 @@ func VolumeFromConfigMap(configMapVolumeSource *v1.ConfigMapVolumeSource, config
 		for k, v := range configMap.Data {
 			kv.Items[k] = []byte(v)
 		}
-		for k, v := range configMap.BinaryData {
-			kv.Items[k] = v
-		}
+		maps.Copy(kv.Items, configMap.BinaryData)
 	}
 	return kv, nil
 }
@@ -279,7 +276,7 @@ func VolumeFromEmptyDir(emptyDirVolumeSource *v1.EmptyDirVolumeSource, name stri
 	}
 }
 
-func VolumeFromImage(imageVolumeSource *v1.ImageVolumeSource, name string) (*KubeVolume, error) {
+func VolumeFromImage(imageVolumeSource *v1.ImageVolumeSource, _ string) (*KubeVolume, error) {
 	return &KubeVolume{
 		Type:            KubeVolumeTypeImage,
 		Source:          imageVolumeSource.Reference,
