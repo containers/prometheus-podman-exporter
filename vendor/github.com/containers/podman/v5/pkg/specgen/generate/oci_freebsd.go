@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/specgen"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/pkg/config"
 )
 
 // SpecGenToOCI returns the base configuration for the container.
@@ -48,28 +48,6 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 
 	for key, val := range s.Annotations {
 		g.AddAnnotation(key, val)
-	}
-
-	// Devices
-	var userDevices []spec.LinuxDevice
-	if !s.IsPrivileged() {
-		// add default devices from containers.conf
-		for _, device := range rtc.Containers.Devices.Get() {
-			if err = DevicesFromPath(&g, device, rtc); err != nil {
-				return nil, err
-			}
-		}
-		if len(compatibleOptions.HostDeviceList) > 0 && len(s.Devices) == 0 {
-			userDevices = compatibleOptions.HostDeviceList
-		} else {
-			userDevices = s.Devices
-		}
-		// add default devices specified by caller
-		for _, device := range userDevices {
-			if err = DevicesFromPath(&g, device.Path, rtc); err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	g.ClearProcessEnv()
@@ -134,6 +112,28 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		configSpec.Mounts = mounts
 	}
 
+	// Devices
+	var userDevices []spec.LinuxDevice
+	if !s.IsPrivileged() {
+		// add default devices from containers.conf
+		for _, device := range rtc.Containers.Devices.Get() {
+			if err = DevicesFromPath(&g, device, rtc); err != nil {
+				return nil, err
+			}
+		}
+		if len(compatibleOptions.HostDeviceList) > 0 && len(s.Devices) == 0 {
+			userDevices = compatibleOptions.HostDeviceList
+		} else {
+			userDevices = s.Devices
+		}
+		// add default devices specified by caller
+		for _, device := range userDevices {
+			if err = DevicesFromPath(&g, device.Path, rtc); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// BIND MOUNTS
 	configSpec.Mounts = SupersedeUserMounts(mounts, configSpec.Mounts)
 	// Process mounts to ensure correct options
@@ -169,7 +169,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	return configSpec, nil
 }
 
-func WeightDevices(wtDevices map[string]spec.LinuxWeightDevice) ([]spec.LinuxWeightDevice, error) {
+func WeightDevices(_ map[string]spec.LinuxWeightDevice) ([]spec.LinuxWeightDevice, error) {
 	devs := []spec.LinuxWeightDevice{}
 	return devs, nil
 }

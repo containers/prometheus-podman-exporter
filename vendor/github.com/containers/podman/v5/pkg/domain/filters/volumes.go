@@ -4,12 +4,13 @@ package filters
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/filters"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/pkg/util"
+	"go.podman.io/common/pkg/filters"
 )
 
 func GenerateVolumeFilters(filter string, filterValues []string, runtime *libpod.Runtime) (libpod.VolumeFilter, error) {
@@ -22,21 +23,11 @@ func GenerateVolumeFilters(filter string, filterValues []string, runtime *libpod
 		}, nil
 	case "driver":
 		return func(v *libpod.Volume) bool {
-			for _, val := range filterValues {
-				if v.Driver() == val {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(filterValues, v.Driver())
 		}, nil
 	case "scope":
 		return func(v *libpod.Volume) bool {
-			for _, val := range filterValues {
-				if v.Scope() == val {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(filterValues, v.Scope())
 		}, nil
 	case "label":
 		return func(v *libpod.Volume) bool {

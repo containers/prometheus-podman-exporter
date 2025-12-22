@@ -12,21 +12,21 @@ import (
 
 	"github.com/containers/buildah/pkg/blobcache"
 	"github.com/containers/buildah/util"
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/libimage/manifests"
-	"github.com/containers/image/v5/docker"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/manifest"
-	"github.com/containers/image/v5/signature"
-	is "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/transports"
-	"github.com/containers/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
-	"github.com/containers/storage/pkg/archive"
-	"github.com/containers/storage/pkg/stringid"
 	digest "github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/libimage/manifests"
+	"go.podman.io/image/v5/docker"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/manifest"
+	"go.podman.io/image/v5/signature"
+	is "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/transports"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage/pkg/archive"
+	"go.podman.io/storage/pkg/stringid"
 )
 
 const (
@@ -530,6 +530,16 @@ func (b *Builder) Commit(ctx context.Context, dest types.ImageReference, options
 	manifestDigest, err := manifest.Digest(manifestBytes)
 	if err != nil {
 		return imgID, nil, "", fmt.Errorf("computing digest of manifest of new image %q: %w", transports.ImageName(dest), err)
+	}
+	if imgID == "" {
+		parsedManifest, err := manifest.FromBlob(manifestBytes, manifest.GuessMIMEType(manifestBytes))
+		if err != nil {
+			return imgID, nil, "", fmt.Errorf("parsing written manifest to determine the image's ID: %w", err)
+		}
+		configInfo := parsedManifest.ConfigInfo()
+		if configInfo.Size > 2 && configInfo.Digest.Validate() == nil { // don't be returning a digest of "" or "{}"
+			imgID = configInfo.Digest.Encoded()
+		}
 	}
 
 	var ref reference.Canonical

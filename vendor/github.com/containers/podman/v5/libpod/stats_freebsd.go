@@ -9,8 +9,9 @@ import (
 
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/rctl"
-	"github.com/containers/storage/pkg/system"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/system"
+	"golang.org/x/sys/unix"
 )
 
 // getPlatformContainerStats gets the platform-specific running stats
@@ -127,5 +128,9 @@ func calculateCPUPercent(currentCPU, previousCPU, now, previousSystem uint64) fl
 }
 
 func getOnlineCPUs(container *Container) (int, error) {
-	return 0, nil
+	if container.state.State != define.ContainerStateRunning {
+		return -1, fmt.Errorf("container %s is not running: %w", container.ID(), define.ErrCtrStopped)
+	}
+	n, err := unix.SysctlUint32("hw.ncpu")
+	return int(n), err
 }

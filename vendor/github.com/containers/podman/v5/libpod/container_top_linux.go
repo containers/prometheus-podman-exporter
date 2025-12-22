@@ -20,9 +20,9 @@ import (
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/psgo"
-	"github.com/containers/storage/pkg/reexec"
 	"github.com/google/shlex"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/reexec"
 	"golang.org/x/sys/unix"
 )
 
@@ -201,7 +201,7 @@ func (c *Container) Top(descriptors []string) ([]string, error) {
 	// Also support comma-separated input.
 	psgoDescriptors := []string{}
 	for _, d := range descriptors {
-		for _, s := range strings.Split(d, ",") {
+		for s := range strings.SplitSeq(d, ",") {
 			if s != "" {
 				psgoDescriptors = append(psgoDescriptors, s)
 			}

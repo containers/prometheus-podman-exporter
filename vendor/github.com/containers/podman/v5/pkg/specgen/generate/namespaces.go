@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/common/libimage"
-	"github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/namespaces"
@@ -17,6 +14,9 @@ import (
 	"github.com/containers/podman/v5/pkg/util"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
 )
 
 const host = "host"
@@ -394,7 +394,7 @@ func namespaceOptions(s *specgen.SpecGenerator, rt *libpod.Runtime, pod *libpod.
 // GetNamespaceOptions transforms a slice of kernel namespaces
 // into a slice of pod create options. Currently, not all
 // kernel namespaces are supported, and they will be returned in an error
-func GetNamespaceOptions(ns []string, netnsIsHost bool) ([]libpod.PodCreateOption, error) {
+func GetNamespaceOptions(ns []string, _ bool) ([]libpod.PodCreateOption, error) {
 	var options []libpod.PodCreateOption
 	var erroredOptions []libpod.PodCreateOption
 	if ns == nil {

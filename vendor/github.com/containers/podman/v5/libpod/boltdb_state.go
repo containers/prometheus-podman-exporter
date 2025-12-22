@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/podman/v5/libpod/define"
-	"github.com/containers/storage/pkg/fileutils"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/storage/pkg/fileutils"
 )
 
 // BoltState is a state implementation backed by a Bolt DB
@@ -81,12 +81,14 @@ func NewBoltState(path string, runtime *Runtime) (State, error) {
 
 	logrus.Debugf("Initializing boltdb state at %s", path)
 
+	ciDesiredDB := os.Getenv("CI_DESIRED_DATABASE")
+
 	// BoltDB is deprecated and, as of Podman 5.0, we no longer allow the
 	// creation of new Bolt states.
 	// If the DB does not already exist, error out.
 	// To continue testing in CI, allow creation iff an undocumented env
 	// var is set.
-	if os.Getenv("CI_DESIRED_DATABASE") != "boltdb" {
+	if ciDesiredDB != "boltdb" {
 		if err := fileutils.Exists(path); err != nil && errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("the BoltDB backend has been deprecated, no new BoltDB databases can be created: %w", define.ErrInvalidArg)
 		}
@@ -94,12 +96,12 @@ func NewBoltState(path string, runtime *Runtime) (State, error) {
 		logrus.Debugf("Allowing deprecated database backend due to CI_DESIRED_DATABASE.")
 	}
 
-	// TODO: Up this to WARN level in 5.7, ERROR level in 5.8
-	if os.Getenv("SUPPRESS_BOLTDB_WARNING") == "" {
-		logrus.Infof("The deprecated BoltDB database driver is in use. This driver will be removed in the upcoming Podman 6.0 release in mid 2026. It is advised that you migrate to SQLite to avoid issues when this occurs. Set SUPPRESS_BOLTDB_WARNING environment variable to remove this message.")
+	// TODO: Up this to ERROR level in 5.8
+	if os.Getenv("SUPPRESS_BOLTDB_WARNING") == "" && ciDesiredDB != "boltdb" {
+		logrus.Warnf("The deprecated BoltDB database driver is in use. This driver will be removed in the upcoming Podman 6.0 release in mid 2026. It is advised that you migrate to SQLite to avoid issues when this occurs. Set SUPPRESS_BOLTDB_WARNING environment variable to remove this message.")
 	}
 
-	db, err := bolt.Open(path, 0600, nil)
+	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("opening database %s: %w", path, err)
 	}
@@ -264,7 +266,7 @@ func (s *BoltState) Refresh() error {
 		// Then save the modified state
 		// Also clear all network namespaces
 		toRemoveIDs := []string{}
-		err = idBucket.ForEach(func(id, name []byte) error {
+		err = idBucket.ForEach(func(id, _ []byte) error {
 			ctrBkt := ctrsBucket.Bucket(id)
 			if ctrBkt == nil {
 				// It's a pod
@@ -345,7 +347,7 @@ func (s *BoltState) Refresh() error {
 				// Can't delete in a ForEach, so build a list of
 				// what to remove then remove.
 				toRemove := []string{}
-				err = ctrExecBkt.ForEach(func(id, unused []byte) error {
+				err = ctrExecBkt.ForEach(func(id, _ []byte) error {
 					toRemove = append(toRemove, string(id))
 					return nil
 				})
@@ -384,7 +386,7 @@ func (s *BoltState) Refresh() error {
 		}
 
 		// Now refresh volumes
-		err = allVolsBucket.ForEach(func(id, name []byte) error {
+		err = allVolsBucket.ForEach(func(id, _ []byte) error {
 			dbVol := volBucket.Bucket(id)
 			if dbVol == nil {
 				return fmt.Errorf("inconsistency in state - volume %s is in all volumes bucket but volume not found: %w", string(id), define.ErrInternal)
@@ -425,7 +427,7 @@ func (s *BoltState) Refresh() error {
 		// So we have to make a list of what to operate on, then do the
 		// work.
 		toRemoveExec := []string{}
-		err = execBucket.ForEach(func(id, unused []byte) error {
+		err = execBucket.ForEach(func(id, _ []byte) error {
 			toRemoveExec = append(toRemoveExec, string(id))
 			return nil
 		})
@@ -941,7 +943,7 @@ func (s *BoltState) ContainerInUse(ctr *Container) ([]string, error) {
 		}
 
 		// Iterate through and add dependencies
-		err = dependsBkt.ForEach(func(id, value []byte) error {
+		err = dependsBkt.ForEach(func(id, _ []byte) error {
 			depCtrs = append(depCtrs, string(id))
 
 			return nil
@@ -985,7 +987,7 @@ func (s *BoltState) AllContainers(loadState bool) ([]*Container, error) {
 			return err
 		}
 
-		return allCtrsBucket.ForEach(func(id, name []byte) error {
+		return allCtrsBucket.ForEach(func(id, _ []byte) error {
 			// If performance becomes an issue, this check can be
 			// removed. But the error messages that come back will
 			// be much less helpful.
@@ -1106,7 +1108,7 @@ func (s *BoltState) GetNetworks(ctr *Container) (map[string]types.PerNetworkOpti
 					networkList = []string{ctr.runtime.config.Network.DefaultNetwork}
 				}
 			} else {
-				err = ctrNetworkBkt.ForEach(func(network, v []byte) error {
+				err = ctrNetworkBkt.ForEach(func(network, _ []byte) error {
 					networkList = append(networkList, string(network))
 					return nil
 				})
@@ -1140,7 +1142,7 @@ func (s *BoltState) GetNetworks(ctr *Container) (map[string]types.PerNetworkOpti
 					}
 
 					// let's ignore the error here there is nothing we can do
-					_ = netAliasesBkt.ForEach(func(alias, v []byte) error {
+					_ = netAliasesBkt.ForEach(func(alias, _ []byte) error {
 						aliases = append(aliases, string(alias))
 						return nil
 					})
@@ -1755,7 +1757,7 @@ func (s *BoltState) GetContainerExecSessions(ctr *Container) ([]string, error) {
 			return nil
 		}
 
-		return ctrExecSessions.ForEach(func(id, unused []byte) error {
+		return ctrExecSessions.ForEach(func(id, _ []byte) error {
 			sessions = append(sessions, string(id))
 			return nil
 		})
@@ -1808,7 +1810,7 @@ func (s *BoltState) RemoveContainerExecSessions(ctr *Container) error {
 			return nil
 		}
 
-		err = ctrExecSessions.ForEach(func(id, unused []byte) error {
+		err = ctrExecSessions.ForEach(func(id, _ []byte) error {
 			sessions = append(sessions, string(id))
 			return nil
 		})
@@ -2186,7 +2188,7 @@ func (s *BoltState) LookupPod(idOrName string) (*Pod, error) {
 		// They did not give us a full pod name or ID.
 		// Search for partial ID matches.
 		exists := false
-		err = podBkt.ForEach(func(checkID, checkName []byte) error {
+		err = podBkt.ForEach(func(checkID, _ []byte) error {
 			if strings.HasPrefix(string(checkID), idOrName) {
 				if exists {
 					return fmt.Errorf("more than one result for ID or name %s: %w", idOrName, define.ErrPodExists)
@@ -2355,7 +2357,7 @@ func (s *BoltState) PodContainersByID(pod *Pod) ([]string, error) {
 		}
 
 		// Iterate through all containers in the pod
-		err = podCtrs.ForEach(func(id, val []byte) error {
+		err = podCtrs.ForEach(func(id, _ []byte) error {
 			ctrs = append(ctrs, string(id))
 
 			return nil
@@ -2418,7 +2420,7 @@ func (s *BoltState) PodContainers(pod *Pod) ([]*Container, error) {
 		}
 
 		// Iterate through all containers in the pod
-		err = podCtrs.ForEach(func(id, val []byte) error {
+		err = podCtrs.ForEach(func(id, _ []byte) error {
 			newCtr := new(Container)
 			newCtr.config = new(ContainerConfig)
 			newCtr.state = new(ContainerState)
@@ -2581,7 +2583,7 @@ func (s *BoltState) RemoveVolume(volume *Volume) error {
 		volCtrsBkt := volDB.Bucket(volDependenciesBkt)
 		if volCtrsBkt != nil {
 			var deps []string
-			err = volCtrsBkt.ForEach(func(id, value []byte) error {
+			err = volCtrsBkt.ForEach(func(id, _ []byte) error {
 				// Alright, this is ugly.
 				// But we need it to work around the change in
 				// volume dependency handling, to make sure that
@@ -2745,7 +2747,7 @@ func (s *BoltState) AllVolumes() ([]*Volume, error) {
 		if err != nil {
 			return err
 		}
-		err = allVolsBucket.ForEach(func(id, name []byte) error {
+		err = allVolsBucket.ForEach(func(id, _ []byte) error {
 			volExists := volBucket.Bucket(id)
 			// This check can be removed if performance becomes an
 			// issue, but much less helpful errors will be produced
@@ -2854,7 +2856,7 @@ func (s *BoltState) LookupVolume(name string) (*Volume, error) {
 
 		// No exact match. Search all names.
 		foundMatch := false
-		err = allVolsBkt.ForEach(func(checkName, checkName2 []byte) error {
+		err = allVolsBkt.ForEach(func(checkName, _ []byte) error {
 			if strings.HasPrefix(string(checkName), name) {
 				if foundMatch {
 					return fmt.Errorf("more than one result for volume name %q: %w", name, define.ErrVolumeExists)
@@ -2964,7 +2966,7 @@ func (s *BoltState) VolumeInUse(volume *Volume) ([]string, error) {
 		}
 
 		// Iterate through and add dependencies
-		err = dependsBkt.ForEach(func(id, value []byte) error {
+		err = dependsBkt.ForEach(func(id, _ []byte) error {
 			// Look up all dependencies and see that they
 			// still exist before appending.
 			ctrExists := ctrBucket.Bucket(id)
@@ -3252,7 +3254,7 @@ func (s *BoltState) RemovePodContainers(pod *Pod) error {
 			// This should never be nil, but if it is, we're
 			// removing it anyways, so continue if it is
 			if ctrDeps != nil {
-				err = ctrDeps.ForEach(func(depID, name []byte) error {
+				err = ctrDeps.ForEach(func(depID, _ []byte) error {
 					exists := podCtrsBkt.Get(depID)
 					if exists == nil {
 						return fmt.Errorf("container %s has dependency %s outside of pod %s: %w", string(id), string(depID), pod.ID(), define.ErrCtrExists)
@@ -3485,7 +3487,7 @@ func (s *BoltState) AllPods() ([]*Pod, error) {
 			return err
 		}
 
-		err = allPodsBucket.ForEach(func(id, name []byte) error {
+		err = allPodsBucket.ForEach(func(id, _ []byte) error {
 			podExists := podBucket.Bucket(id)
 			// This check can be removed if performance becomes an
 			// issue, but much less helpful errors will be produced
