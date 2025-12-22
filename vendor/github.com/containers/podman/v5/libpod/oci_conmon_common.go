@@ -21,10 +21,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/detach"
-	"github.com/containers/common/pkg/resize"
-	"github.com/containers/common/pkg/version"
 	conmonConfig "github.com/containers/conmon/runner/config"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/logs"
@@ -34,9 +30,13 @@ import (
 	"github.com/containers/podman/v5/pkg/specgenutil"
 	"github.com/containers/podman/v5/pkg/util"
 	"github.com/containers/podman/v5/utils"
-	"github.com/containers/storage/pkg/idtools"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/detach"
+	"go.podman.io/common/pkg/resize"
+	"go.podman.io/common/pkg/version"
+	"go.podman.io/storage/pkg/idtools"
 	"golang.org/x/sys/unix"
 )
 
@@ -93,6 +93,14 @@ func newConmonOCIRuntime(name string, paths []string, conmonPath string, runtime
 		supportsKVM[r] = true
 	}
 
+	configIndex := filepath.Base(name)
+
+	if len(runtimeFlags) == 0 {
+		for _, arg := range runtimeCfg.Engine.OCIRuntimesFlags[configIndex] {
+			runtimeFlags = append(runtimeFlags, "--"+arg)
+		}
+	}
+
 	runtime := new(ConmonOCIRuntime)
 	runtime.name = name
 	runtime.conmonPath = conmonPath
@@ -108,10 +116,9 @@ func newConmonOCIRuntime(name string, paths []string, conmonPath string, runtime
 	// TODO: probe OCI runtime for feature and enable automatically if
 	// available.
 
-	base := filepath.Base(name)
-	runtime.supportsJSON = supportsJSON[base]
-	runtime.supportsNoCgroups = supportsNoCgroups[base]
-	runtime.supportsKVM = supportsKVM[base]
+	runtime.supportsJSON = supportsJSON[configIndex]
+	runtime.supportsNoCgroups = supportsNoCgroups[configIndex]
+	runtime.supportsKVM = supportsKVM[configIndex]
 
 	foundPath := false
 	for _, path := range paths {
@@ -149,10 +156,10 @@ func newConmonOCIRuntime(name string, paths []string, conmonPath string, runtime
 	runtime.persistDir = filepath.Join(runtime.tmpDir, "persist")
 
 	// Create the exit files and attach sockets directories
-	if err := os.MkdirAll(runtime.exitsDir, 0750); err != nil {
+	if err := os.MkdirAll(runtime.exitsDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating OCI runtime exit files directory: %w", err)
 	}
-	if err := os.MkdirAll(runtime.persistDir, 0750); err != nil {
+	if err := os.MkdirAll(runtime.persistDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating OCI runtime persist directory: %w", err)
 	}
 	return runtime, nil
@@ -363,8 +370,7 @@ func (r *ConmonOCIRuntime) StopContainer(ctr *Container, timeout uint, all bool)
 
 		// Before handling error from KillContainer, convert STDERR to a []string
 		// (one string per line of output) and print it.
-		stderrLines := strings.Split(stderr.String(), "\n")
-		for _, line := range stderrLines {
+		for line := range strings.SplitSeq(stderr.String(), "\n") {
 			if line != "" {
 				fmt.Fprintf(os.Stderr, "%s\n", line)
 			}
@@ -691,7 +697,7 @@ func isRetryable(err error) bool {
 // openControlFile opens the terminal control file.
 func openControlFile(ctr *Container, parentDir string) (*os.File, error) {
 	controlPath := filepath.Join(parentDir, "ctl")
-	for i := 0; i < 600; i++ {
+	for range 600 {
 		controlFile, err := os.OpenFile(controlPath, unix.O_WRONLY|unix.O_NONBLOCK, 0)
 		if err == nil {
 			return controlFile, nil
@@ -1082,6 +1088,9 @@ func (r *ConmonOCIRuntime) createOCIContainer(ctr *Container, restoreOptions *Co
 		if restoreOptions.TCPEstablished {
 			args = append(args, "--runtime-opt", "--tcp-established")
 		}
+		if restoreOptions.TCPClose {
+			args = append(args, "--runtime-opt", "--tcp-close")
+		}
 		if restoreOptions.FileLocks {
 			args = append(args, "--runtime-opt", "--file-locks")
 		}
@@ -1283,7 +1292,7 @@ func (r *ConmonOCIRuntime) sharedConmonArgs(ctr *Container, cuuid, bundlePath, p
 	// This is needed as conmon writes the exit and oom file in the given persist directory path as just "exit" and "oom"
 	// So creating a directory with the container ID under the persist dir will help keep track of which container the
 	// exit and oom files belong to.
-	if err := os.MkdirAll(persistDir, 0750); err != nil {
+	if err := os.MkdirAll(persistDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating OCI runtime oom files directory for ctr %q: %w", ctr.ID(), err)
 	}
 

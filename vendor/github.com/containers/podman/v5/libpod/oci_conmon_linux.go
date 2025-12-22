@@ -13,17 +13,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/systemd"
 	"github.com/containers/podman/v5/pkg/errorhandling"
 	"github.com/containers/podman/v5/pkg/rootless"
-	pmount "github.com/containers/storage/pkg/mount"
 	runcconfig "github.com/opencontainers/cgroups"
 	devices "github.com/opencontainers/cgroups/devices/config"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/cgroups"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/systemd"
+	pmount "go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
 )
 
@@ -80,8 +80,9 @@ func (r *ConmonOCIRuntime) createRootlessContainer(ctr *Container, restoreOption
 				var parentMount string
 				for dir := filepath.Dir(rootPath); ; dir = filepath.Dir(dir) {
 					if m, found := byMountpoint[dir]; found {
+						//nolint:staticcheck // false positive?! it claims the value of parentMount is not used but we use it below for the mount
 						parentMount = dir
-						for _, o := range strings.Split(m.Optional, ",") {
+						for o := range strings.SplitSeq(m.Optional, ",") {
 							opt := strings.Split(o, ":")
 							if opt[0] == "shared" {
 								isShared = true

@@ -7,13 +7,13 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/containers/podman/v5/pkg/util"
-	"github.com/containers/storage/pkg/fileutils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/storage/pkg/fileutils"
 )
 
 const (
@@ -70,7 +70,7 @@ func containersConfModules() ([]string, error) {
 
 	var modules []string
 	fs := pflag.NewFlagSet("module", pflag.ContinueOnError)
-	fs.ParseErrorsWhitelist.UnknownFlags = true
+	fs.ParseErrorsAllowlist.UnknownFlags = true
 	fs.Usage = func() {}
 	fs.SetInterspersed(false)
 	fs.StringArrayVar(&modules, "module", nil, "")

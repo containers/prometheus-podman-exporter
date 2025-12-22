@@ -8,16 +8,16 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/containers/common/pkg/cgroups"
 	"github.com/containers/podman/v5/libpod"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/docker/go-units"
+	"go.podman.io/common/pkg/cgroups"
 )
 
 // PodStats implements printing stats about pods.
-func (ic *ContainerEngine) PodStats(ctx context.Context, namesOrIds []string, options entities.PodStatsOptions) ([]*entities.PodStatsReport, error) {
+func (ic *ContainerEngine) PodStats(_ context.Context, namesOrIds []string, options entities.PodStatsOptions) ([]*entities.PodStatsReport, error) {
 	// Cgroups v2 check for rootless.
 	if rootless.IsRootless() {
 		unified, err := cgroups.IsCgroup2UnifiedMode()

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +21,11 @@ import (
 	"github.com/containers/buildah/bind"
 	"github.com/containers/buildah/internal/pty"
 	"github.com/containers/buildah/util"
-	"github.com/containers/storage/pkg/ioutils"
-	"github.com/containers/storage/pkg/reexec"
-	"github.com/containers/storage/pkg/unshare"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/ioutils"
+	"go.podman.io/storage/pkg/reexec"
+	"go.podman.io/storage/pkg/unshare"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -741,6 +742,15 @@ func runUsingChrootExecMain() {
 	if err = unix.Setresuid(int(user.UID), int(user.UID), int(user.UID)); err != nil {
 		fmt.Fprintf(os.Stderr, "error setting UID: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Set $PATH to the value for the container, so that when args[0] is not an absolute path,
+	// exec.Command() can find it using exec.LookPath().
+	for _, env := range slices.Backward(options.Spec.Process.Env) {
+		if val, ok := strings.CutPrefix(env, "PATH="); ok {
+			os.Setenv("PATH", val)
+			break
+		}
 	}
 
 	// Actually run the specified command.

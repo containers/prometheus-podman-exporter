@@ -23,16 +23,6 @@ import (
 	"github.com/containers/buildah/internal/sbom"
 	"github.com/containers/buildah/internal/tmpdir"
 	"github.com/containers/buildah/pkg/sshagent"
-	"github.com/containers/common/libnetwork/etchosts"
-	"github.com/containers/common/pkg/auth"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/parse"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/types"
-	"github.com/containers/storage/pkg/fileutils"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/unshare"
-	storageTypes "github.com/containers/storage/types"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	units "github.com/docker/go-units"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -41,6 +31,16 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.podman.io/common/libnetwork/etchosts"
+	"go.podman.io/common/pkg/auth"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/parse"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage/pkg/fileutils"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/unshare"
+	storageTypes "go.podman.io/storage/types"
 	"golang.org/x/term"
 )
 
@@ -733,7 +733,7 @@ func GetBuildOutput(buildOutput string) (define.BuildOutputOption, error) {
 	isStdout := false
 	typeSelected := ""
 	pathSelected := ""
-	for _, option := range strings.Split(buildOutput, ",") {
+	for option := range strings.SplitSeq(buildOutput, ",") {
 		key, value, found := strings.Cut(option, "=")
 		if !found {
 			return define.BuildOutputOption{}, fmt.Errorf("invalid build output options %q, expected format key=value", buildOutput)
@@ -789,7 +789,7 @@ func GetConfidentialWorkloadOptions(arg string) (define.ConfidentialWorkloadOpti
 		TempDir: GetTempDir(),
 	}
 	defaults := options
-	for _, option := range strings.Split(arg, ",") {
+	for option := range strings.SplitSeq(arg, ",") {
 		var err error
 		switch {
 		case strings.HasPrefix(option, "type="):
@@ -936,7 +936,7 @@ func GetAutoOptions(base string) (*storageTypes.AutoUserNsOptions, error) {
 	if len(parts) == 1 {
 		return &options, nil
 	}
-	for _, o := range strings.Split(parts[1], ",") {
+	for o := range strings.SplitSeq(parts[1], ",") {
 		v := strings.SplitN(o, "=", 2)
 		if len(v) != 2 {
 			return nil, fmt.Errorf("invalid option specified: %q", o)

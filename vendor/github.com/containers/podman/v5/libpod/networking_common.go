@@ -10,16 +10,16 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/containers/common/libnetwork/etchosts"
-	"github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/machine"
 	"github.com/containers/podman/v5/libpod/define"
 	"github.com/containers/podman/v5/libpod/events"
 	"github.com/containers/podman/v5/pkg/namespaces"
 	"github.com/containers/podman/v5/pkg/rootless"
-	"github.com/containers/storage/pkg/lockfile"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libnetwork/etchosts"
+	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/common/pkg/machine"
+	"go.podman.io/storage/pkg/lockfile"
 )
 
 // bindPorts ports to keep them open via conmon so no other process can use them and we can check if they are in use.
@@ -357,7 +357,7 @@ func resultToBasicNetworkConfig(result types.StatusBlock) define.InspectBasicNet
 }
 
 // NetworkDisconnect removes a container from the network
-func (c *Container) NetworkDisconnect(nameOrID, netName string, force bool) error {
+func (c *Container) NetworkDisconnect(nameOrID, netName string, _ bool) error {
 	// only the bridge mode supports cni networks
 	if err := isBridgeNetMode(c.config.NetMode); err != nil {
 		return err
@@ -642,7 +642,7 @@ func getFreeInterfaceName(networks map[string]types.PerNetworkOptions) string {
 	for _, opts := range networks {
 		ifNames = append(ifNames, opts.InterfaceName)
 	}
-	for i := 0; i < 100000; i++ {
+	for i := range 100000 {
 		ifName := fmt.Sprintf("eth%d", i)
 		if !slices.Contains(ifNames, ifName) {
 			return ifName
