@@ -3,7 +3,7 @@ module github.com/containers/prometheus-podman-exporter
 go 1.24.7
 
 require (
-	github.com/containers/common v0.62.2
+	github.com/containers/common v0.64.2
 	github.com/containers/podman/v5 v5.7.1
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
