@@ -449,8 +449,8 @@ func (c *containerCollector) updateStats(
 }
 
 func (c *containerCollector) getContainerDescLabel(rep pdcs.Container) *containerDescLabels {
-	containerLabels := []string{"id", "name", "image", "ports", "pod_id", "pod_name"}
-	containerLabelsValue := []string{rep.ID, rep.Name, rep.Image, rep.Ports, rep.PodID, rep.PodName}
+	containerLabels := []string{"id", "name", "image", "image_id", "ports", "pod_id", "pod_name"}
+	containerLabelsValue := []string{rep.ID, rep.Name, rep.Image, rep.ImageID, rep.Ports, rep.PodID, rep.PodName}
 
 	extraLabels, extraValues := c.getExtraLabelsAndValues(containerLabels, rep)
 

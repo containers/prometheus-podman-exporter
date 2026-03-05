@@ -86,8 +86,8 @@ The table below list all existing collector and their description.
 ```shell
 # HELP podman_container_info Container information.
 # TYPE podman_container_info gauge
-podman_container_info{id="19286a13dc23",image="docker.io/library/sonarqube:latest",name="sonar01",pod_id="",pod_name="",ports="0.0.0.0:9000->9000/tcp"} 1
-podman_container_info{id="482113b805f7",image="docker.io/library/httpd:latest",name="web_server",pod_id="",pod_name="",ports="0.0.0.0:8000->80/tcp"} 1
+podman_container_info{id="19286a13dc23",image="docker.io/library/sonarqube:latest",image_id="6d79dc68eeb4",name="sonar01",pod_id="",pod_name="",ports="0.0.0.0:9000->9000/tcp"} 1
+podman_container_info{id="482113b805f7",image="docker.io/library/httpd:latest",image_id="10e58ed1b203",name="web_server",pod_id="",pod_name="",ports="0.0.0.0:8000->80/tcp"} 1
 
 # HELP podman_container_state Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).
 # TYPE podman_container_state gauge

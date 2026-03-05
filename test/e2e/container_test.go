@@ -28,9 +28,15 @@ var _ = Describe("Container", func() {
 		Expect(err).To(BeNil())
 
 		var (
-			cnt01Inpect []entities.ContainerInspectReport
-			cnt02Inpect []entities.ContainerInspectReport
+			imageInspect []entities.ImageInspectReport
+			cnt01Inpect  []entities.ContainerInspectReport
+			cnt02Inpect  []entities.ContainerInspectReport
 		)
+
+		imageInspectOutput, err := exec.Command("podman", "image", "inspect", testBusyBoxImage).Output()
+		Expect(err).To(BeNil())
+		err = json.Unmarshal(imageInspectOutput, &imageInspect)
+		Expect(err).To(BeNil())
 
 		cnt01InspectOutput, err := exec.Command("podman", "container", "inspect", testCnt01Name).Output()
 		Expect(err).To(BeNil())
@@ -80,10 +86,10 @@ var _ = Describe("Container", func() {
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt02ExitedCode)))
 
 		// podman_container_info
-		expectedCnt01Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",name=\"%s\",pod_id=\"%s\",pod_name=\"%s\",ports=\"\"}",
-			cnt01Inpect[0].ID[0:12], testBusyBoxImage, testCnt01Name, cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
-		expectedCnt02Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",name=\"%s\",pod_id=\"\",pod_name=\"\",ports=\"\"}",
-			cnt02Inpect[0].ID[0:12], testBusyBoxImage, testCnt02Name)
+		expectedCnt01Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",image_id=\"%s\",name=\"%s\",pod_id=\"%s\",pod_name=\"%s\",ports=\"\"}",
+			cnt01Inpect[0].ID[0:12], testBusyBoxImage, imageInspect[0].ID[0:12], testCnt01Name, cnt01Pod01Inspect.ID, cnt01Pod01Inspect.Name)
+		expectedCnt02Info := fmt.Sprintf("podman_container_info{id=\"%s\",image=\"%s\",image_id=\"%s\",name=\"%s\",pod_id=\"\",pod_name=\"\",ports=\"\"}",
+			cnt02Inpect[0].ID[0:12], testBusyBoxImage, imageInspect[0].ID[0:12], testCnt02Name)
 
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt01Info)))
 		Expect(response).Should(ContainElement(ContainSubstring(expectedCnt02Info)))
