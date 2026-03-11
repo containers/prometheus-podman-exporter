@@ -4,7 +4,7 @@ go 1.24.7
 
 require (
 	github.com/containers/common v0.62.2
-	github.com/containers/podman/v5 v5.8.0
+	github.com/containers/podman/v5 v5.8.1
 	github.com/onsi/ginkgo/v2 v2.28.0
 	github.com/onsi/gomega v1.39.1
 	github.com/pkg/errors v0.9.1
