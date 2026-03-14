@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/containers/common/libnetwork/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	netTypes "go.podman.io/common/libnetwork/types"
 )
 
 var _ = Describe("Network", func() {
@@ -20,7 +20,7 @@ var _ = Describe("Network", func() {
 		netInspectOutput, err := exec.Command("podman", "network", "inspect", testNetName).Output()
 		Expect(err).To(BeNil())
 
-		var netInspect []types.Network
+		var netInspect []netTypes.Network
 
 		err = json.Unmarshal(netInspectOutput, &netInspect)
 		Expect(err).To(BeNil())
