@@ -116,7 +116,6 @@ github.com/containers/buildah/pkg/volumes
 github.com/containers/buildah/util
 # github.com/containers/common v0.62.2
 ## explicit; go 1.22.8
-github.com/containers/common/libnetwork/types
 github.com/containers/common/pkg/strongunits
 # github.com/containers/conmon v2.0.20+incompatible
 ## explicit
@@ -277,9 +276,6 @@ github.com/containers/psgo/internal/dev
 github.com/containers/psgo/internal/host
 github.com/containers/psgo/internal/proc
 github.com/containers/psgo/internal/process
-# github.com/containers/storage v1.59.1
-## explicit; go 1.23.0
-github.com/containers/storage/pkg/regexp
 # github.com/containers/winquit v1.1.0
 ## explicit; go 1.19
 github.com/containers/winquit/pkg/winquit
