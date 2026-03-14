@@ -1,33 +1,92 @@
 # See the documentation for more information:
 # https://packit.dev/docs/configuration/
 
-specfile_path: prometheus-podman-exporter.spec
+downstream_package_name: prometheus-podman-exporter
+upstream_tag_template: v{version}
+
+srpm_build_deps:
+  - git-archive-all
+
+packages:
+  exporter-fedora:
+    pkg_tool: fedpkg
+    specfile_path: rpm/prometheus-podman-exporter.spec
+
+  exporter-centos:
+    pkg_tool: centpkg
+    specfile_path: rpm/prometheus-podman-exporter.spec
+
+merge_pr_in_ci: false
+
+files_to_sync:
+  - src:
+      - ".packit.yaml"
+      - "rpm/prometheus-podman-exporter.spec"
+      - "rpm/vendor-*.tar.gz"
+    dest: .
+
+actions:
+  fix-spec-file:
+    - "bash rpm/packit-copr-rpm.sh"
+  post-modifications:
+    - |
+      bash -xc '
+      export CURRENT_DIR=$(pwd)
+      export BASE_DIR=${PACKIT_UPSTREAM_REPO}/
+      if [ -n "${PACKIT_DOWNSTREAM_REPO}" ] ; then
+        VERSION=$(grep -E "^VERSION=" ${BASE_DIR}/VERSION  | cut -d= -f2)
+        tar -C ${BASE_DIR} -czf "vendor-${VERSION}.tar.gz" vendor/
+        cp vendor-${VERSION}.tar.gz ${PACKIT_DOWNSTREAM_REPO}
+      fi
+      '
 
 jobs:
   - job: copr_build
     trigger: pull_request
     enable_net: true
-    srpm_build_deps:
-      - make
-      - openssl-devel
-      - rpkg
+    packages: [exporter-fedora]
     targets:
       - fedora-all-x86_64
       - fedora-all-aarch64
-# go1.24.7 rpm not available yet for ELEP9
-#      - epel-9-x86_64
-#      - epel-9-aarch64
+
+  - job: copr_build
+    trigger: pull_request
+    enable_net: true
+    packages: [exporter-fedora]
+    targets:
+      - epel-9-x86_64
+      - epel-9-aarch64
       - epel-10-x86_64
       - epel-10-aarch64
+
+  - job: copr_build
+    trigger: pull_request
+    enable_net: true
+    packages: [exporter-centos]
+    targets:
       - centos-stream-9-x86_64
       - centos-stream-9-aarch64
       - centos-stream-10-x86_64
       - centos-stream-10-aarch64
 
+  - job: propose_downstream
+    trigger: release
+    update_release: false
+    packages:
+      - exporter-fedora
+    dist_git_branches: &build_targets
+      - fedora-all
+      - epel-9
+      - epel-10
 
-    actions:
-      post-upstream-clone:
-        - "rpkg spec --outdir ./"
+  - job: koji_build
+    trigger: commit
+    packages:
+      - exporter-fedora
+    dist_git_branches: *build_targets
 
-      fix-spec-file:
-        "bash .packit.sh"
+  - job: bodhi_update
+    trigger: koji_build
+    packages:
+      - exporter-fedora
+    dist_git_branches: *build_targets

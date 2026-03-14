@@ -5,3 +5,9 @@ bin/
 *.log
 *.out
 ize
+*.zip
+*.tar.gz
+*.tar
+*.srpm
+*.rpm
+prepare_sources_result/
