@@ -40,7 +40,7 @@ require (
 	github.com/containernetworking/cni v1.3.0 // indirect
 	github.com/containernetworking/plugins v1.8.0 // indirect
 	github.com/containers/buildah v1.43.0 // indirect
-	github.com/containers/common v0.62.2 // indirect
+	github.com/containers/common v0.64.2 // indirect
 	github.com/containers/conmon v2.0.20+incompatible // indirect
 	github.com/containers/gvisor-tap-vsock v0.8.8 // indirect
 	github.com/containers/libhvee v0.10.1-0.20250829163521-178d10e67860 // indirect
