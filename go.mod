@@ -12,8 +12,8 @@ require (
 	github.com/prometheus/exporter-toolkit v0.15.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
-	go.podman.io/common v0.67.0
-	go.podman.io/image/v5 v5.39.1
+	go.podman.io/common v0.67.1
+	go.podman.io/image/v5 v5.39.2
 )
 
 require (
