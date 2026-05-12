@@ -28,28 +28,50 @@ prometheus-podman-exporter is using go v1.17 or above.
     $ make binary
     $ ./bin/prometheus-podman-exporter
     ```
+
 ## Container Image
 
-* Using unix socket (rootless):
+### Using unix socket (rootless)
 
-    ```shell
-    $ systemctl start --user podman.socket
-    $ podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v $XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock -p 9882:9882 --userns=keep-id:uid=65534 --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
-    ```
+```shell
+$ systemctl start --user podman.socket
+$ podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v $XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock -p 9882:9882 --userns=keep-id:uid=65534 --security-opt label=type:container_runtime_t quay.io/navidys/prometheus-podman-exporter
+```
 
-* Using unix socket (root):
+Or with a `compose.yml`, it needs `x-podman: in_pod: false` to allow podman compose to create the containers with `userns_mode: "keep-id:uid=65534"` :
 
-    ```
-    # systemctl start podman.socket
-    # podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v /run/podman/podman.sock:/run/podman/podman.sock -u root -p 9882:9882 --security-opt label=disable quay.io/navidys/prometheus-podman-exporter
-    ```
+```yaml
+name: prometheus_exporter
 
-* Using TCP:
+x-podman:
+    in_pod: false
 
-    ```shell
-    $ podman system service --time=0 tcp://<ip>:<port>
-    $ podman run -e CONTAINER_HOST=tcp://<ip>:<port> --network=host -p 9882:9882 quay.io/navidys/prometheus-podman-exporter:latest
-    ```
+services:
+    podman:
+        image: 'quay.io/navidys/prometheus-podman-exporter:latest'
+        container_name: prometheus_exporter_podman
+        userns_mode: "keep-id:uid=65534"
+        security_opt:
+            - label=type:container_runtime_t
+        volumes:
+            - '$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock'
+        environment:
+            CONTAINER_HOST: 'unix:///run/podman/podman.sock'
+```
+
+### Using unix socket (root):
+
+```
+# systemctl start podman.socket
+# podman run -e CONTAINER_HOST=unix:///run/podman/podman.sock -v /run/podman/podman.sock:/run/podman/podman.sock -u root -p 9882:9882 --security-opt label=type:container_runtime_t quay.io/navidys/prometheus-podman-exporter
+```
+
+### Using TCP:
+
+```shell
+$ podman system service --time=0 tcp://<ip>:<port>
+$ podman run -e CONTAINER_HOST=tcp://<ip>:<port> --network=host -p 9882:9882 quay.io/navidys/prometheus-podman-exporter:latest
+```
 
 ## Installing Packaged Versions
 
