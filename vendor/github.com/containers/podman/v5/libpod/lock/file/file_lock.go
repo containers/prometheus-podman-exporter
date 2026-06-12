@@ -83,7 +83,7 @@ func (locks *FileLocks) AllocateLock() (uint32, error) {
 		path := locks.getLockPath(id)
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 		if err != nil {
-			if os.IsExist(err) {
+			if errors.Is(err, os.ErrExist) {
 				continue
 			}
 			return 0, fmt.Errorf("creating lock file: %w", err)

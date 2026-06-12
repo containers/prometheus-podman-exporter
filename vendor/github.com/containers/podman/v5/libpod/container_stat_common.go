@@ -61,7 +61,7 @@ func (c *Container) stat(containerMountPoint string, containerPath string) (*def
 		// have to look into the error string.  Turning it into an
 		// ENOENT lets the API handlers return the correct status code
 		// which is crucial for the remote client.
-		if os.IsNotExist(statErr) || strings.Contains(statErr.Error(), "o such file or directory") {
+		if errors.Is(statErr, os.ErrNotExist) || strings.Contains(statErr.Error(), "o such file or directory") {
 			statErr = copy.ErrENOENT
 		}
 	}

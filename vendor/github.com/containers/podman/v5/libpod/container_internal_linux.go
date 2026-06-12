@@ -501,7 +501,7 @@ func (c *Container) addSharedNamespaces(g *generate.Generator) error {
 
 	availableUIDs, availableGIDs, err := rootless.GetAvailableIDMaps()
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			// The kernel-provided files only exist if user namespaces are supported
 			logrus.Debugf("User or group ID mappings not available: %s", err)
 		} else {
@@ -784,7 +784,7 @@ func (c *Container) makePlatformMtabLink(etcInTheContainerFd, rootUID, rootGID i
 	// If /etc/mtab does not exist in container image, then we need to
 	// create it, so that mount command within the container will work.
 	err := unix.Symlinkat("/proc/mounts", etcInTheContainerFd, "mtab")
-	if err != nil && !os.IsExist(err) {
+	if err != nil && !errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("creating /etc/mtab symlink: %w", err)
 	}
 	// If the symlink was created, then also chown it to root in the container

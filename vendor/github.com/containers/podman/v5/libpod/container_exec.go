@@ -906,7 +906,7 @@ func (c *Container) cleanupExecBundle(sessionID string) (err error) {
 	path := c.execBundlePath(sessionID)
 	for range 50 {
 		err = os.RemoveAll(path)
-		if err == nil || os.IsNotExist(err) {
+		if err == nil || errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		if pathErr, ok := err.(*os.PathError); ok {
@@ -989,7 +989,7 @@ func (c *Container) createExecBundle(sessionID string) (retErr error) {
 	}()
 	if err := os.MkdirAll(c.execExitFileDir(sessionID), execDirPermission); err != nil {
 		// The directory is allowed to exist
-		if !os.IsExist(err) {
+		if !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("creating OCI runtime exit file path %s: %w", c.execExitFileDir(sessionID), err)
 		}
 	}

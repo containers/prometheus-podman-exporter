@@ -580,7 +580,7 @@ func (r *Runtime) setupContainer(ctx context.Context, ctr *Container) (_ *Contai
 	if useDevShm && !MountExists(ctr.config.Spec.Mounts, "/dev/shm") && ctr.config.ShmDir == "" && !ctr.config.NoShm {
 		ctr.config.ShmDir = filepath.Join(ctr.bundlePath(), "shm")
 		if err := os.MkdirAll(ctr.config.ShmDir, 0o700); err != nil {
-			if !os.IsExist(err) {
+			if !errors.Is(err, os.ErrExist) {
 				return nil, fmt.Errorf("unable to create shm dir: %w", err)
 			}
 		}
