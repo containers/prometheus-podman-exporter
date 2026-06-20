@@ -976,7 +976,7 @@ func (c *Container) mountNotifySocket(g generate.Generator) error {
 	notifyDir := filepath.Join(c.bundlePath(), "notify")
 	logrus.Debugf("Checking notify %q dir", notifyDir)
 	if err := os.MkdirAll(notifyDir, 0o755); err != nil {
-		if !os.IsExist(err) {
+		if !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("unable to create notify %q dir: %w", notifyDir, err)
 		}
 	}
@@ -1953,13 +1953,13 @@ func (c *Container) makeBindMounts() error {
 		// another container.
 		if c.config.NetNsCtr == "" {
 			if resolvePath, ok := c.state.BindMounts[resolvconf.DefaultResolvConf]; ok {
-				if err := os.Remove(resolvePath); err != nil && !os.IsNotExist(err) {
+				if err := os.Remove(resolvePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return fmt.Errorf("container %s: %w", c.ID(), err)
 				}
 				delete(c.state.BindMounts, resolvconf.DefaultResolvConf)
 			}
 			if hostsPath, ok := c.state.BindMounts[config.DefaultHostsFile]; ok {
-				if err := os.Remove(hostsPath); err != nil && !os.IsNotExist(err) {
+				if err := os.Remove(hostsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return fmt.Errorf("container %s: %w", c.ID(), err)
 				}
 				delete(c.state.BindMounts, config.DefaultHostsFile)
@@ -2849,7 +2849,7 @@ func (c *Container) generatePasswdAndGroup() (string, string, error) {
 				return "", "", fmt.Errorf("creating path to container %s /etc/passwd: %w", c.ID(), err)
 			}
 			orig, err := os.ReadFile(originPasswdFile)
-			if err != nil && !os.IsNotExist(err) {
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return "", "", err
 			}
 			passwdFile, err := c.writeStringToStaticDir("passwd", string(orig)+passwdEntry)
@@ -2895,7 +2895,7 @@ func (c *Container) generatePasswdAndGroup() (string, string, error) {
 				return "", "", fmt.Errorf("creating path to container %s /etc/group: %w", c.ID(), err)
 			}
 			orig, err := os.ReadFile(originGroupFile)
-			if err != nil && !os.IsNotExist(err) {
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return "", "", err
 			}
 			groupFile, err := c.writeStringToStaticDir("group", string(orig)+groupEntry)
@@ -2938,7 +2938,7 @@ func (c *Container) cleanupOverlayMounts() error {
 func (c *Container) createSecretMountDir(runPath string) error {
 	src := filepath.Join(c.state.RunDir, "/run/secrets")
 	err := fileutils.Exists(src)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		if err := umask.MkdirAllIgnoreUmask(src, os.FileMode(0o755)); err != nil {
 			return err
 		}
@@ -3093,7 +3093,7 @@ func (c *Container) fixVolumePermissionsUnlocked(v *ContainerNamedVolume, vol *V
 			if err := setVolumeAtime(mountPoint, st); err != nil {
 				return err
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}

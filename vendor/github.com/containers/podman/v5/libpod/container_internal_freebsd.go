@@ -4,6 +4,7 @@ package libpod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -238,7 +239,7 @@ func (c *Container) addSharedNamespaces(g *generate.Generator) error {
 
 	availableUIDs, availableGIDs, err := rootless.GetAvailableIDMaps()
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			// The kernel-provided files only exist if user namespaces are supported
 			logrus.Debugf("User or group ID mappings not available: %s", err)
 		} else {

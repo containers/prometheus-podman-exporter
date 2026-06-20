@@ -4,6 +4,7 @@ package ignition
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -433,7 +434,7 @@ func getCerts(certsDir string, isDir bool) []File {
 			return nil
 		})
 		if err != nil {
-			if !os.IsNotExist(err) {
+			if !errors.Is(err, os.ErrNotExist) {
 				logrus.Warnf("Unable to copy certs via ignition, error while reading certs from %s:  %s", certsDir, err.Error())
 			}
 		}
