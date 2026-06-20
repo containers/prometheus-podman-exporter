@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -20,7 +21,7 @@ func (r *Runtime) stopPauseProcess() error {
 		}
 		data, err := os.ReadFile(pausePidPath)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, os.ErrNotExist) {
 				return nil
 			}
 			return fmt.Errorf("cannot read pause process pid file: %w", err)

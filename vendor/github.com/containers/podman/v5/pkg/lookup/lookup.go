@@ -1,6 +1,7 @@
 package lookup
 
 import (
+	"errors"
 	"os"
 	"strconv"
 
@@ -123,7 +124,7 @@ func GetUser(containerMount, userIDorName string) (*user.User, error) {
 		}
 		return u.Uid == uid
 	})
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	if len(users) > 0 {
@@ -158,7 +159,7 @@ func GetGroup(containerMount, groupIDorName string) (*user.Group, error) {
 		}
 		return g.Gid == gid
 	})
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	if len(groups) > 0 {

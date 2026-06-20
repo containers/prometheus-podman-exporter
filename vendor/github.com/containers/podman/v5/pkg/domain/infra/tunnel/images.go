@@ -364,7 +364,7 @@ func (ir *ImageEngine) Save(_ context.Context, nameOrID string, tags []string, o
 		if info.Mode().IsRegular() {
 			return fmt.Errorf("%q already exists as a regular file", opts.Output)
 		}
-	case os.IsNotExist(err):
+	case errors.Is(err, os.ErrNotExist):
 		if err := os.Mkdir(opts.Output, 0o755); err != nil {
 			return err
 		}

@@ -109,7 +109,7 @@ install.tools: .install.pre-commit .install.codespell .install.golangci-lint .in
 
 .PHONY: .install.golangci-lint
 .install.golangci-lint:
-	VERSION=2.3.1 ./hack/install_golangci.sh
+	VERSION=2.5.0 ./hack/install_golangci.sh
 
 #=================================================
 # Linting/Formatting/Code Validation targets

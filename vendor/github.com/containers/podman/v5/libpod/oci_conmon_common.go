@@ -124,7 +124,7 @@ func newConmonOCIRuntime(name string, paths []string, conmonPath string, runtime
 	for _, path := range paths {
 		stat, err := os.Stat(path)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
 			return nil, fmt.Errorf("cannot stat OCI runtime %s path: %w", name, err)
