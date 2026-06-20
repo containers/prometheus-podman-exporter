@@ -738,17 +738,17 @@ func (c *Container) removeConmonFiles() error {
 		return fmt.Errorf("failed to get attach socket path for container %s: %w", c.ID(), err)
 	}
 
-	if err := os.Remove(attachFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(attachFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing container %s attach file: %w", c.ID(), err)
 	}
 
 	ctlFile := filepath.Join(c.bundlePath(), "ctl")
-	if err := os.Remove(ctlFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(ctlFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing container %s ctl file: %w", c.ID(), err)
 	}
 
 	winszFile := filepath.Join(c.bundlePath(), "winsz")
-	if err := os.Remove(winszFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(winszFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing container %s winsz file: %w", c.ID(), err)
 	}
 
@@ -757,7 +757,7 @@ func (c *Container) removeConmonFiles() error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(exitFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(exitFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing container %s exit file: %w", c.ID(), err)
 	}
 
@@ -1844,7 +1844,7 @@ func (c *Container) mountStorage() (_ string, deferredErr error) {
 	defer unix.Close(dirfd)
 
 	err = unix.Mkdirat(dirfd, "etc", 0o755)
-	if err != nil && !os.IsExist(err) {
+	if err != nil && !errors.Is(err, os.ErrExist) {
 		return "", fmt.Errorf("create /etc: %w", err)
 	}
 	// If the etc directory was created, chown it to root in the container
@@ -1944,7 +1944,7 @@ func (c *Container) mountNamedVolume(v *ContainerNamedVolume, mountpoint string)
 		// Skip the rest if it exists.
 		srcStat, err := os.Lstat(srcDir)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, os.ErrNotExist) {
 				// Source does not exist, don't bother copying
 				// up.
 				return vol, nil
@@ -2404,7 +2404,7 @@ func (c *Container) postDeleteHooks(ctx context.Context) error {
 func (c *Container) writeStringToRundir(destFile, contents string) (string, error) {
 	destFileName := filepath.Join(c.state.RunDir, destFile)
 
-	if err := os.Remove(destFileName); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(destFileName); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("removing %s for container %s: %w", destFile, c.ID(), err)
 	}
 
@@ -2438,7 +2438,7 @@ func (c *Container) saveSpec(spec *spec.Spec) error {
 	// paths
 	jsonPath := filepath.Join(c.bundlePath(), "config.json")
 	if err := fileutils.Exists(jsonPath); err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("doing stat on container %s spec: %w", c.ID(), err)
 		}
 		// The spec does not exist, we're fine
@@ -2474,7 +2474,7 @@ func (c *Container) setupOCIHooks(ctx context.Context, config *spec.Spec) (map[s
 		for _, hDir := range []string{hooks.DefaultDir, hooks.OverrideDir} {
 			manager, err := hooks.New(ctx, []string{hDir}, []string{"precreate", "poststop"})
 			if err != nil {
-				if os.IsNotExist(err) {
+				if errors.Is(err, os.ErrNotExist) {
 					continue
 				}
 				return nil, err
@@ -2736,7 +2736,7 @@ func (c *Container) checkExitFile() error {
 	// Check for the exit file
 	info, err := os.Stat(exitFile)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			// Container is still running, no error
 			return nil
 		}

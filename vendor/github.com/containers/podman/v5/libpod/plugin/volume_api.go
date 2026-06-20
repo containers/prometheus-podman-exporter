@@ -183,7 +183,7 @@ func (p *VolumePlugin) getURI() string {
 // Does not actually ping the API, just verifies that the socket still exists.
 func (p *VolumePlugin) verifyReachable() error {
 	if err := fileutils.Exists(p.SocketPath); err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			pluginsLock.Lock()
 			defer pluginsLock.Unlock()
 			delete(plugins, p.Name)

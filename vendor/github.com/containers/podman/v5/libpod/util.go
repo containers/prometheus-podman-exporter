@@ -88,11 +88,11 @@ func DefaultSeccompPath() (string, error) {
 	if err == nil {
 		return config.SeccompOverridePath, nil
 	}
-	if !os.IsNotExist(err) {
+	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
 	if err := fileutils.Exists(config.SeccompDefaultPath); err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
 		return "", nil

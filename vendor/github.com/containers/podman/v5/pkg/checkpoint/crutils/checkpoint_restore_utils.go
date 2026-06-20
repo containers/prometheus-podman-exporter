@@ -77,7 +77,7 @@ func CRImportCheckpointConfigOnly(destination, input string) error {
 // it exists deletes all files listed.
 func CRRemoveDeletedFiles(id, baseDirectory, containerRootDirectory string) error {
 	deletedFiles, _, err := metadata.ReadContainerCheckpointDeletedFiles(baseDirectory)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		// No files to delete. Just return
 		return nil
 	}
