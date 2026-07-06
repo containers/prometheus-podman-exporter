@@ -89,7 +89,29 @@ func updateImages() {
 		}
 	}
 
-	imageRep.images = images
+	imageRep.images = dedupImages(images)
+}
+
+// dedupImages drops entries that carry an identical label set. A digest-pinned
+// image can hold several references that all decompose to the same repository
+// and tag while sharing the image-level digest, which would otherwise emit
+// duplicate identical series and fail the whole /metrics gather.
+func dedupImages(images []Image) []Image {
+	seen := make(map[string]struct{}, len(images))
+	deduped := make([]Image, 0, len(images))
+
+	for _, img := range images {
+		key := img.ID + "\x00" + img.ParentID + "\x00" + img.Repository + "\x00" + img.Tag + "\x00" + img.Digest
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+
+		deduped = append(deduped, img)
+	}
+
+	return deduped
 }
 
 func repoTagDecompose(repoTags string) (string, string) {
