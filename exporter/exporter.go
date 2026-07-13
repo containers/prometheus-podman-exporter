@@ -54,10 +54,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	err = pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
-	if err != nil {
-		return err
-	}
+	pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
 
 	if cmdOptions.debug {
 		logLevel = "debug"
