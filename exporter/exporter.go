@@ -16,7 +16,12 @@ import (
 
 const minCacheDuration int64 = 5
 
-var errMinCacheDurtion = errors.New("invalid cache duration value, shall be >= " + strconv.Itoa(int(minCacheDuration)))
+var (
+	errMinCacheDurtion = errors.New(
+		"invalid cache duration value, shall be >= " + strconv.Itoa(int(minCacheDuration)),
+	)
+	errInvalidContainerStatsTimeout = errors.New("container stats timeout must be greater than zero")
+)
 
 type exporterOptions struct {
 	debug                     bool
@@ -26,6 +31,7 @@ type exporterOptions struct {
 	webDisableExporterMetrics bool
 	webConfigFile             string
 	cacheDuration             int64
+	containerStatsTimeout     time.Duration
 	enableAll                 bool
 	storeLabels               bool
 	whiteListedLabels         string
@@ -88,6 +94,11 @@ func Start(cmd *cobra.Command, _ []string) error {
 	})
 
 	// setup podman registry
+	err = pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
+	if err != nil {
+		return err
+	}
+
 	pdcs.SetupRegistry()
 	// start podman event streamer and initiate first update.
 	updateImages := cmdOptions.enableAll || cmdOptions.enableImages
@@ -164,6 +175,19 @@ func getEnabledCollectors(opts *exporterOptions) []string {
 	}
 
 	return enCollectors
+}
+
+func parseContainerStatsTimeout(cmd *cobra.Command) (time.Duration, error) {
+	timeout, err := cmd.Flags().GetDuration("collector.container-stats-timeout")
+	if err != nil {
+		return 0, err
+	}
+
+	if timeout <= 0 {
+		return 0, errInvalidContainerStatsTimeout
+	}
+
+	return timeout, nil
 }
 
 func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclop
@@ -246,6 +270,11 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, errMinCacheDurtion
 	}
 
+	containerStatsTimeout, err := parseContainerStatsTimeout(cmd)
+	if err != nil {
+		return nil, err
+	}
+
 	enhanceMetrics, err := cmd.Flags().GetBool("collector.enhance-metrics")
 	if err != nil {
 		return nil, err
@@ -259,6 +288,7 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		webDisableExporterMetrics: webDisableExporterMetrics,
 		webConfigFile:             webConfigFile,
 		enableAll:                 enableAll,
+		containerStatsTimeout:     containerStatsTimeout,
 		storeLabels:               storeLabels,
 		whiteListedLabels:         whiteListedLabels,
 		enableImages:              enableImages,

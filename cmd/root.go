@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/containers/prometheus-podman-exporter/exporter"
 	"github.com/prometheus/common/version"
@@ -11,8 +12,9 @@ import (
 )
 
 const (
-	maxRequest    int   = 40
-	cacheDuration int64 = 3600
+	maxRequest                   int           = 40
+	cacheDuration                int64         = 3600
+	defaultContainerStatsTimeout time.Duration = time.Second
 )
 
 var (
@@ -116,6 +118,9 @@ func init() {
 
 	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration,
 		"Duration (seconds) to retrieve container, size and refresh the cache.")
+
+	rootCmd.Flags().Duration("collector.container-stats-timeout", defaultContainerStatsTimeout,
+		"Timeout for collecting container statistics.")
 
 	rootCmd.Flags().BoolP("collector.enhance-metrics", "", false,
 		"enhance all metrics with the same field as for their podman_<...>_info metrics.")
