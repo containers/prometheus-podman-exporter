@@ -34,6 +34,7 @@ Usage:
 
 Flags:
   -t, --collector.cache_duration int          Duration (seconds) to retrieve container, size and refresh the cache. (default 3600)
+      --collector.container-stats-timeout duration   Timeout for collecting container statistics. (default 1s)
   -a, --collector.enable-all                  Enable all collectors by default.
       --collector.enhance-metrics             enhance all metrics with the same field as for their podman_<...>_info metrics.
   -i, --collector.image                       Enable image collector.
@@ -62,6 +63,8 @@ By default only container collector is enabled, in order to enable all collector
 ```shell
 $ ./bin/prometheus-podman-exporter --collector.enable-all
 ```
+
+Container statistics collection times out after one second by default. For hosts where collection takes longer, configure the timeout with `--collector.container-stats-timeout`, for example `--collector.container-stats-timeout=5s`.
 
 The exporter uses plain HTTP without any form of authentication to expose the metrics by default.
 Use `--web.config.file` with a configuration file to use TLS for confidentiality and/or to enable authentication.
