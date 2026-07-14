@@ -15,8 +15,7 @@ func TestParseContainerStatsTimeout(t *testing.T) {
 		want    time.Duration
 		wantErr error
 	}{
-		{name: "default", value: "1s", want: time.Second},
-		{name: "custom", value: "5s", want: 5 * time.Second},
+		{name: "positive", value: "5s", want: 5 * time.Second},
 		{name: "zero", value: "0s", wantErr: errInvalidContainerStatsTimeout},
 		{name: "negative", value: "-1s", wantErr: errInvalidContainerStatsTimeout},
 	}
