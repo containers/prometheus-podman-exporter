@@ -129,7 +129,8 @@ func newImageSource(ctx context.Context, sys *types.SystemContext, ref dockerRef
 // Given a logicalReference and a pullSource, return a dockerImageSource if it is reachable.
 // The caller must call .Close() on the returned ImageSource.
 func newImageSourceAttempt(ctx context.Context, sys *types.SystemContext, logicalRef dockerReference, pullSource sysregistriesv2.PullSource,
-	registryConfig *registryConfiguration) (*dockerImageSource, error) {
+	registryConfig *registryConfiguration,
+) (*dockerImageSource, error) {
 	physicalRef, err := newReference(pullSource.Reference, false)
 	if err != nil {
 		return nil, err
@@ -149,6 +150,7 @@ func newImageSourceAttempt(ctx context.Context, sys *types.SystemContext, logica
 		return nil, err
 	}
 	client.tlsClientConfig.InsecureSkipVerify = pullSource.Endpoint.Insecure
+	client.namespaceProxy = pullSource.Endpoint.NamespaceProxy
 
 	s := &dockerImageSource{
 		PropertyMethodsInitialize: impl.PropertyMethods(impl.Properties{
