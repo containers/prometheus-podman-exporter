@@ -45,7 +45,7 @@ func NewPodStatsCollector(logger *slog.Logger) (Collector, error) {
 
 // Update reads and exposes pod stats.
 func (c *podCollector) Update(ch chan<- prometheus.Metric) error {
-	defaultPodLabels := []string{"id"}
+	defaultPodLabels := podDefaultLabels
 
 	reports, err := pdcs.Pods()
 	if err != nil {
@@ -110,8 +110,8 @@ func (c *podCollector) Update(ch chan<- prometheus.Metric) error {
 }
 
 func (c *podCollector) getPodDescLabels(rep pdcs.Pod) *podDescLabels {
-	podLabels := []string{"id", "name", "infra_id"}
-	podLabelsValue := []string{rep.ID, rep.Name, rep.InfraID}
+	podLabels := podDescDefaultLabels
+	podLabelsValue := []string{rep.ID, rep.Name, rep.InfraID} //nolint:prealloc
 
 	extraLabels, extraValues := c.getExtraLabelsAndValues(podLabels, rep)
 

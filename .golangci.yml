@@ -18,9 +18,11 @@ linters:
     - ireturn
     - exhaustruct
     - varnamelen
-    - wsl
     - depguard
     - wrapcheck
+    # deprecated
+    - wsl
+    - gomodguard
   settings:
     errcheck:
       check-blank: false

@@ -13,8 +13,6 @@ type volumeCollector struct {
 	logger  *slog.Logger
 }
 
-var volumeDefaultLAbels = []string{"name", "driver", "mount_point"}
-
 func init() {
 	registerCollector("volume", defaultDisabled, NewVolumeStatsCollector)
 }
@@ -24,7 +22,7 @@ func NewVolumeStatsCollector(logger *slog.Logger) (Collector, error) {
 	createdLabels := []string{"name"}
 
 	if enhanceAllMetrics {
-		createdLabels = volumeDefaultLAbels
+		createdLabels = volumeDefaultLabels
 	}
 
 	return &volumeCollector{
@@ -32,7 +30,7 @@ func NewVolumeStatsCollector(logger *slog.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "volume", "info"),
 				"Volume information.",
-				volumeDefaultLAbels, nil,
+				volumeDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		created: typedDesc{

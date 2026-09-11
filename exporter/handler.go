@@ -43,7 +43,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("couldn't create filtered metrics handler:", "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 
-		_, err := w.Write([]byte(fmt.Sprintf("couldn't create filtered metrics handler: %s", err))) //nolint:staticcheck
+		errMsg := []byte("couldn't create filtered metrics handler: ")
+		errMsg = fmt.Appendf(errMsg, "%s", err)
+
+		_, err := w.Write(errMsg)
 		if err != nil {
 			h.logger.Warn("failed to write filtered metrics error", "err", err)
 		}
