@@ -19,6 +19,7 @@ prometheus-podman-exporter uses the podman (libpod) library to fetch the statist
 
 | Exporter  | Podman |
 | --------- | ------ |
+| v2        | v6     |
 | >= 1.11.y | v5.x.y |
 | <= 1.10.x | v4.x.y |
 
