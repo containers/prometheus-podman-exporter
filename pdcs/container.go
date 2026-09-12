@@ -106,6 +106,17 @@ func Containers() ([]Container, error) {
 			rootFsSize = cntSizeInfo.rootFsSize
 		}
 
+		cntStatedAt := rep.StartedAt
+		cntExitedAt := rep.ExitedAt
+
+		if cntStatedAt < 0 {
+			cntStatedAt = -1
+		}
+
+		if cntExitedAt < 0 {
+			cntExitedAt = -1
+		}
+
 		containers = append(containers, Container{
 			ID:         cntID,
 			PodID:      getID(rep.Pod),
@@ -114,8 +125,8 @@ func Containers() ([]Container, error) {
 			Image:      rep.Image,
 			ImageID:    getID(rep.ImageID),
 			Created:    rep.Created.Unix(),
-			Started:    rep.StartedAt,
-			Exited:     rep.ExitedAt,
+			Started:    cntStatedAt,
+			Exited:     cntExitedAt,
 			ExitCode:   rep.ExitCode,
 			State:      conReporter{rep}.state(),
 			Health:     conReporter{rep}.health(),
