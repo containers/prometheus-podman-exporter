@@ -40,10 +40,10 @@ local-gccgo gccgo: ## build using gccgo on the host
 	GCCGO=$(PWD)/hack/gccgo-wrapper.sh $(GO) build -compiler gccgo $(BUILDFLAGS) -o containers-storage.gccgo ./cmd/containers-storage
 
 local-cross cross: ## cross build the binaries for arm, darwin, and freebsd
-	@for target in linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64 linux/ppc64le linux/riscv64 linux/s390x linux/mips linux/mipsle linux/mips64 linux/mips64le darwin/amd64 windows/amd64 freebsd/amd64 freebsd/arm64 ; do \
+	@for target in linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64 linux/ppc64le linux/riscv64 linux/s390x linux/mips linux/mipsle linux/mips64 linux/mips64le darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64 ; do \
 		os=`echo $${target} | cut -f1 -d/` ; \
 		arch=`echo $${target} | cut -f2 -d/` ; \
-		suffix=$${os}.$${arch} ; \
+		suffix=$${os}.$${arch}`GOOS=$${os} GOARCH=$${arch} $(GO) env GOEXE` ; \
 		echo env CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build -compiler gc -tags \"$(NATIVETAGS) $(TAGS)\" $(FLAGS) ./... ; \
 		env CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build -compiler gc -tags "$(NATIVETAGS) $(TAGS)" $(FLAGS) ./... || exit 1 ; \
 		echo env CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build -compiler gc -tags \"$(NATIVETAGS) $(TAGS)\" $(FLAGS) -o containers-storage.$${suffix} ./cmd/containers-storage ; \
@@ -68,6 +68,10 @@ install: install.docs
 
 lint:
 	golangci-lint run --build-tags="$(AUTOTAGS) $(TAGS)"
+
+.PHONY: fmt
+fmt:
+	golangci-lint fmt
 
 help: ## this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-z A-Z_-]+:.*?## / {gsub(" ",",",$$1);gsub("\\\\n",sprintf("\n%22c"," "), $$2);printf "\033[36m%-21s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)

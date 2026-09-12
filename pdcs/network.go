@@ -3,9 +3,9 @@ package pdcs
 import (
 	"strings"
 
-	"github.com/containers/podman/v5/cmd/podman/registry"
-	"github.com/containers/podman/v5/pkg/domain/entities"
 	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/podman/v6/cmd/podman/registry"
+	"go.podman.io/podman/v6/pkg/domain/entities"
 )
 
 // Network implements network's basic information.

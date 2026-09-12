@@ -20,6 +20,6 @@ jobs:
         stale-pr-message: 'A friendly reminder that this PR had no activity for 30 days.'
         stale-issue-label: 'stale-issue'
         stale-pr-label: 'stale-pr'
-        days-before-stale: 30
+        days-before-stale: 90
         days-before-close: 365
         remove-stale-when-updated: true

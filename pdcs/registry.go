@@ -4,9 +4,9 @@ import (
 	"io"
 	"log"
 
-	"github.com/containers/podman/v5/cmd/podman/registry"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"go.podman.io/podman/v6/cmd/podman/registry"
 )
 
 // SetupRegistry will initialize podman registry.

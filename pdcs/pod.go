@@ -1,8 +1,8 @@
 package pdcs
 
 import (
-	"github.com/containers/podman/v5/cmd/podman/registry"
-	"github.com/containers/podman/v5/pkg/domain/entities"
+	"go.podman.io/podman/v6/cmd/podman/registry"
+	"go.podman.io/podman/v6/pkg/domain/entities"
 )
 
 // Pod implements pod's basic information.

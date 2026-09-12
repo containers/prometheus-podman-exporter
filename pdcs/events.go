@@ -5,9 +5,9 @@ import (
 	"log"
 	"log/slog"
 
-	"github.com/containers/podman/v5/cmd/podman/registry"
-	"github.com/containers/podman/v5/libpod/events"
-	"github.com/containers/podman/v5/pkg/domain/entities"
+	"go.podman.io/podman/v6/cmd/podman/registry"
+	"go.podman.io/podman/v6/libpod/events"
+	"go.podman.io/podman/v6/pkg/domain/entities"
 )
 
 func StartEventStreamer(logger *slog.Logger, updateImage bool) { //nolint:cyclop

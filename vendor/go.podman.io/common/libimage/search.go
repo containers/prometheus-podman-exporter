@@ -24,6 +24,9 @@ const (
 	// Let's follow Firefox by limiting parallel downloads to 6.  We do the
 	// same when pulling images in c/image.
 	searchMaxParallel = int64(6)
+
+	// searchResultOK represents true for Official and Automated.
+	searchResultOK = "[OK]"
 )
 
 // SearchResult is holding image-search related data.
@@ -42,6 +45,16 @@ type SearchResult struct {
 	Automated string
 	// Tag is the image tag
 	Tag string
+}
+
+// IsAutomated returns true if the image was created by an automated build.
+func (s *SearchResult) IsAutomated() bool {
+	return s.Automated == searchResultOK
+}
+
+// IsOfficial returns true if it's an official image.
+func (s *SearchResult) IsOfficial() bool {
+	return s.Official == searchResultOK
 }
 
 // SearchOptions customize searching images.
@@ -119,7 +132,6 @@ func (r *Runtime) Search(ctx context.Context, term string, options *SearchOption
 
 	sem := semaphore.NewWeighted(searchMaxParallel)
 	wg := sync.WaitGroup{}
-	wg.Add(len(searchRegistries))
 	data := make([]searchOutputData, len(searchRegistries))
 
 	for i := range searchRegistries {
@@ -127,12 +139,11 @@ func (r *Runtime) Search(ctx context.Context, term string, options *SearchOption
 			return nil, err
 		}
 		index := i
-		go func() {
+		wg.Go(func() {
 			defer sem.Release(1)
-			defer wg.Done()
 			searchOutput, err := r.searchImageInRegistry(ctx, term, searchRegistries[index], options)
 			data[index] = searchOutputData{data: searchOutput, err: err}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -216,11 +227,11 @@ func (r *Runtime) searchImageInRegistry(ctx context.Context, term, registry stri
 		}
 		official := ""
 		if results[i].IsOfficial {
-			official = "[OK]"
+			official = searchResultOK
 		}
 		automated := ""
 		if results[i].IsAutomated {
-			automated = "[OK]"
+			automated = searchResultOK
 		}
 		description := strings.ReplaceAll(results[i].Description, "\n", " ")
 		if len(description) > 44 && !options.NoTrunc {

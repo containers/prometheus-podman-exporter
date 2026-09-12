@@ -15,7 +15,6 @@ import (
 
 	"github.com/opencontainers/cgroups"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/storage/pkg/fileutils"
 	"golang.org/x/sys/unix"
 )
 
@@ -171,6 +170,9 @@ func getCgroupProcess(procFile string, allowRoot bool) (string, error) {
 			cgroup = parts[2]
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
 	if len(cgroup) == 0 || (!allowRoot && cgroup == "/") {
 		return "", fmt.Errorf("could not find cgroup mount in %q", procFile)
 	}
@@ -207,7 +209,7 @@ func MoveUnderCgroup(cgroup, subtree string, processes []uint32) error {
 	}
 	defer f.Close()
 
-	unifiedMode, err := IsCgroup2UnifiedMode()
+	_, err = IsCgroup2UnifiedMode()
 	if err != nil {
 		return err
 	}
@@ -221,24 +223,12 @@ func MoveUnderCgroup(cgroup, subtree string, processes []uint32) error {
 		}
 
 		// root cgroup, skip it
-		if parts[2] == "/" && (!unifiedMode || parts[1] != "") {
+		if parts[2] == "/" && parts[1] != "" {
 			continue
 		}
 
 		cgroupRoot := "/sys/fs/cgroup"
-		// Special case the unified mount on hybrid cgroup and named hierarchies.
-		// This works on Fedora 31, but we should really parse the mounts to see
-		// where the cgroup hierarchy is mounted.
-		if parts[1] == "" && !unifiedMode {
-			// If it is not using unified mode, the cgroup v2 hierarchy is
-			// usually mounted under /sys/fs/cgroup/unified
-			cgroupRoot = filepath.Join(cgroupRoot, "unified")
-
-			// Ignore the unified mount if it doesn't exist
-			if err := fileutils.Exists(cgroupRoot); err != nil && os.IsNotExist(err) {
-				continue
-			}
-		} else if parts[1] != "" {
+		if parts[1] != "" {
 			// Assume the controller is mounted at /sys/fs/cgroup/$CONTROLLER.
 			controller := strings.TrimPrefix(parts[1], "name=")
 			cgroupRoot = filepath.Join(cgroupRoot, controller)
@@ -280,6 +270,9 @@ func MoveUnderCgroup(cgroup, subtree string, processes []uint32) error {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -292,13 +285,9 @@ var (
 // it is running in the root cgroup on a system that uses cgroupv2.
 func MaybeMoveToSubCgroup() error {
 	maybeMoveToSubCgroupSync.Do(func() {
-		unifiedMode, err := IsCgroup2UnifiedMode()
+		_, err := IsCgroup2UnifiedMode()
 		if err != nil {
 			maybeMoveToSubCgroupSyncErr = err
-			return
-		}
-		if !unifiedMode {
-			maybeMoveToSubCgroupSyncErr = nil
 			return
 		}
 		cgroup, err := GetOwnCgroup()

@@ -182,6 +182,9 @@ func Login(ctx context.Context, systemContext *types.SystemContext, opts *LoginO
 		for scanner.Scan() {
 			fmt.Fprint(&stdinPasswordStrBuilder, scanner.Text())
 		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("reading password from stdin: %w", err)
+		}
 		password = stdinPasswordStrBuilder.String()
 	}
 
@@ -393,7 +396,7 @@ func Logout(systemContext *types.SystemContext, opts *LogoutOptions, args []stri
 func defaultRegistryWhenUnspecified(systemContext *types.SystemContext) (string, error) {
 	registriesFromFile, err := sysregistriesv2.UnqualifiedSearchRegistries(systemContext)
 	if err != nil {
-		return "", fmt.Errorf("getting registry from registry.conf, please specify a registry: %w", err)
+		return "", fmt.Errorf("getting registry from registries.conf, please specify a registry: %w", err)
 	}
 	if len(registriesFromFile) == 0 {
 		return "", errors.New("no registries found in registries.conf, a registry must be provided")

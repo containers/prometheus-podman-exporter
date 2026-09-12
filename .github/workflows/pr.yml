@@ -2,6 +2,9 @@ name: validate pull requests
 on:
   pull_request:
 
+env:
+  GO_VERSION: '1.25.9'
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
@@ -45,7 +48,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@v3
       - run: |
           go mod tidy
@@ -60,7 +63,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@v3
       - run: |
           bash hack/install_dep.sh
@@ -69,20 +72,20 @@ jobs:
           make gofmt
 
 
-  tests_podmanv5:
+  tests_podmanv6:
     runs-on: ubuntu-latest
     container:
-      image: quay.io/containers/podman:v5
+      image: registry.fedoraproject.org/fedora:latest
       volumes:
         - container_volume:/var/lib/containers
       options: "--device /dev/fuse:rw --security-opt label=disable --security-opt seccomp=unconfined --privileged"
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@v3
       - run: |
-          yum -y install make gcc glib2-devel glibc-devel glibc-static device-mapper-devel
+          sh hack/prep_testenv.sh
           export GOBIN=$(pwd)/bin/
           export CGO_ENABLED=1
           make .install.ginkgo
@@ -95,7 +98,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.25.0'
+          go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@v3
       - run: |
           bash hack/install_dep.sh
