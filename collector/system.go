@@ -26,28 +26,28 @@ func NewSystemCollector(logger *slog.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "system", "api_version"),
 				"Podman system api version.",
-				[]string{"version"}, nil,
+				systemDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		runtimeVer: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "system", "runtime_version"),
 				"Podman system runtime version.",
-				[]string{"version"}, nil,
+				systemDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		conmonVer: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "system", "conmon_version"),
 				"Podman system conmon version.",
-				[]string{"version"}, nil,
+				systemDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		buildahVer: typedDesc{
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "system", "buildah_version"),
 				"Podman system buildahVer version.",
-				[]string{"version"}, nil,
+				systemDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		logger: logger,

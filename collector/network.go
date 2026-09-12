@@ -23,7 +23,7 @@ func NewNetworkStatsCollector(logger *slog.Logger) (Collector, error) {
 			prometheus.NewDesc(
 				prometheus.BuildFQName(namespace, "network", "info"),
 				"Network information.",
-				[]string{"name", "id", "driver", "interface", "labels"}, nil,
+				networkDefaultLabels, nil,
 			), prometheus.GaugeValue,
 		},
 		logger: logger,

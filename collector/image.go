@@ -41,7 +41,7 @@ func NewImageStatsCollector(logger *slog.Logger) (Collector, error) {
 
 // Update reads and exposes images stats.
 func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
-	defaultImageLabels := []string{"id", "repository", "tag"}
+	imgLabels := imageDefaultLabels
 
 	reports, err := pdcs.Images()
 	if err != nil {
@@ -52,7 +52,7 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 		imageLabelsInfo := c.getImageDescLabels(rep)
 
 		if enhanceAllMetrics {
-			defaultImageLabels = imageLabelsInfo.labels
+			imgLabels = imageLabelsInfo.labels
 		}
 
 		infoDesc := prometheus.NewDesc(
@@ -64,13 +64,13 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 		sizeDesc := prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "image", "size"),
 			"Image size.",
-			defaultImageLabels, nil,
+			imgLabels, nil,
 		)
 
 		createdDesc := prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "image", "created_seconds"),
 			"Image creation time in unixtime.",
-			defaultImageLabels, nil,
+			imgLabels, nil,
 		)
 
 		c.info.desc = infoDesc
@@ -96,8 +96,8 @@ func (c *imageCollector) Update(ch chan<- prometheus.Metric) error {
 }
 
 func (c *imageCollector) getImageDescLabels(rep pdcs.Image) *imageDescLabels {
-	imageLabels := []string{"id", "parent_id", "repository", "tag", "digest"}
-	imageLabelsValue := []string{rep.ID, rep.ParentID, rep.Repository, rep.Tag, rep.Digest}
+	imageLabels := imageDescDefaultLabels
+	imageLabelsValue := []string{rep.ID, rep.ParentID, rep.Repository, rep.Tag, rep.Digest} //nolint:prealloc
 
 	extraLabels, extraValues := c.getExtraLabelsAndValues(imageLabels, rep)
 
