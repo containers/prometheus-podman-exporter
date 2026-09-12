@@ -61,8 +61,8 @@ jobs:
     packages:
       - exporter-fedora
     dist_git_branches: &build_targets
-      - fedora-all
-      - epel-9
+      - fedora-rawhide
+      - fedora-45
       - epel-10
 
   - job: koji_build
