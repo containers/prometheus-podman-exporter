@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/hashicorp/go-multierror"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
@@ -41,8 +40,10 @@ const (
 	// rootlessNetNsConnPidFile is the name of the rootless netns slirp4netns/pasta pid file.
 	rootlessNetNsConnPidFile = "rootless-netns-conn.pid"
 
-	// persistentCNIDir is the directory where the CNI files are stored.
-	persistentCNIDir = "/var/lib/cni"
+	// pestoSocketFile is the name of the UNIX domain socket file used by
+	// pesto to communicate with the running pasta instance. Pasta is started
+	// with "-c <socketPath>" to enable this control channel.
+	pestoSocketFile = "pasta.sock"
 
 	tmpfs          = "tmpfs"
 	none           = "none"
@@ -52,13 +53,11 @@ const (
 type Netns struct {
 	// dir used for the rootless netns
 	dir string
-	// backend used for the network setup/teardown
-	backend NetworkBackend
 
 	// config contains containers.conf options.
 	config *config.Config
 
-	// info contain information about ip addresses used in the netns.
+	// info contains information about ip addresses used in the netns.
 	// A caller can get this info via Info().
 	info *types.RootlessNetnsInfo
 }
@@ -88,15 +87,14 @@ func wrapError(msg string, err error) *rootlessNetnsError {
 	}
 }
 
-func New(dir string, backend NetworkBackend, conf *config.Config) (*Netns, error) {
+func New(dir string, conf *config.Config) (*Netns, error) {
 	netnsDir := filepath.Join(dir, rootlessNetnsDir)
 	if err := os.MkdirAll(netnsDir, 0o700); err != nil {
 		return nil, wrapError("", err)
 	}
 	return &Netns{
-		dir:     netnsDir,
-		backend: backend,
-		config:  conf,
+		dir:    netnsDir,
+		config: conf,
 	}, nil
 }
 
@@ -107,9 +105,9 @@ func (n *Netns) getPath(path string) string {
 
 // getOrCreateNetns returns the rootless netns, if it created a new one the
 // returned bool is set to true.
-func (n *Netns) getOrCreateNetns() (ns.NetNS, bool, error) {
+func (n *Netns) getOrCreateNetns() (netns.NetNS, bool, error) {
 	nsPath := n.getPath(rootlessNetnsDir)
-	nsRef, err := ns.GetNS(nsPath)
+	nsRef, err := netns.GetNS(nsPath)
 	if err == nil {
 		pidPath := n.getPath(rootlessNetNsConnPidFile)
 		pid, err := readPidFile(pidPath)
@@ -140,7 +138,7 @@ func (n *Netns) getOrCreateNetns() (ns.NetNS, bool, error) {
 		// the file and mounting it. Or if the file is not on tmpfs (deleted on boot)
 		// you might run into it as well: https://github.com/containers/podman/issues/25144
 		// We have to do this because NewNSAtPath fails with EEXIST otherwise
-		if errors.As(err, &ns.NSPathNotNSErr{}) {
+		if errors.As(err, &netns.NSPathNotNSErr{}) {
 			// We don't care if this fails, NewNSAtPath() should return the real error.
 			_ = os.Remove(nsPath)
 		}
@@ -179,7 +177,7 @@ func (n *Netns) getOrCreateNetns() (ns.NetNS, bool, error) {
 func (n *Netns) cleanup() error {
 	if err := fileutils.Exists(n.dir); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			// dir does not exists no need for cleanup
+			// dir does not exist no need for cleanup
 			return nil
 		}
 		return err
@@ -205,10 +203,29 @@ func (n *Netns) cleanup() error {
 func (n *Netns) setupPasta(nsPath string) error {
 	pidPath := n.getPath(rootlessNetNsConnPidFile)
 
+	extraOpts := []string{"--pid", pidPath}
+
+	if n.config.Network.RootlessPortForwarder == config.RootlessPortForwarderPasta {
+		extraOpts = append(extraOpts, "-c", n.getPath(pestoSocketFile))
+	}
+
+	// For the rootless netns, hard-code IPv6 --map-guest-addr, --address, and
+	// --gateway so pasta uses routable addresses for inbound IPv6 forwarding
+	// (instead of link-local which is not routable across bridges).
+	// The v4 --map-guest-addr must also be listed here because providing any
+	// --map-guest-addr suppresses the default one added by createPastaArgs.
+	// See: https://bugs.passt.top/show_bug.cgi?id=217
+	extraOpts = append(extraOpts,
+		"--map-guest-addr", pasta.MapGuestAddrIpv4,
+		"--map-guest-addr", pasta.MapGuestAddrIpv6,
+		"--address", pasta.GuestAddrIpv6,
+		"--gateway", pasta.GatewayIpv6,
+	)
+
 	pastaOpts := pasta.SetupOptions{
 		Config:       n.config,
 		Netns:        nsPath,
-		ExtraOptions: []string{"--pid", pidPath},
+		ExtraOptions: extraOpts,
 	}
 	res, err := pasta.Setup(&pastaOpts)
 	if err != nil {
@@ -318,9 +335,9 @@ func (n *Netns) setupSlirp4netns(nsPath string) error {
 func (n *Netns) cleanupRootlessNetns() error {
 	pidFile := n.getPath(rootlessNetNsConnPidFile)
 	pid, err := readPidFile(pidFile)
-	// do not hard error if the file dos not exists, cleanup should be idempotent
+	// do not hard error if the file does not exist, cleanup should be idempotent
 	if errors.Is(err, fs.ErrNotExist) {
-		logrus.Debugf("Rootless netns conn pid file does not exists %s", pidFile)
+		logrus.Debugf("Rootless netns conn pid file does not exist %s", pidFile)
 		return nil
 	}
 	if err == nil {
@@ -349,16 +366,15 @@ func (n *Netns) setupMounts() error {
 	// we have to set up all mounts correctly.
 
 	// The order of the mounts is IMPORTANT.
-	// The idea of the extra mount ns is to make /run and /var/lib/cni writeable
-	// for the cni plugins but not affecting the podman user namespace.
+	// The idea of the extra mount ns is to make /run writeable
+	// for the network plugins but not affecting the podman user namespace.
 	// Because the plugins also need access to XDG_RUNTIME_DIR/netns some special setup is needed.
 
 	// The following bind mounts are needed
 	// 1. XDG_RUNTIME_DIR -> XDG_RUNTIME_DIR/rootless-netns/XDG_RUNTIME_DIR
 	// 2. /run/systemd -> XDG_RUNTIME_DIR/rootless-netns/run/systemd (only if it exists)
 	// 3. XDG_RUNTIME_DIR/rootless-netns/resolv.conf -> /etc/resolv.conf or XDG_RUNTIME_DIR/rootless-netns/run/symlink/target
-	// 4. XDG_RUNTIME_DIR/rootless-netns/var/lib/cni -> /var/lib/cni (if /var/lib/cni does not exist, use the parent dir)
-	// 5. XDG_RUNTIME_DIR/rootless-netns/run -> /run
+	// 4. XDG_RUNTIME_DIR/rootless-netns/run -> /run
 
 	// Create a new mount namespace,
 	// this must happen inside the netns thread.
@@ -385,7 +401,7 @@ func (n *Netns) setupMounts() error {
 	}
 	newXDGRuntimeDir := n.getPath(xdgRuntimeDir)
 	// 1. Mount the netns into the new run to keep them accessible.
-	// Otherwise cni setup will fail because it cannot access the netns files.
+	// Otherwise network setup will fail because it cannot access the netns files.
 	err = mountAndMkdirDest(xdgRuntimeDir, newXDGRuntimeDir, none, unix.MS_BIND|unix.MS_REC)
 	if err != nil {
 		return err
@@ -501,14 +517,7 @@ func (n *Netns) setupMounts() error {
 		return wrapError(fmt.Sprintf("mount resolv.conf to %q", resolvePath), err)
 	}
 
-	// 4. CNI plugins need access to /var/lib/cni
-	if n.backend == CNI {
-		if err := n.mountCNIVarDir(); err != nil {
-			return err
-		}
-	}
-
-	// 5. Mount the new prepared run dir to /run, it has to be recursive to keep the other bind mounts.
+	// 4. Mount the new prepared run dir to /run, it has to be recursive to keep the other bind mounts.
 	runDir := n.getPath("run")
 	err = os.MkdirAll(runDir, 0o700)
 	if err != nil {
@@ -530,36 +539,6 @@ func (n *Netns) setupMounts() error {
 	return nil
 }
 
-func (n *Netns) mountCNIVarDir() error {
-	varDir := ""
-	varTarget := persistentCNIDir
-	// we can only mount to a target dir which exists, check /var/lib/cni recursively
-	// while we could always use /var there are cases where a user might store the cni
-	// configs under /var/custom and this would break
-	for {
-		if err := fileutils.Exists(varTarget); err == nil {
-			varDir = n.getPath(varTarget)
-			break
-		}
-		varTarget = filepath.Dir(varTarget)
-		if varTarget == "/" {
-			break
-		}
-	}
-	if varDir == "" {
-		return errors.New("failed to stat /var directory")
-	}
-	if err := os.MkdirAll(varDir, 0o700); err != nil {
-		return wrapError("create var dir", err)
-	}
-	// make sure to mount var first
-	err := unix.Mount(varDir, varTarget, none, unix.MS_BIND, "")
-	if err != nil {
-		return wrapError(fmt.Sprintf("mount %q to %q", varDir, varTarget), err)
-	}
-	return nil
-}
-
 func (n *Netns) runInner(toRun func() error, cleanup bool) (err error) {
 	nsRef, newNs, err := n.getOrCreateNetns()
 	if err != nil {
@@ -577,7 +556,7 @@ func (n *Netns) runInner(toRun func() error, cleanup bool) (err error) {
 		}()
 	}
 
-	return nsRef.Do(func(_ ns.NetNS) error {
+	return nsRef.Do(func(_ netns.NetNS) error {
 		if err := n.setupMounts(); err != nil {
 			return err
 		}
@@ -661,6 +640,11 @@ func (n *Netns) Run(lock *lockfile.LockFile, toRun func() error) error {
 // host.containers.internal entries.
 func (n *Netns) Info() *types.RootlessNetnsInfo {
 	return n.info
+}
+
+// PestoSocketPath returns the path to the pesto control socket.
+func (n *Netns) PestoSocketPath() string {
+	return n.getPath(pestoSocketFile)
 }
 
 func refCount(dir string, inc int) (int, error) {

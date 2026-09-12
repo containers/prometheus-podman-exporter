@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/pkg/errors"
 	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/podman/v6/pkg/domain/entities"
 )
 
 const (

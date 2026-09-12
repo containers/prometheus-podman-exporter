@@ -71,6 +71,15 @@ type netavarkNetwork struct {
 
 	// rootlessNetns is used for the rootless network setup/teardown
 	rootlessNetns *rootlessnetns.Netns
+
+	// rootlessPortForwarder is the value of config.RootlessPortForwarder from
+	// containers.conf. When set to config.RootlessPortForwarderPasta, pesto
+	// handles port forwarding directly and netavark DNAT rules are skipped.
+	rootlessPortForwarder string
+
+	// config is the containers.conf config, needed for FindHelperBinary
+	// when invoking pesto for dynamic port forwarding.
+	config *config.Config
 }
 
 type InitConfig struct {
@@ -104,7 +113,7 @@ func NewNetworkInterface(conf *InitConfig) (types.ContainerNetwork, error) {
 	val, ok := os.LookupEnv(unshare.UsernsEnvName)
 	useRootlessNetns := ok && val == "done"
 	if useRootlessNetns {
-		netns, err = rootlessnetns.New(conf.NetworkRunDir, rootlessnetns.Netavark, conf.Config)
+		netns, err = rootlessnetns.New(conf.NetworkRunDir, conf.Config)
 		if err != nil {
 			return nil, err
 		}
@@ -145,21 +154,23 @@ func NewNetworkInterface(conf *InitConfig) (types.ContainerNetwork, error) {
 	}
 
 	n := &netavarkNetwork{
-		networkConfigDir:   conf.NetworkConfigDir,
-		networkRunDir:      conf.NetworkRunDir,
-		netavarkBinary:     conf.NetavarkBinary,
-		aardvarkBinary:     conf.AardvarkBinary,
-		networkRootless:    useRootlessNetns,
-		ipamDBPath:         filepath.Join(conf.NetworkRunDir, "ipam.db"),
-		firewallDriver:     conf.Config.Network.FirewallDriver,
-		defaultNetwork:     defaultNetworkName,
-		defaultSubnet:      defaultNet,
-		defaultsubnetPools: defaultSubnetPools,
-		dnsBindPort:        conf.Config.Network.DNSBindPort,
-		pluginDirs:         conf.Config.Network.NetavarkPluginDirs.Get(),
-		lock:               lock,
-		syslog:             conf.Syslog,
-		rootlessNetns:      netns,
+		networkConfigDir:      conf.NetworkConfigDir,
+		networkRunDir:         conf.NetworkRunDir,
+		netavarkBinary:        conf.NetavarkBinary,
+		aardvarkBinary:        conf.AardvarkBinary,
+		networkRootless:       useRootlessNetns,
+		ipamDBPath:            filepath.Join(conf.NetworkRunDir, "ipam.db"),
+		firewallDriver:        conf.Config.Network.FirewallDriver,
+		defaultNetwork:        defaultNetworkName,
+		defaultSubnet:         defaultNet,
+		defaultsubnetPools:    defaultSubnetPools,
+		dnsBindPort:           conf.Config.Network.DNSBindPort,
+		pluginDirs:            conf.Config.Network.NetavarkPluginDirs.Get(),
+		lock:                  lock,
+		syslog:                conf.Syslog,
+		rootlessNetns:         netns,
+		rootlessPortForwarder: conf.Config.Network.RootlessPortForwarder,
+		config:                conf.Config,
 	}
 
 	return n, nil
@@ -296,17 +307,27 @@ func parseNetwork(network *types.Network) error {
 }
 
 func (n *netavarkNetwork) createDefaultNetwork() (*types.Network, error) {
-	net := types.Network{
+	network := &types.Network{
 		Name:             n.defaultNetwork,
 		NetworkInterface: defaultBridgeName + "0",
 		// Important do not change this ID
-		ID:     "2f259bab93aaaaa2542ba43ef33eb990d0999ee1b9924b557b7be53c0b7a1bb9",
-		Driver: types.BridgeNetworkDriver,
+		ID:      "2f259bab93aaaaa2542ba43ef33eb990d0999ee1b9924b557b7be53c0b7a1bb9",
+		Driver:  types.BridgeNetworkDriver,
+		Created: time.Now(),
 		Subnets: []types.Subnet{
 			{Subnet: n.defaultSubnet},
 		},
+		IPAMOptions: map[string]string{
+			"driver": types.HostLocalIPAMDriver,
+		},
 	}
-	return n.networkCreate(&net, true)
+
+	// Normalize network fields (initializes nil maps, adds gateway, validates, etc.)
+	if err := parseNetwork(network); err != nil {
+		return nil, err
+	}
+
+	return network, nil
 }
 
 // getNetwork will lookup a network by name or ID. It returns an
@@ -354,7 +375,7 @@ func (n *netavarkNetwork) Len() int {
 	return len(n.networks)
 }
 
-// DefaultInterfaceName return the default cni bridge name, must be suffixed with a number.
+// DefaultInterfaceName return the default bridge name, must be suffixed with a number.
 func (n *netavarkNetwork) DefaultInterfaceName() string {
 	return defaultBridgeName
 }

@@ -12,7 +12,7 @@ var ErrNotSupported = errors.New("rootless netns only supported on linux")
 
 type Netns struct{}
 
-func New(dir string, backend NetworkBackend, conf *config.Config) (*Netns, error) {
+func New(dir string, conf *config.Config) (*Netns, error) {
 	return nil, ErrNotSupported
 }
 
@@ -30,4 +30,8 @@ func (n *Netns) Run(lock *lockfile.LockFile, toRun func() error) error {
 
 func (n *Netns) Info() *types.RootlessNetnsInfo {
 	return &types.RootlessNetnsInfo{}
+}
+
+func (n *Netns) PestoSocketPath() string {
+	return ""
 }

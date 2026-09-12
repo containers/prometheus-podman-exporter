@@ -110,12 +110,11 @@ func readFileOrDir(root, name string, parentMode os.FileMode) ([]subscriptionDat
 }
 
 func getHostSubscriptionData(hostDir string, mode os.FileMode) ([]subscriptionData, error) {
-	var allSubscriptions []subscriptionData
 	hostSubscriptions, err := readAll(hostDir, "", mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read subscriptions from %q: %w", hostDir, err)
 	}
-	return append(allSubscriptions, hostSubscriptions...), nil
+	return hostSubscriptions, nil
 }
 
 func getMounts(filePath string) []string {
@@ -139,6 +138,9 @@ func getMounts(filePath string) []string {
 			logrus.Debugf("Skipping unrecognized mount in %v: %q",
 				filePath, scanner.Text())
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		logrus.Errorf("Reading file %q: %v", filePath, err)
 	}
 	return mounts
 }
@@ -377,7 +379,7 @@ func addFIPSMounts(mounts *[]rspec.Mount, containerRunDir, mountPoint, mountLabe
 		// be in FIPS mode
 		ctrDirOnHost := filepath.Join(containerRunDir, subscriptionsDir)
 		if err := fileutils.Exists(ctrDirOnHost); errors.Is(err, os.ErrNotExist) {
-			if err = idtools.MkdirAllAs(ctrDirOnHost, 0o755, uid, gid); err != nil { //nolint
+			if err = idtools.MkdirAllAndChown(ctrDirOnHost, 0o755, idtools.IDPair{UID: uid, GID: gid}); err != nil {
 				return err
 			}
 			if err = label.Relabel(ctrDirOnHost, mountLabel, false); err != nil {

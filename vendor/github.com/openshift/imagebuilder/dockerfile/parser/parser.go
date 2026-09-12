@@ -291,7 +291,7 @@ func (r *Result) PrintWarnings(out io.Writer) {
 	if len(r.Warnings) == 0 {
 		return
 	}
-	fmt.Fprintf(out, strings.Join(r.Warnings, "\n")+"\n")
+	io.WriteString(out, strings.Join(r.Warnings, "\n")+"\n")
 }
 
 // Parse reads lines from a Reader, parses the lines into an AST and returns

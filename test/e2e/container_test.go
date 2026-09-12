@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/containers/podman/v5/pkg/domain/entities"
 	"github.com/containers/prometheus-podman-exporter/test/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.podman.io/podman/v6/pkg/domain/entities"
 )
 
 var _ = Describe("Container", func() {
