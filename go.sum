@@ -69,8 +69,8 @@ github.com/containers/luksy v0.0.0-20250910190358-2cf5bc928957 h1:WxixhZ0typ8o66
 github.com/containers/luksy v0.0.0-20250910190358-2cf5bc928957/go.mod h1:fGPsLPRi1etbHfe5o6sdx6ajsW810tI43uyF6ugmP/o=
 github.com/containers/ocicrypt v1.2.1 h1:0qIOTT9DoYwcKmxSt8QJt+VzMY18onl9jUXsxpVhSmM=
 github.com/containers/ocicrypt v1.2.1/go.mod h1:aD0AAqfMp0MtwqWgHM1bUwe1anx0VazI108CRrSKINQ=
-github.com/containers/podman/v5 v5.8.4 h1:2RX95keVopdkWz1x9G+KhTGLySruxnBXn6oTuuLgGvE=
-github.com/containers/podman/v5 v5.8.4/go.mod h1:5mMXU913/zkU+TdeLoKhIijyKjuMzBrxHCiTgvfPTjg=
+github.com/containers/podman/v5 v5.8.6 h1:gOF21Pb8wBDMYxYLeDCACxWu51i1f4UtQ+ycwL8WYAA=
+github.com/containers/podman/v5 v5.8.6/go.mod h1:5mMXU913/zkU+TdeLoKhIijyKjuMzBrxHCiTgvfPTjg=
 github.com/containers/psgo v1.9.1-0.20250826150930-4ae76f200c86 h1:bYj0TVlkRZtMJYd6SbFOi1gjUJDJmVsYCpJla3URD7Y=
 github.com/containers/psgo v1.9.1-0.20250826150930-4ae76f200c86/go.mod h1:52GX23ST30pXpeviDvNpOCXoHqr+WJDv+7BjEH+AabY=
 github.com/containers/winquit v1.1.0 h1:jArun04BNDQvt2W0Y78kh9TazN2EIEMG5Im6/JY7+pE=
