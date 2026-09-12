@@ -4,7 +4,7 @@ go 1.25.9
 
 require (
 	github.com/onsi/ginkgo/v2 v2.32.2
-	github.com/onsi/gomega v1.42.1
+	github.com/onsi/gomega v1.43.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/common v0.71.0
