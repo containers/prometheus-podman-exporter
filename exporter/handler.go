@@ -96,8 +96,6 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	// Only log the creation of an unfiltered handler, which should happen
 	// only once upon startup.
 	if len(filters) == 0 {
-		h.logger.Info("enabled collectors")
-
 		collectors := []string{}
 
 		for n := range podc.Collectors {

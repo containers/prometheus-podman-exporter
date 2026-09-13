@@ -34,26 +34,27 @@ Usage:
   prometheus-podman-exporter [flags]
 
 Flags:
-  -t, --collector.cache_duration int          Duration (seconds) to retrieve container, size and refresh the cache. (default 3600)
-  -a, --collector.enable-all                  Enable all collectors by default.
-      --collector.enhance-metrics             enhance all metrics with the same field as for their podman_<...>_info metrics.
-  -i, --collector.image                       Enable image collector.
-  -n, --collector.network                     Enable network collector.
-  -o, --collector.pod                         Enable pod collector.
-  -b, --collector.store_labels                Convert pod/container/image labels on prometheus metrics for each pod/container/image.
-  -s, --collector.system                      Enable system collector.
-  -v, --collector.volume                      Enable volume collector.
-  -w, --collector.whitelisted_labels string   Comma separated list of pod/container/image labels to be converted
-                                              to labels on prometheus metrics for each pod/container/image.
-                                              collector.store_labels must be set to false for this to take effect.
-  -d, --debug                                 Set log level to debug.
-  -h, --help                                  help for prometheus-podman-exporter
-      --version                               Print version and exit.
-      --web.config.file string                [EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.
-  -e, --web.disable-exporter-metrics          Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
-  -l, --web.listen-address string             Addresses on which to expose metrics and web interface. (default ":9882")
-  -m, --web.max-requests int                  Maximum number of parallel scrape requests. Use 0 to disable (default 40)
-  -p, --web.telemetry-path string             Path under which to expose metrics. (default "/metrics")
+  -t, --collector.cache_duration int                 Duration (seconds) to retrieve container, size and refresh the cache. (default 3600)
+      --collector.container-stats-timeout duration   Timeout for collecting container statistics. (default 1s)
+  -a, --collector.enable-all                         Enable all collectors by default.
+      --collector.enhance-metrics                    enhance all metrics with the same field as for their podman_<...>_info metrics.
+  -i, --collector.image                              Enable image collector.
+  -n, --collector.network                            Enable network collector.
+  -o, --collector.pod                                Enable pod collector.
+  -b, --collector.store_labels                       Convert pod/container/image labels on prometheus metrics for each pod/container/image.
+  -s, --collector.system                             Enable system collector.
+  -v, --collector.volume                             Enable volume collector.
+  -w, --collector.whitelisted_labels string          Comma separated list of pod/container/image labels to be converted
+                                                     to labels on prometheus metrics for each pod/container/image.
+                                                     collector.store_labels must be set to false for this to take effect.
+  -d, --debug                                        Set log level to debug.
+  -h, --help                                         help for prometheus-podman-exporter
+      --version                                      Print version and exit.
+      --web.config.file string                       [EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.
+  -e, --web.disable-exporter-metrics                 Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
+  -l, --web.listen-address string                    Addresses on which to expose metrics and web interface. (default ":9882")
+  -m, --web.max-requests int                         Maximum number of parallel scrape requests. Use 0 to disable (default 40)
+  -p, --web.telemetry-path string                    Path under which to expose metrics. (default "/metrics")
 ```
 
 By default only container collector is enabled, in order to enable all collectors use `--collector.enable-all` or use `--collector.enable-<name>` flag to enable other collector.
@@ -63,6 +64,8 @@ By default only container collector is enabled, in order to enable all collector
 ```shell
 $ ./bin/prometheus-podman-exporter --collector.enable-all
 ```
+
+Container statistics collection times out after one second by default. For hosts where collection takes longer, configure the timeout with `--collector.container-stats-timeout`, for example `--collector.container-stats-timeout=5s`.
 
 The exporter uses plain HTTP without any form of authentication to expose the metrics by default.
 Use `--web.config.file` with a configuration file to use TLS for confidentiality and/or to enable authentication.

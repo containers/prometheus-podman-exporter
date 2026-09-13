@@ -46,6 +46,7 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("collector.store_labels", "b", false, "")
 	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "", "")
 	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration, "")
+	rootCmd.Flags().Duration("collector.container-stats-timeout", time.Second, "")
 	rootCmd.Flags().BoolP("collector.enhance-metrics", "", true, "")
 
 	go func() {

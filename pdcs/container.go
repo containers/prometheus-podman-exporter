@@ -15,7 +15,10 @@ const (
 	nano float64 = 1e+9
 )
 
-var cntSizeCache containerSizeCache
+var (
+	cntSizeCache          containerSizeCache
+	containerStatsTimeout = time.Second
+)
 
 // Container implements container's basic information and its state.
 type Container struct {
@@ -144,12 +147,12 @@ func Containers() ([]Container, error) {
 func ContainersStats() ([]ContainerStat, error) {
 	stat := make([]ContainerStat, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(registry.Context(), containerStatsTimeout)
 
 	defer cancel()
 
 	reports, err := registry.ContainerEngine().ContainerStats(
-		registry.Context(),
+		ctx,
 		[]string{},
 		entities.ContainerStatsOptions{Stream: false, Interval: 1})
 	if err != nil {
@@ -219,6 +222,31 @@ func ContainersStats() ([]ContainerStat, error) {
 	return stat, nil
 }
 
+// StartCacheSizeTicker starts container cache refresh routine.
+func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
+	logger.Info("starting container size cache ticker", "duration", duration)
+	logger.Info("update container size cache")
+
+	updateContainerSize()
+
+	ticker := time.NewTicker(time.Duration(duration) * time.Second)
+
+	go func() {
+		for {
+			<-ticker.C
+			logger.Info("update container size cache")
+			updateContainerSize()
+		}
+	}()
+}
+
+// SetContainerStatsTimeout configures how long container statistics collection may take.
+func SetContainerStatsTimeout(logger *slog.Logger, timeout time.Duration) {
+	logger.Info("container stat timeout", "duration", timeout)
+
+	containerStatsTimeout = timeout
+}
+
 func updateContainerSize() {
 	cntSizeCache.cacheLock.Lock()
 	defer cntSizeCache.cacheLock.Unlock()
@@ -245,22 +273,4 @@ func updateContainerSize() {
 
 		cntSizeCache.cache[cntID] = cntSz
 	}
-}
-
-// StartCacheSizeTicker starts container cache refresh routine.
-func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
-	logger.Info("starting container size cache ticker", "duration", duration)
-	logger.Info("update container size cache")
-
-	updateContainerSize()
-
-	ticker := time.NewTicker(time.Duration(duration) * time.Second)
-
-	go func() {
-		for {
-			<-ticker.C
-			logger.Info("update container size cache")
-			updateContainerSize()
-		}
-	}()
 }
