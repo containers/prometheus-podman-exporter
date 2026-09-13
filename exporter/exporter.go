@@ -2,8 +2,8 @@ package exporter
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/containers/prometheus-podman-exporter/collector"
@@ -14,13 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const minCacheDuration int64 = 5
-
 var (
-	errMinCacheDurtion = errors.New(
-		"invalid cache duration value, shall be >= " + strconv.Itoa(int(minCacheDuration)),
-	)
-	errInvalidContainerStatsTimeout = errors.New("container stats timeout must be greater than zero")
+	errInvalidTimeoutDuration = errors.New("duration/timeout must be greater than zero")
 )
 
 type exporterOptions struct {
@@ -30,7 +25,7 @@ type exporterOptions struct {
 	webTelemetryPath          string
 	webDisableExporterMetrics bool
 	webConfigFile             string
-	cacheDuration             int64
+	cacheDuration             time.Duration
 	containerStatsTimeout     time.Duration
 	enableAll                 bool
 	storeLabels               bool
@@ -174,19 +169,6 @@ func getEnabledCollectors(opts *exporterOptions) []string {
 	return enCollectors
 }
 
-func parseContainerStatsTimeout(cmd *cobra.Command) (time.Duration, error) {
-	timeout, err := cmd.Flags().GetDuration("collector.container-stats-timeout")
-	if err != nil {
-		return 0, err
-	}
-
-	if timeout <= 0 {
-		return 0, errInvalidContainerStatsTimeout
-	}
-
-	return timeout, nil
-}
-
 func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclop
 	debug, err := cmd.Flags().GetBool("debug")
 	if err != nil {
@@ -223,12 +205,12 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, err
 	}
 
-	storeLabels, err := cmd.Flags().GetBool("collector.store_labels")
+	storeLabels, err := cmd.Flags().GetBool("collector.store-labels")
 	if err != nil {
 		return nil, err
 	}
 
-	whiteListedLabels, err := cmd.Flags().GetString("collector.whitelisted_labels")
+	whiteListedLabels, err := cmd.Flags().GetString("collector.whitelisted-labels")
 	if err != nil {
 		return nil, err
 	}
@@ -258,18 +240,14 @@ func parseOptions(cmd *cobra.Command) (*exporterOptions, error) { //nolint:cyclo
 		return nil, err
 	}
 
-	cacheDuration, err := cmd.Flags().GetInt64("collector.cache_duration")
+	cacheDuration, err := cmd.Flags().GetDuration("collector.cache-duration")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w %w", errInvalidTimeoutDuration, err)
 	}
 
-	if cacheDuration < minCacheDuration {
-		return nil, errMinCacheDurtion
-	}
-
-	containerStatsTimeout, err := parseContainerStatsTimeout(cmd)
+	containerStatsTimeout, err := cmd.Flags().GetDuration("collector.container-stats-timeout")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w %w", errInvalidTimeoutDuration, err)
 	}
 
 	enhanceMetrics, err := cmd.Flags().GetBool("collector.enhance-metrics")

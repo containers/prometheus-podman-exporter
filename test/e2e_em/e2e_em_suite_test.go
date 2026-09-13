@@ -14,8 +14,7 @@ import (
 )
 
 var (
-	endpointURL         = "http://127.0.0.1:9882/metrics"
-	cacheDuration int64 = 3600
+	endpointURL = "http://127.0.0.1:9882/metrics"
 )
 
 func TestE2eEm(t *testing.T) {
@@ -43,9 +42,9 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("collector.volume", "v", false, "")
 	rootCmd.Flags().BoolP("collector.network", "n", false, "")
 	rootCmd.Flags().BoolP("collector.system", "s", false, "")
-	rootCmd.Flags().BoolP("collector.store_labels", "b", false, "")
-	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "", "")
-	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration, "")
+	rootCmd.Flags().BoolP("collector.store-labels", "b", false, "")
+	rootCmd.Flags().StringP("collector.whitelisted-labels", "w", "", "")
+	rootCmd.Flags().Duration("collector.cache-duration", time.Hour, "")
 	rootCmd.Flags().Duration("collector.container-stats-timeout", time.Second, "")
 	rootCmd.Flags().BoolP("collector.enhance-metrics", "", true, "")
 
