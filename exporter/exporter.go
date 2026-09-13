@@ -54,11 +54,6 @@ func Start(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	err = pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
-	if err != nil {
-		return err
-	}
-
 	if cmdOptions.debug {
 		logLevel = "debug"
 	}
@@ -98,8 +93,10 @@ func Start(cmd *cobra.Command, _ []string) error {
 		}
 	})
 
-	// setup podman registry
+	// setup podman registry and container stat timeout
+	pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
 	pdcs.SetupRegistry()
+
 	// start podman event streamer and initiate first update.
 	updateImages := cmdOptions.enableAll || cmdOptions.enableImages
 

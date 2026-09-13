@@ -2,16 +2,14 @@ package pdcs
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/docker/docker/daemon/logger"
 	"go.podman.io/podman/v6/cmd/podman/registry"
 	"go.podman.io/podman/v6/libpod/define"
-	bindingsContainers "go.podman.io/podman/v6/pkg/bindings/containers"
 	"go.podman.io/podman/v6/pkg/domain/entities"
-	"go.podman.io/podman/v6/pkg/domain/infra/tunnel"
 )
 
 const (
@@ -19,32 +17,9 @@ const (
 )
 
 var (
-	errInvalidContainerStatsTimeout = errors.New("container stats timeout must be greater than zero")
-	cntSizeCache                    containerSizeCache
-	containerStatsTimeoutMtx        sync.RWMutex
-	containerStatsTimeout           = time.Second
+	cntSizeCache          containerSizeCache
+	containerStatsTimeout = time.Second
 )
-
-// SetContainerStatsTimeout configures how long container statistics collection may take.
-func SetContainerStatsTimeout(timeout time.Duration) error {
-	if timeout <= 0 {
-		return errInvalidContainerStatsTimeout
-	}
-
-	containerStatsTimeoutMtx.Lock()
-	defer containerStatsTimeoutMtx.Unlock()
-
-	containerStatsTimeout = timeout
-
-	return nil
-}
-
-func getContainerStatsTimeout() time.Duration {
-	containerStatsTimeoutMtx.RLock()
-	defer containerStatsTimeoutMtx.RUnlock()
-
-	return containerStatsTimeout
-}
 
 // Container implements container's basic information and its state.
 type Container struct {
@@ -172,42 +147,31 @@ func Containers() ([]Container, error) {
 // ContainersStats returns list of containers stats (ContainerStat).
 func ContainersStats() ([]ContainerStat, error) {
 	stat := make([]ContainerStat, 0)
-	engine := registry.ContainerEngine()
-	parentCtx := registry.Context()
 
-	remoteEngine, remote := engine.(*tunnel.ContainerEngine)
-	if remote {
-		parentCtx = remoteEngine.ClientCtx
-	}
-
-	ctx, cancel := context.WithTimeout(parentCtx, getContainerStatsTimeout())
+	ctx, cancel := context.WithTimeout(registry.Context(), containerStatsTimeout)
 
 	defer cancel()
 
-	var (
-		reports chan entities.ContainerStatsReport
-		err     error
-	)
-
-	if remote {
-		reports, err = bindingsContainers.Stats(
-			ctx,
-			[]string{},
-			new(bindingsContainers.StatsOptions).WithStream(false).WithInterval(1),
-		)
-	} else {
-		reports, err = engine.ContainerStats(
-			ctx,
-			[]string{},
-			entities.ContainerStatsOptions{Stream: false, Interval: 1},
-		)
-	}
-
+	reports, err := registry.ContainerEngine().ContainerStats(
+		ctx,
+		[]string{},
+		entities.ContainerStatsOptions{Stream: false, Interval: 1})
 	if err != nil {
 		return stat, err
 	}
 
-	statReport, err := waitForContainerStats(ctx, reports)
+	getStat := func() ([]define.ContainerStats, error) {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ErrDeadline
+			case s := <-reports:
+				return s.Stats, nil
+			}
+		}
+	}
+
+	statReport, err := getStat()
 	if err != nil {
 		return nil, err
 	}
@@ -259,29 +223,29 @@ func ContainersStats() ([]ContainerStat, error) {
 	return stat, nil
 }
 
-func waitForContainerStats(
-	ctx context.Context,
-	reports <-chan entities.ContainerStatsReport,
-) ([]define.ContainerStats, error) {
-	select {
-	case <-ctx.Done():
-		go func() {
-			for range reports {
-			}
-		}()
+// StartCacheSizeTicker starts container cache refresh routine.
+func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
+	logger.Info("starting container size cache ticker", "duration", duration)
+	logger.Info("update container size cache")
 
-		return nil, ErrDeadline
-	case report, ok := <-reports:
-		if !ok {
-			return nil, ErrDeadline
+	updateContainerSize()
+
+	ticker := time.NewTicker(time.Duration(duration) * time.Second)
+
+	go func() {
+		for {
+			<-ticker.C
+			logger.Info("update container size cache")
+			updateContainerSize()
 		}
+	}()
+}
 
-		if report.Error != nil {
-			return nil, report.Error
-		}
+// SetContainerStatsTimeout configures how long container statistics collection may take.
+func SetContainerStatsTimeout(timeout time.Duration) {
+	logger.Info("container stat timeout", "duration", timeout)
 
-		return report.Stats, nil
-	}
+	containerStatsTimeout = timeout
 }
 
 func updateContainerSize() {
@@ -310,22 +274,4 @@ func updateContainerSize() {
 
 		cntSizeCache.cache[cntID] = cntSz
 	}
-}
-
-// StartCacheSizeTicker starts container cache refresh routine.
-func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
-	logger.Info("starting container size cache ticker", "duration", duration)
-	logger.Info("update container size cache")
-
-	updateContainerSize()
-
-	ticker := time.NewTicker(time.Duration(duration) * time.Second)
-
-	go func() {
-		for {
-			<-ticker.C
-			logger.Info("update container size cache")
-			updateContainerSize()
-		}
-	}()
 }
