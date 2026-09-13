@@ -34,17 +34,17 @@ Usage:
   prometheus-podman-exporter [flags]
 
 Flags:
-  -t, --collector.cache_duration int                 Duration (seconds) to retrieve container, size and refresh the cache. (default 3600)
+      --collector.cache-duration duration            Cache duration to retrieve container, size and refresh the cache. (default 1h0m0s)
       --collector.container-stats-timeout duration   Timeout for collecting container statistics. (default 1s)
   -a, --collector.enable-all                         Enable all collectors by default.
       --collector.enhance-metrics                    enhance all metrics with the same field as for their podman_<...>_info metrics.
   -i, --collector.image                              Enable image collector.
   -n, --collector.network                            Enable network collector.
   -o, --collector.pod                                Enable pod collector.
-  -b, --collector.store_labels                       Convert pod/container/image labels on prometheus metrics for each pod/container/image.
+  -b, --collector.store-labels                       Convert pod/container/image labels on prometheus metrics for each pod/container/image.
   -s, --collector.system                             Enable system collector.
   -v, --collector.volume                             Enable volume collector.
-  -w, --collector.whitelisted_labels string          Comma separated list of pod/container/image labels to be converted
+  -w, --collector.whitelisted-labels string          Comma separated list of pod/container/image labels to be converted
                                                      to labels on prometheus metrics for each pod/container/image.
                                                      collector.store_labels must be set to false for this to take effect.
   -d, --debug                                        Set log level to debug.
@@ -52,7 +52,7 @@ Flags:
       --version                                      Print version and exit.
       --web.config.file string                       [EXPERIMENTAL] Path to configuration file that can enable TLS or authentication.
   -e, --web.disable-exporter-metrics                 Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).
-  -l, --web.listen-address string                    Addresses on which to expose metrics and web interface. (default ":9882")
+  -l, --web.listen-address stringArray               Addresses on which to expose metrics and web interface. (default [:9882])
   -m, --web.max-requests int                         Maximum number of parallel scrape requests. Use 0 to disable (default 40)
   -p, --web.telemetry-path string                    Path under which to expose metrics. (default "/metrics")
 ```

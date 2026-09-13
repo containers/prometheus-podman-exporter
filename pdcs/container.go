@@ -223,13 +223,13 @@ func ContainersStats() ([]ContainerStat, error) {
 }
 
 // StartCacheSizeTicker starts container cache refresh routine.
-func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
+func StartCacheSizeTicker(logger *slog.Logger, duration time.Duration) {
 	logger.Info("starting container size cache ticker", "duration", duration)
 	logger.Info("update container size cache")
 
 	updateContainerSize()
 
-	ticker := time.NewTicker(time.Duration(duration) * time.Second)
+	ticker := time.NewTicker(duration)
 
 	go func() {
 		for {

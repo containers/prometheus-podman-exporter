@@ -13,7 +13,7 @@ import (
 
 const (
 	maxRequest                   int           = 40
-	cacheDuration                int64         = 3600
+	cacheDuration                time.Duration = time.Hour
 	defaultContainerStatsTimeout time.Duration = time.Second
 )
 
@@ -108,16 +108,16 @@ func init() {
 	rootCmd.Flags().BoolP("collector.system", "s", false,
 		"Enable system collector.")
 
-	rootCmd.Flags().BoolP("collector.store_labels", "b", false,
+	rootCmd.Flags().BoolP("collector.store-labels", "b", false,
 		"Convert pod/container/image labels on prometheus metrics for each pod/container/image.")
 
-	rootCmd.Flags().StringP("collector.whitelisted_labels", "w", "",
+	rootCmd.Flags().StringP("collector.whitelisted-labels", "w", "",
 		"Comma separated list of pod/container/image labels to be converted\n"+
 			"to labels on prometheus metrics for each pod/container/image.\n"+
 			"collector.store_labels must be set to false for this to take effect.")
 
-	rootCmd.Flags().Int64P("collector.cache_duration", "t", cacheDuration,
-		"Duration (seconds) to retrieve container, size and refresh the cache.")
+	rootCmd.Flags().Duration("collector.cache-duration", cacheDuration,
+		"Cache duration to retrieve container, size and refresh the cache.")
 
 	rootCmd.Flags().Duration("collector.container-stats-timeout", defaultContainerStatsTimeout,
 		"Timeout for collecting container statistics.")
