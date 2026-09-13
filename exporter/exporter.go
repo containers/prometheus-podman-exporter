@@ -94,7 +94,7 @@ func Start(cmd *cobra.Command, _ []string) error {
 	})
 
 	// setup podman registry and container stat timeout
-	pdcs.SetContainerStatsTimeout(cmdOptions.containerStatsTimeout)
+	pdcs.SetContainerStatsTimeout(logger, cmdOptions.containerStatsTimeout)
 	pdcs.SetupRegistry()
 
 	// start podman event streamer and initiate first update.

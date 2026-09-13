@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/daemon/logger"
 	"go.podman.io/podman/v6/cmd/podman/registry"
 	"go.podman.io/podman/v6/libpod/define"
 	"go.podman.io/podman/v6/pkg/domain/entities"
@@ -242,7 +241,7 @@ func StartCacheSizeTicker(logger *slog.Logger, duration int64) {
 }
 
 // SetContainerStatsTimeout configures how long container statistics collection may take.
-func SetContainerStatsTimeout(timeout time.Duration) {
+func SetContainerStatsTimeout(logger *slog.Logger, timeout time.Duration) {
 	logger.Info("container stat timeout", "duration", timeout)
 
 	containerStatsTimeout = timeout
