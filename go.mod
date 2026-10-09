@@ -11,9 +11,9 @@ require (
 	github.com/prometheus/exporter-toolkit v0.20.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cobra v1.10.2
-	go.podman.io/common v0.69.1
-	go.podman.io/image/v5 v5.41.1
-	go.podman.io/podman/v6 v6.1.1
+	go.podman.io/common v0.69.2
+	go.podman.io/image/v5 v5.41.2
+	go.podman.io/podman/v6 v6.1.3
 )
 
 require (
@@ -164,8 +164,8 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	go.podman.io/buildah v1.45.0 // indirect
-	go.podman.io/storage v1.64.0 // indirect
+	go.podman.io/buildah v1.45.1 // indirect
+	go.podman.io/storage v1.64.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
