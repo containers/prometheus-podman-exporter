@@ -164,6 +164,16 @@ func MakeContainer(ctx context.Context, rt *libpod.Runtime, s *specgen.SpecGener
 		return nil, nil, nil, err
 	}
 
+	// Check for checkpoint annotation.
+	// This was removed in 3721ff82ffb44a4ceeaecc5abd3808e924a6b669 as a result of CVE-2026-94603.
+	// If we get it, throw an error stating that `podman container restore` must be used instead.
+	if imageData != nil {
+		_, isCheckpointImage := imageData.Annotations[define.CheckpointAnnotationRuntimeName]
+		if isCheckpointImage {
+			return nil, nil, nil, fmt.Errorf("%s is a checkpoint and must be started using `podman container restore` instead", s.Image)
+		}
+	}
+
 	if len(s.OCIRuntime) > 0 {
 		options = append(options, libpod.WithCtrOCIRuntime(s.OCIRuntime))
 	} else if imageData != nil {
