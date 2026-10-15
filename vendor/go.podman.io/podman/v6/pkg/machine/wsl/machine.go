@@ -25,6 +25,7 @@ import (
 	"go.podman.io/podman/v6/pkg/specgen"
 	"go.podman.io/podman/v6/utils"
 	"go.podman.io/storage/pkg/configfile"
+	"go.podman.io/storage/pkg/stringutils"
 )
 
 var (
@@ -205,7 +206,9 @@ func configureBindMounts(dist string, user string) error {
 		return err
 	}
 
-	if err := wslPipe(fmt.Sprintf(bindMountConfigDirSystemService, wslPath), dist, "sh", "-c", "cat > "+configBindSysUnitPath); err != nil {
+	quotedWslPath := stringutils.ShellQuoteArguments([]string{wslPath})
+	bindMountConfigDirSystemServiceFormatted := fmt.Sprintf(bindMountConfigDirSystemService, quotedWslPath)
+	if err := wslPipe(bindMountConfigDirSystemServiceFormatted, dist, "sh", "-c", "cat > "+configBindSysUnitPath); err != nil {
 		return fmt.Errorf("could not create podman config mount service file for guest OS: %w", err)
 	}
 
@@ -333,7 +336,7 @@ func launchElevate(operation string) error {
 	}
 	err := winutil.RelaunchElevatedWait()
 	if err != nil {
-		if eerr, ok := err.(*winutil.ExitCodeError); ok {
+		if eerr, ok := errors.AsType[*winutil.ExitCodeError](err); ok {
 			if eerr.Code == ErrorSuccessRebootRequired {
 				fmt.Println("Reboot is required to continue installation, please reboot at your convenience")
 				return define.ErrRelaunchSucceeded
@@ -374,7 +377,7 @@ func isMsiError(err error) bool {
 		return false
 	}
 
-	if eerr, ok := err.(*exec.ExitError); ok {
+	if eerr, ok := errors.AsType[*exec.ExitError](err); ok {
 		switch eerr.ExitCode() {
 		case 0:
 			fallthrough
