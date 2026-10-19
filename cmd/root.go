@@ -108,6 +108,9 @@ func init() {
 	rootCmd.Flags().BoolP("collector.system", "s", false,
 		"Enable system collector.")
 
+	rootCmd.Flags().BoolP("collector.disk-usage", "u", false,
+		"Enable disk usage collector.")
+
 	rootCmd.Flags().BoolP("collector.store-labels", "b", false,
 		"Convert pod/container/image labels on prometheus metrics for each pod/container/image.")
 
@@ -117,7 +120,7 @@ func init() {
 			"collector.store_labels must be set to false for this to take effect.")
 
 	rootCmd.Flags().Duration("collector.cache-duration", cacheDuration,
-		"Cache duration to retrieve container, size and refresh the cache.")
+		"Cache duration to retrieve container size and disk usage, and refresh the caches.")
 
 	rootCmd.Flags().Duration("collector.container-stats-timeout", defaultContainerStatsTimeout,
 		"Timeout for collecting container statistics.")
