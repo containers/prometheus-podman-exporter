@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/containers/prometheus-podman-exporter/exporter"
+	"github.com/containers/prometheus-podman-exporter/pdcs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
@@ -44,11 +45,17 @@ var _ = BeforeSuite(func() {
 	rootCmd.Flags().BoolP("collector.volume", "v", false, "")
 	rootCmd.Flags().BoolP("collector.network", "n", false, "")
 	rootCmd.Flags().BoolP("collector.system", "s", false, "")
+	rootCmd.Flags().BoolP("collector.disk-usage", "u", false, "")
 	rootCmd.Flags().BoolP("collector.store-labels", "b", false, "")
 	rootCmd.Flags().StringP("collector.whitelisted-labels", "w", "", "")
 	rootCmd.Flags().Duration("collector.cache-duration", time.Hour, "")
 	rootCmd.Flags().Duration("collector.container-stats-timeout", time.Second, "")
 	rootCmd.Flags().BoolP("collector.enhance-metrics", "", false, "")
+
+	// disk usage is cached on exporter startup, create its test objects first.
+	// podman is initialised first so creating the objects before startup also works rootless.
+	pdcs.SetupRegistry()
+	createDiskUsageObjects()
 
 	go func() {
 		err := exporter.Start(rootCmd, nil)
@@ -56,6 +63,9 @@ var _ = BeforeSuite(func() {
 	}()
 
 	time.Sleep(10 * time.Second)
+
+	// podman system df output at the time of disk usage cache creation.
+	diskUsageSystemDf = podmanSystemDf()
 })
 
 func extractLabelValue(line string, label string) string {
