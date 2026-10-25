@@ -162,7 +162,7 @@ func (n *netavarkNetwork) Setup(namespacePath string, options types.SetupOptions
 }
 
 // pestoSetup publishes port mappings via pesto with target address mapping.
-// PestoAddPorts is idempotent so this is safe to call on every Setup.
+// AddPorts is idempotent so this is safe to call on every Setup.
 func (n *netavarkNetwork) pestoSetup(opts types.NetworkOptions, newResult map[string]types.StatusBlock) error {
 	if n.rootlessNetns == nil {
 		return nil
@@ -171,12 +171,12 @@ func (n *netavarkNetwork) pestoSetup(opts types.NetworkOptions, newResult map[st
 	// First check if the ports are already published on an existing network.
 	// Because a port can only bound once on the host we need to skip the adding the ports several times
 	// on things like podman network connect.
-	oldIPv4, _, oldIPv6, _ := firstIPsFromStatus(opts.NetworkStatus, opts.NetworkOrder)
+	oldIPv4, _, oldIPv6, _ := firstIPsFromStatus(opts.NetworkStatus, opts.NetworkOrder, n.networks)
 	if oldIPv4 != "" && oldIPv6 != "" {
 		// We are already connected to an v4 and v6 address, do nothing here.
 		return nil
 	}
-	ipv4, _, ipv6, _ := firstIPsFromStatus(newResult, opts.NetworkOrder)
+	ipv4, _, ipv6, _ := firstIPsFromStatus(newResult, opts.NetworkOrder, n.networks)
 	if oldIPv4 != "" {
 		// Already connected to a v4 address, we cannot connect more than once so skip it.
 		ipv4 = ""
@@ -191,7 +191,7 @@ func (n *netavarkNetwork) pestoSetup(opts types.NetworkOptions, newResult map[st
 		return nil
 	}
 
-	return pasta.PestoAddPorts(n.config, n.PestoSocketPath(), opts.PortMappings, ipv4, ipv6)
+	return n.pesto().AddPorts(opts.PortMappings, ipv4, ipv6)
 }
 
 // pestoTeardown handles pesto port mapping removal on network disconnect.
@@ -213,7 +213,7 @@ func (n *netavarkNetwork) pestoTeardown(opts types.NetworkOptions) error {
 
 	// Determine current active IPs from the full set of connected networks,
 	// respecting connection-time ordering from NetworkOrder.
-	activeIPv4, activeIPv4Net, activeIPv6, activeIPv6Net := firstIPsFromStatus(opts.NetworkStatus, opts.NetworkOrder)
+	activeIPv4, activeIPv4Net, activeIPv6, activeIPv6Net := firstIPsFromStatus(opts.NetworkStatus, opts.NetworkOrder, n.networks)
 
 	// Build the set of networks being disconnected and the remaining status.
 	remaining := make(map[string]types.StatusBlock, len(opts.NetworkStatus))
@@ -229,7 +229,7 @@ func (n *netavarkNetwork) pestoTeardown(opts types.NetworkOptions) error {
 
 	// Last network: remove all port mappings.
 	if len(remaining) == 0 {
-		return pasta.PestoDeletePorts(n.config, n.PestoSocketPath(), opts.PortMappings,
+		return n.pesto().DeletePorts(opts.PortMappings,
 			activeIPv4, activeIPv6)
 	}
 
@@ -244,14 +244,14 @@ func (n *netavarkNetwork) pestoTeardown(opts types.NetworkOptions) error {
 	}
 
 	// Remap: delete old mappings, pick new IPs from remaining networks, re-add.
-	if err := pasta.PestoDeletePorts(n.config, n.PestoSocketPath(), opts.PortMappings,
+	if err := n.pesto().DeletePorts(opts.PortMappings,
 		activeIPv4, activeIPv6); err != nil {
 		return fmt.Errorf("deleting port mappings for remap: %w", err)
 	}
 
-	newIPv4, _, newIPv6, _ := firstIPsFromStatus(remaining, opts.NetworkOrder)
+	newIPv4, _, newIPv6, _ := firstIPsFromStatus(remaining, opts.NetworkOrder, n.networks)
 	if newIPv4 != "" || newIPv6 != "" {
-		if err := pasta.PestoAddPorts(n.config, n.PestoSocketPath(), opts.PortMappings,
+		if err := n.pesto().AddPorts(opts.PortMappings,
 			newIPv4, newIPv6); err != nil {
 			return fmt.Errorf("re-adding port mappings after remap: %w", err)
 		}
@@ -381,13 +381,28 @@ func (n *netavarkNetwork) PestoSocketPath() string {
 	return n.rootlessNetns.PestoSocketPath()
 }
 
+func (n *netavarkNetwork) pesto() *pasta.PestoClient {
+	return &pasta.PestoClient{
+		Binary:     n.pestoBinary,
+		BinaryErr:  n.pestoBinaryErr,
+		SocketPath: n.PestoSocketPath(),
+	}
+}
+
 // firstIPsFromStatus picks the first IPv4 and IPv6 container addresses from a
 // set of network StatusBlocks, iterating in the order given by networkOrder
-// (connection time). Returns the IP strings and the owning network name.
-func firstIPsFromStatus(status map[string]types.StatusBlock, networkOrder []string) (ipv4, ipv4Net, ipv6, ipv6Net string) {
+// (connection time) while ignoring any internal networks.
+// Returns the IP strings and the owning network name.
+func firstIPsFromStatus(status map[string]types.StatusBlock, networkOrder []string, networks map[string]*types.Network) (ipv4, ipv4Net, ipv6, ipv6Net string) {
 	for _, name := range networkOrder {
 		sb, ok := status[name]
 		if !ok {
+			continue
+		}
+		net, ok := networks[name]
+		// internal networks must not receive ports
+		// https://github.com/podman-container-tools/podman/issues/29792
+		if !ok || net.Internal {
 			continue
 		}
 		for _, netInt := range sb.Interfaces {
