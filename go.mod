@@ -3,7 +3,7 @@ module github.com/containers/prometheus-podman-exporter
 go 1.26.0
 
 require (
-	github.com/onsi/ginkgo/v2 v2.32.2
+	github.com/onsi/ginkgo/v2 v2.33.0
 	github.com/onsi/gomega v1.44.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
@@ -11,9 +11,9 @@ require (
 	github.com/prometheus/exporter-toolkit v0.20.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cobra v1.10.2
-	go.podman.io/common v0.69.1
-	go.podman.io/image/v5 v5.41.1
-	go.podman.io/podman/v6 v6.1.1
+	go.podman.io/common v0.69.2
+	go.podman.io/image/v5 v5.41.2
+	go.podman.io/podman/v6 v6.1.4
 )
 
 require (
@@ -42,7 +42,7 @@ require (
 	github.com/containerd/platforms v1.0.0-rc.4 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
 	github.com/containerd/typeurl/v2 v2.3.0 // indirect
-	github.com/containers/gvisor-tap-vsock v0.8.9 // indirect
+	github.com/containers/gvisor-tap-vsock v0.9.0 // indirect
 	github.com/containers/libhvee v0.11.0 // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/luksy v0.0.0-20251208191447-ca096313c38f // indirect
@@ -164,8 +164,8 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	go.podman.io/buildah v1.45.0 // indirect
-	go.podman.io/storage v1.64.0 // indirect
+	go.podman.io/buildah v1.45.2 // indirect
+	go.podman.io/storage v1.64.2 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
