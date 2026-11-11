@@ -62,9 +62,8 @@ type ContainerStat struct {
 }
 
 type containerSizeCache struct {
-	cacheLock  sync.Mutex
-	cacheError error
-	cache      map[string]containerSize
+	cacheLock sync.Mutex
+	cache     map[string]containerSize
 }
 
 type containerSize struct {
@@ -87,13 +86,8 @@ func Containers() ([]Container, error) {
 	cntSizeCache.cacheLock.Lock()
 
 	cacheSizeInfo := cntSizeCache.cache
-	cacheErr := cntSizeCache.cacheError
 
 	cntSizeCache.cacheLock.Unlock()
-
-	if cacheErr != nil {
-		return nil, err //nolint:nilnesserr
-	}
 
 	for _, rep := range reports {
 		var (
@@ -227,7 +221,7 @@ func StartCacheSizeTicker(logger *slog.Logger, duration time.Duration) {
 	logger.Info("starting container size cache ticker", "duration", duration)
 	logger.Info("update container size cache")
 
-	updateContainerSize()
+	updateContainerSize(logger)
 
 	ticker := time.NewTicker(duration)
 
@@ -235,7 +229,7 @@ func StartCacheSizeTicker(logger *slog.Logger, duration time.Duration) {
 		for {
 			<-ticker.C
 			logger.Info("update container size cache")
-			updateContainerSize()
+			updateContainerSize(logger)
 		}
 	}()
 }
@@ -247,19 +241,27 @@ func SetContainerStatsTimeout(logger *slog.Logger, timeout time.Duration) {
 	containerStatsTimeout = timeout
 }
 
-func updateContainerSize() {
-	cntSizeCache.cacheLock.Lock()
-	defer cntSizeCache.cacheLock.Unlock()
-
+func updateContainerSize(logger *slog.Logger) {
 	reports, err := registry.ContainerEngine().ContainerList(
 		registry.Context(),
 		entities.ContainerListOptions{All: true, Pod: false, Size: true},
 	)
+
+	storeContainerSize(logger, reports, err)
+}
+
+// storeContainerSize updates the container size cache from a size listing.
+// A failed listing is logged and the last known sizes are kept, so that a
+// transient error does not hide the containers from the container collector.
+func storeContainerSize(logger *slog.Logger, reports []entities.ListContainer, err error) {
 	if err != nil {
-		cntSizeCache.cacheError = err
+		logger.Warn("failed to update container size cache, keeping last known sizes", "error", err)
 
 		return
 	}
+
+	cntSizeCache.cacheLock.Lock()
+	defer cntSizeCache.cacheLock.Unlock()
 
 	for _, cnt := range reports {
 		cntID := getID(cnt.ID)
