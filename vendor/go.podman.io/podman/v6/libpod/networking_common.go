@@ -70,6 +70,14 @@ func (c *Container) getNetworkOptions(networkOpts []types.NamedPerNetworkOptions
 	} else {
 		opts.Networks = networkOpts
 	}
+
+	// Alias should only include user-provided aliases. Append the auto-generated
+	// aliases (short ID, hostname) so the network backend creates DNS records
+	// for them. Concat allocates a new slice, avoiding mutation of the stored config.
+	for i := range opts.Networks {
+		opts.Networks[i].Aliases = slices.Concat(opts.Networks[i].Aliases, getExtraNetworkAliases(c))
+	}
+
 	return opts
 }
 
@@ -273,6 +281,7 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 				netInfo := new(define.InspectAdditionalNetwork)
 				netInfo.NetworkID = getNetworkID(net.Name)
 				netInfo.Aliases = net.Aliases
+				netInfo.DNSNames = c.dnsNamesForNetwork(net.Aliases)
 				settings.Networks[net.Name] = netInfo
 			}
 		} else {
@@ -305,6 +314,7 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 			addedNet := new(define.InspectAdditionalNetwork)
 			addedNet.NetworkID = getNetworkID(network.Name)
 			addedNet.Aliases = network.Aliases
+			addedNet.DNSNames = c.dnsNamesForNetwork(network.Aliases)
 			addedNet.InspectBasicNetworkConfig = resultToBasicNetworkConfig(result)
 
 			settings.Networks[network.Name] = addedNet
@@ -545,8 +555,6 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 	// get network status before we connect
 	networkStatus := c.getNetworkStatus()
 
-	netOpts.Aliases = append(netOpts.Aliases, getExtraNetworkAliases(c)...)
-
 	// check whether interface is to be named as the network_interface
 	// when name left unspecified
 	if netOpts.InterfaceName == "" {
@@ -560,6 +568,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 			return errors.New("could not find free network interface name")
 		}
 	}
+	netOpts.Aliases = slices.Compact(slices.Sorted(slices.Values(netOpts.Aliases)))
 	namedOpts := types.NamedPerNetworkOptions{
 		Name:              netName,
 		PerNetworkOptions: netOpts,
@@ -597,7 +606,9 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 		NetworkOrder:  append(networkNamesFromOpts(networks), netName),
 	}
 	opts.PortMappings = c.convertPortMappings()
-	opts.Networks = []types.NamedPerNetworkOptions{namedOpts}
+	setupOpts := namedOpts
+	setupOpts.Aliases = slices.Concat(setupOpts.Aliases, getExtraNetworkAliases(c))
+	opts.Networks = []types.NamedPerNetworkOptions{setupOpts}
 
 	results, err := c.runtime.setUpNetwork(c.state.NetNS, opts)
 	if err != nil {
@@ -699,6 +710,17 @@ func getExtraNetworkAliases(c *Container) []string {
 		alias = append(alias, c.config.Spec.Hostname)
 	}
 	return alias
+}
+
+func (c *Container) dnsNamesForNetwork(aliases []string) []string {
+	all := slices.Concat([]string{c.Name()}, aliases, getExtraNetworkAliases(c))
+	names := all[:0]
+	for _, n := range all {
+		if !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	return names
 }
 
 // DisconnectContainerFromNetwork removes a container from its network

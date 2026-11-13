@@ -11,7 +11,6 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -586,7 +585,7 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 
 	// Let's sort the containers in order of created time
 	// This will ensure that the init containers are defined in the correct order in the kube yaml
-	sort.Slice(containers, func(i, j int) bool { return containers[i].CreatedTime().Before(containers[j].CreatedTime()) })
+	slices.SortFunc(containers, func(a, b *Container) int { return a.CreatedTime().Compare(b.CreatedTime()) })
 
 	for _, ctr := range containers {
 		if ctr.IsInfra() {
@@ -616,7 +615,7 @@ func (p *Pod) podWithContainers(ctx context.Context, containers []*Container, po
 			}
 		} else {
 			for k, v := range ctr.config.Spec.Annotations {
-				if !podmanOnly && (define.IsReservedAnnotation(k)) {
+				if !podmanOnly && define.IsReservedAnnotation(k) {
 					continue
 				}
 				podAnnotations[fmt.Sprintf("%s/%s", kubeAnnotationAlias(k), removeUnderscores(ctr.Name()))] = v

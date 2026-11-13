@@ -91,7 +91,7 @@ func podmanTopInner() error {
 	if err := unix.MountSetattr(0, "/", unix.AT_RECURSIVE, &unix.MountAttr{
 		Attr_set: unix.MOUNT_ATTR_RDONLY,
 	}); err != nil {
-		if err != unix.ENOSYS {
+		if !errors.Is(err, unix.ENOSYS) {
 			return fmt.Errorf("mount_setattr / readonly: %w", err)
 		}
 		// old kernel without mount_setattr, i.e. on RHEL 8.8
@@ -399,7 +399,7 @@ func (c *Container) execPSinContainer(args []string) ([]string, error) {
 	cmd := append([]string{"ps"}, args...)
 	config := new(ExecConfig)
 	config.Command = cmd
-	ec, err := c.Exec(config, streams, nil)
+	ec, err := c.Exec(config, streams, nil, nil)
 	wPipe.Close()
 	if err != nil {
 		return nil, err

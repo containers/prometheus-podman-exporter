@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -34,7 +33,7 @@ func (c *Container) unmountSHM(_ string) error {
 
 // prepare mounts the container and sets up other required resources like net
 // namespaces
-func (c *Container) prepare() error {
+func (c *Container) prepare(ctx context.Context) error {
 	var (
 		wg                              sync.WaitGroup
 		ctrNS                           string
@@ -71,7 +70,7 @@ func (c *Container) prepare() error {
 	// Mount storage if not mounted
 	go func() {
 		defer wg.Done()
-		mountPoint, mountStorageErr = c.mountStorage()
+		mountPoint, mountStorageErr = c.mountStorage(ctx)
 
 		if mountStorageErr != nil {
 			return
@@ -370,7 +369,11 @@ func (s *safeMountInfo) Close() {
 // The caller is responsible for closing the file descriptor and unmounting the subpath
 // when it's no longer needed.
 func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountInfo, err error) {
-	return &safeMountInfo{mountPoint: filepath.Join(mountPoint, subpath)}, nil
+	path, err := securejoin.SecureJoin(mountPoint, subpath)
+	if err != nil {
+		return nil, err
+	}
+	return &safeMountInfo{mountPoint: path}, nil
 }
 
 func (c *Container) makePlatformMtabLink(_, _, _ int) error {

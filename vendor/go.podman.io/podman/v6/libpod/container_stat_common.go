@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -18,22 +19,80 @@ import (
 // along with the resolved root and the resolved path.  Both paths are absolute
 // to the host's root.  Note that the paths may resolved outside the
 // container's mount point (e.g., to a volume or bind mount).
-func (c *Container) statOnHost(mountPoint string, containerPath string) (*copier.StatForItem, string, string, error) {
-	// Now resolve the container's path.  It may hit a volume, it may hit a
-	// bind mount, it may be relative.
-	resolvedRoot, resolvedPath, _, err := c.resolvePath(mountPoint, containerPath)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	statInfo, err := secureStat(resolvedRoot, resolvedPath)
-	return statInfo, resolvedRoot, resolvedPath, err
+func (c *Container) statOnHost(ctx context.Context, mountPoint string, containerPath string) (*copier.StatForItem, pathResolution, error) {
+	return c.statOnHostWithDepth(ctx, mountPoint, containerPath, 0)
 }
 
-func (c *Container) stat(containerMountPoint string, containerPath string) (*define.FileInfo, string, string, error) {
+func (c *Container) statOnHostWithDepth(ctx context.Context, mountPoint string, containerPath string, depth int) (*copier.StatForItem, pathResolution, error) {
+	if depth > 255 {
+		return nil, pathResolution{}, fmt.Errorf("too many symlinks resolving %q", containerPath)
+	}
+
+	// Now resolve the container's path.  It may hit a volume, it may hit a
+	// bind mount, it may be relative.
+	resolved, err := c.resolvePath(ctx, mountPoint, containerPath)
+	if err != nil {
+		return nil, pathResolution{}, err
+	}
+	if resolved.imageVolume != nil {
+		target, err := imageMountLinkTarget(resolved.root, resolved.imageVolume.Dest, c.pathAbs(containerPath))
+		if err != nil {
+			return nil, resolved, err
+		}
+		if target != "" {
+			statInfo, targetResolution, err := c.statOnHostWithDepth(ctx, mountPoint, target, depth+1)
+			targetResolution.close()
+			if err != nil {
+				return nil, resolved, err
+			}
+			statInfo.IsSymlink = true
+			statInfo.ImmediateTarget = target
+			return statInfo, resolved, nil
+		}
+	}
+
+	statInfo, err := secureStat(ctx, resolved.root, resolved.path)
+	return statInfo, resolved, err
+}
+
+// imageMountLinkTarget resolves a link in an image mount using container paths.
+// Absolute links in the mount refer to the container root, while relative links
+// are based at the link's location in the container.
+func imageMountLinkTarget(root, destination, containerPath string) (string, error) {
+	relative, err := filepath.Rel(destination, containerPath)
+	if err != nil || relative == "." {
+		return "", err
+	}
+	parts := strings.Split(relative, string(os.PathSeparator))
+	current := root
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		link, err := os.Readlink(current)
+		if err != nil {
+			return "", err
+		}
+		linkPath := filepath.Join(destination, filepath.Join(parts[:index+1]...))
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(linkPath), link)
+		}
+		return filepath.Join(append([]string{link}, parts[index+1:]...)...), nil
+	}
+	return "", nil
+}
+
+func (c *Container) stat(ctx context.Context, containerMountPoint string, containerPath string) (*define.FileInfo, pathResolution, error) {
 	var (
-		resolvedRoot     string
-		resolvedPath     string
+		resolved         pathResolution
 		absContainerPath string
 		statInfo         *copier.StatForItem
 		statErr          error
@@ -49,13 +108,13 @@ func (c *Container) stat(containerMountPoint string, containerPath string) (*def
 	// TODO: it's now technically possible wildcards.
 	// We may consider enabling support in the future.
 	if strings.Contains(containerPath, "*") {
-		return nil, "", "", copy.ErrENOENT
+		return nil, pathResolution{}, copy.ErrENOENT
 	}
 
-	statInfo, resolvedRoot, resolvedPath, statErr = c.statInContainer(containerMountPoint, containerPath)
+	statInfo, resolved, statErr = c.statInContainer(ctx, containerMountPoint, containerPath)
 	if statErr != nil {
 		if statInfo == nil {
-			return nil, "", "", statErr
+			return nil, resolved, statErr
 		}
 		// Not all errors from secureStat map to ErrNotExist, so we
 		// have to look into the error string.  Turning it into an
@@ -71,9 +130,9 @@ func (c *Container) stat(containerMountPoint string, containerPath string) (*def
 		// Symlinks are already evaluated and always relative to the
 		// container's mount point.
 		absContainerPath = statInfo.ImmediateTarget
-	case strings.HasPrefix(resolvedPath, containerMountPoint):
+	case strings.HasPrefix(resolved.path, containerMountPoint):
 		// If the path is on the container's mount point, strip it off.
-		absContainerPath = strings.TrimPrefix(resolvedPath, containerMountPoint)
+		absContainerPath = strings.TrimPrefix(resolved.path, containerMountPoint)
 		absContainerPath = filepath.Join("/", absContainerPath)
 	default:
 		// No symlink and not on the container's mount point, so let's
@@ -86,7 +145,7 @@ func (c *Container) stat(containerMountPoint string, containerPath string) (*def
 	// packages likes to remove trailing slashes and dots that are crucial
 	// to the copy logic.
 	absContainerPath = copy.PreserveBasePath(containerPath, absContainerPath)
-	resolvedPath = copy.PreserveBasePath(containerPath, resolvedPath)
+	resolved.path = copy.PreserveBasePath(containerPath, resolved.path)
 
 	info := &define.FileInfo{
 		IsDir:      statInfo.IsDir,
@@ -97,11 +156,11 @@ func (c *Container) stat(containerMountPoint string, containerPath string) (*def
 		LinkTarget: absContainerPath,
 	}
 
-	return info, resolvedRoot, resolvedPath, statErr
+	return info, resolved, statErr
 }
 
 // secureStat extracts file info for path in a chroot'ed environment in root.
-func secureStat(root string, path string) (*copier.StatForItem, error) {
+func secureStat(ctx context.Context, root string, path string) (*copier.StatForItem, error) {
 	var glob string
 	var err error
 
@@ -116,7 +175,7 @@ func secureStat(root string, path string) (*copier.StatForItem, error) {
 		}
 	}
 
-	globStats, err := copier.Stat(root, "", copier.StatOptions{}, []string{glob})
+	globStats, err := copier.StatContext(ctx, root, "", copier.StatOptions{}, []string{glob})
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +196,7 @@ func secureStat(root string, path string) (*copier.StatForItem, error) {
 		}
 		// If necessary evaluate the symlink
 		if stat.IsSymlink {
-			target, err := copier.Eval(root, path, copier.EvalOptions{})
+			target, err := copier.EvalContext(ctx, root, path, copier.EvalOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("evaluating symlink in container: %w", err)
 			}

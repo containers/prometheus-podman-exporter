@@ -19,6 +19,34 @@ import (
 	"go.podman.io/storage"
 )
 
+// validateStatusFilterValues checks if the given filter values are valid container statuses.
+func validateStatusFilterValues(filterValues []string) error {
+	for _, filterValue := range filterValues {
+		if _, err := define.StringToContainerStatus(filterValue); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// matchStatusFilter checks if the given container state matches the filter values, considering negation.
+func matchStatusFilter(state string, filterValues []string, negate bool) bool {
+	if state == define.ContainerStateStopped.String() {
+		state = "exited"
+	}
+	matched := false
+	for _, filterValue := range filterValues {
+		if filterValue == "stopped" {
+			filterValue = "exited"
+		}
+		if state == filterValue {
+			matched = true
+			break
+		}
+	}
+	return matched != negate
+}
+
 // GenerateContainerFilterFuncs return ContainerFilter functions based of filter.
 func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpod.Runtime) (func(container *libpod.Container) bool, error) {
 	switch filter {
@@ -57,7 +85,7 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 		for _, exitCode := range filterValues {
 			ec, err := strconv.ParseInt(exitCode, 10, 32)
 			if err != nil {
-				return nil, fmt.Errorf("exited code out of range %q: %w", ec, err)
+				return nil, fmt.Errorf("exited code invalid: %w", err)
 			}
 			exitCodes = append(exitCodes, int32(ec))
 		}
@@ -70,30 +98,17 @@ func GenerateContainerFilterFuncs(filter string, filterValues []string, r *libpo
 			}
 			return false
 		}, nil
-	case "status":
-		for _, filterValue := range filterValues {
-			if _, err := define.StringToContainerStatus(filterValue); err != nil {
-				return nil, err
-			}
+	case "status", "status!":
+		if err := validateStatusFilterValues(filterValues); err != nil {
+			return nil, err
 		}
+		negate := filter == "status!"
 		return func(c *libpod.Container) bool {
 			status, err := c.State()
 			if err != nil {
 				return false
 			}
-			state := status.String()
-			if status == define.ContainerStateStopped {
-				state = "exited"
-			}
-			for _, filterValue := range filterValues {
-				if filterValue == "stopped" {
-					filterValue = "exited"
-				}
-				if state == filterValue {
-					return true
-				}
-			}
-			return false
+			return matchStatusFilter(status.String(), filterValues, negate)
 		}, nil
 	case "ancestor":
 		// This needs to refine to match docker
@@ -454,33 +469,20 @@ func GenerateExternalContainerFilterFuncs(filter string, filterValues []string, 
 			}
 			return false
 		}, nil
-	case "status":
-		for _, filterValue := range filterValues {
-			if _, err := define.StringToContainerStatus(filterValue); err != nil {
-				return nil, err
-			}
+	case "status", "status!":
+		if err := validateStatusFilterValues(filterValues); err != nil {
+			return nil, err
 		}
+		negate := filter == "status!"
 		return func(listContainer *types.ListContainer) bool {
-			state := listContainer.State
-			if state == define.ContainerStateStopped.String() {
-				state = "exited"
-			}
-			for _, filterValue := range filterValues {
-				if filterValue == "stopped" {
-					filterValue = "exited"
-				}
-				if state == filterValue {
-					return true
-				}
-			}
-			return false
+			return matchStatusFilter(listContainer.State, filterValues, negate)
 		}, nil
 	case "exited":
 		var exitCodes []int32
 		for _, exitCode := range filterValues {
 			ec, err := strconv.ParseInt(exitCode, 10, 32)
 			if err != nil {
-				return nil, fmt.Errorf("exited code out of range %q: %w", ec, err)
+				return nil, fmt.Errorf("exited code invalid: %w", err)
 			}
 			exitCodes = append(exitCodes, int32(ec))
 		}

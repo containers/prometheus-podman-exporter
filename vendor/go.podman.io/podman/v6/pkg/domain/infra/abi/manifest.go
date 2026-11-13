@@ -134,7 +134,7 @@ func (ir *ImageEngine) remoteManifestInspect(ctx context.Context, name string, o
 			// FIXME should we use multierror package instead?
 
 			// we want the new line here so ignore the linter
-			latestErr = fmt.Errorf("tried %v\n: %w", e, latestErr)
+			latestErr = fmt.Errorf("tried %w\n: %w", e, latestErr)
 		}
 	}
 
@@ -229,6 +229,7 @@ func (ir *ImageEngine) ManifestAdd(ctx context.Context, name string, images []st
 			Architecture: opts.Arch,
 			Features:     opts.Features,
 			OS:           opts.OS,
+			OSFeatures:   opts.OSFeatures,
 			OSVersion:    opts.OSVersion,
 			Variant:      opts.Variant,
 			Subject:      opts.IndexSubject,
@@ -278,6 +279,7 @@ func (ir *ImageEngine) ManifestAnnotate(ctx context.Context, name, image string,
 		Architecture: opts.Arch,
 		Features:     opts.Features,
 		OS:           opts.OS,
+		OSFeatures:   opts.OSFeatures,
 		OSVersion:    opts.OSVersion,
 		Variant:      opts.Variant,
 		Subject:      opts.IndexSubject,
@@ -375,6 +377,7 @@ func (ir *ImageEngine) ManifestAddArtifact(ctx context.Context, name string, fil
 		Architecture: opts.Arch,
 		Features:     opts.Features,
 		OS:           opts.OS,
+		OSFeatures:   opts.OSFeatures,
 		OSVersion:    opts.OSVersion,
 		Variant:      opts.Variant,
 		Subject:      opts.IndexSubject,
@@ -402,7 +405,7 @@ func (ir *ImageEngine) digestFromDigestOrManifestListMember(ctx context.Context,
 	}
 	listData, inspectErr := list.Inspect()
 	if inspectErr != nil {
-		return "", fmt.Errorf(`inspecting list "%s" for instance list: %v`, list.ID(), err)
+		return "", fmt.Errorf(`inspecting list "%s" for instance list: %w`, list.ID(), err)
 	}
 	// maybe the name is a file name we previously attached as part of an artifact manifest
 	for _, descriptor := range listData.Manifests {
@@ -446,7 +449,7 @@ func (ir *ImageEngine) digestFromDigestOrManifestListMember(ctx context.Context,
 func (ir *ImageEngine) ManifestRemoveDigest(_ context.Context, name, image string) (string, error) {
 	instanceDigest, err := digest.Parse(image)
 	if err != nil {
-		return "", fmt.Errorf(`invalid image digest "%s": %v`, image, err)
+		return "", fmt.Errorf(`invalid image digest "%s": %w`, image, err)
 	}
 
 	manifestList, err := ir.Libpod.LibimageRuntime().LookupManifestList(name)
