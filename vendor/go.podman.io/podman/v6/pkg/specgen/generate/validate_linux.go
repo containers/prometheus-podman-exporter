@@ -55,11 +55,11 @@ func verifyContainerResources(s *specgen.SpecGenerator) ([]string, error) {
 	if s.ResourceLimits.CPU != nil {
 		cpu := s.ResourceLimits.CPU
 		if cpu.RealtimePeriod != nil {
-			warnings = append(warnings, "Realtime period not supported on cgroups V2 systems")
+			warnings = append(warnings, "Realtime period is not supported as it requires cgroups v1, the value is ignored (NOP) and the option will be removed in the next major release")
 			cpu.RealtimePeriod = nil
 		}
 		if cpu.RealtimeRuntime != nil {
-			warnings = append(warnings, "Realtime runtime not supported on cgroups V2 systems")
+			warnings = append(warnings, "Realtime runtime is not supported as it requires cgroups v1, the value is ignored (NOP) and the option will be removed in the next major release")
 			cpu.RealtimeRuntime = nil
 		}
 	}

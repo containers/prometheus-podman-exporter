@@ -153,7 +153,7 @@ func stopUserModeNetworking(mc *vmconfigs.MachineConfig) error {
 
 	err = wslPipe(stopUserModeNet, userModeDist, "bash")
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			switch exitErr.ExitCode() {
 			case 2:
 				err = fmt.Errorf("startup state was missing")
@@ -161,7 +161,7 @@ func stopUserModeNetworking(mc *vmconfigs.MachineConfig) error {
 				err = fmt.Errorf("route state is missing a default route")
 			}
 		}
-		logrus.Warnf("problem tearing down user-mode networking cleanly, forcing: %s", err.Error())
+		logrus.Warnf("problem tearing down user-mode networking cleanly, forcing: %v", err)
 	}
 
 	return terminateDist(userModeDist)
@@ -184,7 +184,7 @@ func launchUserModeNetDist(exeFile string) error {
 	if err := wslPipe(cmdStr, userModeDist, "bash"); err != nil {
 		_ = terminateDist(userModeDist)
 
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			switch exitErr.ExitCode() {
 			case 2:
 				return fmt.Errorf("another user-mode network is running, only one can be used at a time: shut down all machines and run wsl --shutdown if this is unexpected")
@@ -341,7 +341,7 @@ func obtainUserModeNetLock() (*fileLock, error) {
 	return flock, nil
 }
 
-func changeDistUserModeNetworking(dist string, user string, image string, enable bool) error {
+func changeDistUserModeNetworking(dist string, image string, enable bool) error {
 	// Only install if user-mode is being enabled and there was an image path passed
 	if enable {
 		if len(image) == 0 {
@@ -352,20 +352,14 @@ func changeDistUserModeNetworking(dist string, user string, image string, enable
 		}
 	}
 
-	if err := writeWslConf(dist, user); err != nil {
-		return err
-	}
-
+	// Remove or add `generateResolvConf = false` in the `[networking]`
+	// section of the /etc/wsl.conf (in the guest).
+	script := disableUserNetResolvConf
 	if enable {
-		return appendDisableAutoResolve(dist)
+		script = enableUserNetResolvConf
 	}
-
-	return nil
-}
-
-func appendDisableAutoResolve(dist string) error {
-	if err := wslPipe(wslConfUserNet, dist, "sh", "-c", "cat >> /etc/wsl.conf"); err != nil {
-		return fmt.Errorf("could not append resolv config to wsl.conf: %w", err)
+	if err := wslPipe(script, dist, "sh"); err != nil {
+		return fmt.Errorf("could not update the resolv config in wsl.conf: %w", err)
 	}
 
 	return nil

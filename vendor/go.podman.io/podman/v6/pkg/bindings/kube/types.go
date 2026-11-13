@@ -10,14 +10,16 @@ import (
 type PlayOptions struct {
 	// Annotations - Annotations to add to Pods
 	Annotations map[string]string
+	// Labels - labels to add to created resources
+	Labels map[string]string
 	// Authfile - path to an authentication file.
-	Authfile *string
+	Authfile *string `schema:"-"`
 	// CertDir - to a directory containing TLS certifications and keys.
 	CertDir *string
 	// Username for authenticating against the registry.
-	Username *string
+	Username *string `schema:"-"`
 	// Password for authenticating against the registry.
-	Password *string
+	Password *string `schema:"-"`
 	// Network - name of the networks to connect to.
 	Network *[]string
 	// NoHostname - do not generate /etc/hostname file in pod's containers
@@ -53,6 +55,9 @@ type PlayOptions struct {
 	NoTrunc *bool
 	// Userns - define the user namespace to use.
 	Userns *string
+	// Validate - how to handle unrecognized YAML fields and kinds:
+	// "ignore", "warn", or "strict".
+	Validate *string
 	// Force - remove volumes on --down
 	Force *bool
 	// PublishPorts - configure how to expose ports configured inside the K8S YAML file
@@ -64,6 +69,8 @@ type PlayOptions struct {
 	Wait             *bool
 	ServiceContainer *bool
 	NoPodPrefix      *bool
+	// MultiplePods allows creating of multiple Pods
+	MultiplePods *bool
 }
 
 // ApplyOptions are optional options for applying kube YAML files to a k8s cluster

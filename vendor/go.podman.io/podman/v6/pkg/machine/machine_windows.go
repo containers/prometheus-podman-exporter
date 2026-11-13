@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ import (
 	"go.podman.io/podman/v6/pkg/machine/env"
 	"go.podman.io/podman/v6/pkg/machine/sockets"
 	"go.podman.io/storage/pkg/fileutils"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -101,12 +103,64 @@ func DialNamedPipe(ctx context.Context, path string) (net.Conn, error) {
 	return winio.DialPipeContext(ctx, path)
 }
 
+func cleanupStaleProxy(pipeName string, recordedPID uint32, cleanup func() error) error {
+	if err := cleanup(); err != nil {
+		return fmt.Errorf("cleaning up stale proxy process %d: %w", recordedPID, err)
+	}
+	if !PipeNameAvailable(pipeName, MachineNameWait) {
+		return fmt.Errorf("named pipe %q is still in use after cleaning up stale proxy process %d", pipeName, recordedPID)
+	}
+	return nil
+}
+
+// CleanupStaleGVProxy stops a gvproxy process left behind by an externally
+// stopped VM when its named pipe and PID file still exist.
+func CleanupStaleGVProxy(pipeName string, pidFile define.VMFile) error {
+	if PipeNameAvailable(pipeName, 0) {
+		return nil
+	}
+
+	pid, err := pidFile.ReadPIDFrom()
+	if err != nil {
+		return fmt.Errorf("reading gvproxy PID file while named pipe %q is in use: %w", pipeName, err)
+	}
+	// Accept proxy PIDs from 1 through 2^32-1 (4,294,967,295) to avoid truncation or invalidation during conversion.
+	if pid <= 0 || uint64(pid) > uint64(math.MaxUint32) {
+		return fmt.Errorf("invalid gvproxy PID %d while named pipe %q is in use", pid, pipeName)
+	}
+
+	return cleanupStaleProxy(pipeName, uint32(pid), func() error {
+		return cleanupGVProxy(pid, pidFile)
+	})
+}
+
+// CleanupStaleWinProxy stops a win-sshproxy process left behind by an
+// externally stopped WSL VM when its named pipe and PID/TID file still exist.
+func CleanupStaleWinProxy(name string, vmtype define.VMType) error {
+	pipeName := env.WithPodmanPrefix(name)
+	if PipeNameAvailable(pipeName, 0) {
+		return nil
+	}
+
+	pid, tid, tidFile, err := readWinProxyTid(name, vmtype)
+	if err != nil {
+		return fmt.Errorf("reading win-sshproxy state while named pipe %q is in use: %w", pipeName, err)
+	}
+	if pid == 0 || tid == 0 {
+		return fmt.Errorf("invalid win-sshproxy state %d:%d while named pipe %q is in use", pid, tid, pipeName)
+	}
+
+	return cleanupStaleProxy(pipeName, pid, func() error {
+		return stopWinProxy(pid, tid, tidFile)
+	})
+}
+
 func LaunchWinProxy(opts WinProxyOpts, noInfo bool) {
 	globalName, pipeName, err := launchWinProxy(opts)
 	if !noInfo {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "API forwarding for Docker API clients is not available due to the following startup failures.")
-			fmt.Fprintf(os.Stderr, "\t%s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "\t%v\n", err)
 			fmt.Fprintln(os.Stderr, "\nPodman clients are still able to connect.")
 		} else {
 			fmt.Printf("API forwarding listening on: %s\n", pipeName)
@@ -128,7 +182,7 @@ func LaunchWinProxy(opts WinProxyOpts, noInfo bool) {
 func launchWinProxy(opts WinProxyOpts) (bool, string, error) {
 	machinePipe := env.WithPodmanPrefix(opts.Name)
 	if !PipeNameAvailable(machinePipe, MachineNameWait) {
-		return false, "", fmt.Errorf("could not start api proxy since expected pipe is not available: %s", machinePipe)
+		return false, "", fmt.Errorf("could not start api proxy since expected pipe is not available: %s (an existing proxy process like win-sshproxy or gvproxy may still be running from a previous machine session; try terminating it and retrying)", machinePipe)
 	}
 
 	globalName := PipeNameAvailable(GlobalNamedPipe, GlobalNameWait)
@@ -170,6 +224,9 @@ func launchWinProxy(opts WinProxyOpts) (bool, string, error) {
 	args = append(args, hostURL.String(), dest, opts.IdentityPath)
 
 	cmd := exec.Command(command, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.DETACHED_PROCESS,
+	}
 	logrus.Debugf("winssh command: %s %v", command, args)
 	if err := cmd.Start(); err != nil {
 		return globalName, "", err
@@ -190,7 +247,10 @@ func StopWinProxy(name string, vmtype define.VMType) error {
 	if err != nil {
 		return err
 	}
+	return stopWinProxy(pid, tid, tidFile)
+}
 
+func stopWinProxy(pid, tid uint32, tidFile string) error {
 	proc, err := os.FindProcess(int(pid))
 	if err != nil {
 		//nolint:nilerr

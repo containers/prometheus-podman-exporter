@@ -24,6 +24,7 @@ import (
 	envLib "go.podman.io/podman/v6/pkg/env"
 	"go.podman.io/podman/v6/pkg/signal"
 	"go.podman.io/podman/v6/pkg/specgen"
+	systemdDefine "go.podman.io/podman/v6/pkg/systemd/define"
 )
 
 func getImageFromSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerator) (*libimage.Image, string, *libimage.ImageData, error) {
@@ -83,6 +84,9 @@ func applyHealthCheckOverrides(s *specgen.SpecGenerator, healthCheckFromImage *m
 		}
 		if overrideHealthCheckConfig.StartPeriod != 0 {
 			s.HealthConfig.StartPeriod = overrideHealthCheckConfig.StartPeriod
+		}
+		if overrideHealthCheckConfig.StartInterval != 0 {
+			s.HealthConfig.StartInterval = overrideHealthCheckConfig.StartInterval
 		}
 	}
 
@@ -239,6 +243,7 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 
 	s.Env = envLib.Join(defaultEnvs, s.Env)
 
+	var warnings []string
 	// Labels and Annotations
 	if newImage != nil {
 		labels, err := newImage.Labels(ctx)
@@ -252,7 +257,13 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		}
 		for k, v := range labels {
 			if _, exists := s.Labels[k]; !exists {
-				s.Labels[k] = v
+				switch k {
+				// These labels have a special meaning with podman auto-update, they must not be trusted from an image.
+				case systemdDefine.EnvVariable, define.AutoUpdateLabel, define.AutoUpdateAuthfileLabel:
+					warnings = append(warnings, fmt.Sprintf("The label %s is only supported when set from the Podman command line and it will be ignored when set in the container image. They have a special purpose for podman auto-update already. Please contact the image author to remove the the labels from the image", k))
+				default:
+					s.Labels[k] = v
+				}
 			}
 		}
 
@@ -309,7 +320,7 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 	maps.Copy(annotations, s.Annotations)
 	s.Annotations = annotations
 
-	if len(s.SeccompProfilePath) < 1 {
+	if len(s.SeccompProfilePath) < 1 && len(s.SeccompProfile) < 1 {
 		p, err := libpod.DefaultSeccompPath()
 		if err != nil {
 			return nil, err
@@ -317,7 +328,7 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		s.SeccompProfilePath = p
 	}
 
-	if len(s.User) == 0 && inspectData != nil {
+	if len(s.User) == 0 && inspectData != nil && !s.UserNS.IsKeepID() {
 		s.User = inspectData.Config.User
 	}
 	// Unless already set via the CLI, check if we need to disable process
@@ -354,10 +365,11 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		}
 	}
 
-	warnings, err := verifyContainerResources(s)
+	resourceWarnings, err := verifyContainerResources(s)
 	if err != nil {
-		return warnings, err
+		return resourceWarnings, err
 	}
+	warnings = append(warnings, resourceWarnings...)
 
 	// Warn if NetNS mode is not compatible with PorMappings
 	if len(s.PortMappings) > 0 {

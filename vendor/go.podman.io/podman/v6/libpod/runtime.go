@@ -44,6 +44,7 @@ import (
 	"go.podman.io/storage/pkg/fileutils"
 	"go.podman.io/storage/pkg/lockfile"
 	"go.podman.io/storage/pkg/unshare"
+	stypes "go.podman.io/storage/types"
 )
 
 // Set up the JSON library for all of Libpod
@@ -252,12 +253,12 @@ func getLockManager(runtime *Runtime) (lock.Manager, error) {
 			lockPath = fmt.Sprintf("%s_%d", define.DefaultRootlessSHMLockPath, rootless.GetRootlessUID())
 		}
 		// Set up the lock manager
-		manager, err = lock.OpenSHMLockManager(lockPath, runtime.config.Engine.NumLocks)
-		if err != nil {
+		manager, err = lock.OpenSHMLockManager(lockPath, runtime.config.Engine.NumLocks) //nolint:staticcheck,nolintlint // false-positives on freebsd because this always errors there
+		if err != nil {                                                                  //nolint:staticcheck,nolintlint
 			switch {
 			case errors.Is(err, os.ErrNotExist):
-				manager, err = lock.NewSHMLockManager(lockPath, runtime.config.Engine.NumLocks)
-				if err != nil {
+				manager, err = lock.NewSHMLockManager(lockPath, runtime.config.Engine.NumLocks) //nolint:staticcheck,nolintlint // false-positives on freebsd because this always errors there
+				if err != nil {                                                                 //nolint:staticcheck,nolintlint
 					return nil, fmt.Errorf("failed to get new shm lock manager: %w", err)
 				}
 			case errors.Is(err, syscall.ERANGE) && runtime.doRenumber:
@@ -270,8 +271,8 @@ func getLockManager(runtime *Runtime) (lock.Manager, error) {
 					return nil, fmt.Errorf("removing libpod locks file %s: %w", lockPath, err)
 				}
 
-				manager, err = lock.NewSHMLockManager(lockPath, runtime.config.Engine.NumLocks)
-				if err != nil {
+				manager, err = lock.NewSHMLockManager(lockPath, runtime.config.Engine.NumLocks) //nolint:staticcheck,nolintlint // false-positives on freebsd because this always errors there
+				if err != nil {                                                                 //nolint:staticcheck,nolintlint
 					return nil, err
 				}
 			default:
@@ -472,7 +473,6 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 		needsUserns = !hasCapSysAdmin
 	}
 	// Set up containers/storage
-	var store storage.Store
 	if needsUserns {
 		logrus.Debug("Not configuring container store")
 	} else if err := runtime.configureStore(); err != nil {
@@ -487,10 +487,10 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 		return fmt.Errorf("configure storage: %w", err)
 	}
 	defer func() {
-		if retErr != nil && store != nil {
+		if retErr != nil && runtime.store != nil {
 			// Don't forcibly shut down
 			// We could be opening a store in use by another libpod
-			if _, err := store.Shutdown(false); err != nil {
+			if _, err := runtime.store.Shutdown(false); err != nil {
 				logrus.Errorf("Removing store for partially-created runtime: %s", err)
 			}
 		}
@@ -505,6 +505,7 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 	runtime.ociRuntimes = make(map[string]OCIRuntime)
 
 	// Initialize remaining OCI runtimes
+	var defaultOCIRuntimeErr error
 	for name, paths := range runtime.config.Engine.OCIRuntimes {
 		ociRuntime, err := newConmonOCIRuntime(name, paths, runtime.conmonPath, runtime.runtimeFlags, runtime.config)
 		if err != nil {
@@ -513,6 +514,9 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 			// runtimes that might not be installed (crun, kata).
 			// Only an infof so default configs don't spec errors.
 			logrus.Debugf("Configured OCI runtime %s initialization failed: %v", name, err)
+			if name == runtime.config.Engine.OCIRuntime {
+				defaultOCIRuntimeErr = err
+			}
 			continue
 		}
 
@@ -534,6 +538,9 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 		} else {
 			ociRuntime, ok := runtime.ociRuntimes[runtime.config.Engine.OCIRuntime]
 			if !ok {
+				if defaultOCIRuntimeErr != nil {
+					return fmt.Errorf("default OCI runtime %q failed to initialize: %w", runtime.config.Engine.OCIRuntime, defaultOCIRuntimeErr)
+				}
 				return fmt.Errorf("default OCI runtime %q not found: %w", runtime.config.Engine.OCIRuntime, define.ErrInvalidArg)
 			}
 			runtime.defaultOCIRuntime = ociRuntime
@@ -1050,6 +1057,17 @@ func (r *Runtime) DefaultOCIRuntime() OCIRuntime {
 	return r.defaultOCIRuntime
 }
 
+// RuntimeFeatures returns the raw output of an OCI runtime's
+// "features" command by its name.
+// It returns an empty string if the runtime doesn't exist or
+// does not support the command.
+func (r *Runtime) RuntimeFeatures(name string) string {
+	if ociRuntime, ok := r.ociRuntimes[name]; ok {
+		return ociRuntime.RuntimeFeatures()
+	}
+	return ""
+}
+
 // StorageConfig retrieves the storage options for the container runtime
 func (r *Runtime) StorageConfig() storage.StoreOptions {
 	return r.storageConfig
@@ -1310,6 +1328,13 @@ func (r *Runtime) LockConflicts() (map[uint32][]string, []uint32, error) {
 	return toReturn, locksHeld, nil
 }
 
+// containerGoneErr reports whether err means the container no longer exists in
+// the store. Callers that only care about the container being absent can treat
+// this as success.
+func containerGoneErr(err error) bool {
+	return errors.Is(err, stypes.ErrContainerUnknown) || errors.Is(err, stypes.ErrNotAContainer)
+}
+
 // PruneBuildContainers removes any build containers that were created during the build,
 // but were not removed because the build was unexpectedly terminated.
 //
@@ -1324,6 +1349,13 @@ func (r *Runtime) PruneBuildContainers() ([]*reports.PruneReport, error) {
 	for _, container := range containers {
 		path, err := r.store.ContainerDirectory(container.ID)
 		if err != nil {
+			// The container list is a snapshot, so a container can be removed
+			// while we are still working through it. A build that was killed
+			// cleans up its own stage containers in the background, which is
+			// exactly the case this function is meant to run after. Skip it.
+			if containerGoneErr(err) {
+				continue
+			}
 			return stageContainersPruneReports, err
 		}
 		if err := fileutils.Exists(filepath.Join(path, "buildah.json")); err != nil {
@@ -1335,11 +1367,19 @@ func (r *Runtime) PruneBuildContainers() ([]*reports.PruneReport, error) {
 		}
 		size, err := r.store.ContainerSize(container.ID)
 		if err != nil {
+			if containerGoneErr(err) {
+				continue
+			}
 			report.Err = err
 		}
 		report.Size = uint64(size)
 
 		if err := r.store.DeleteContainer(container.ID); err != nil {
+			// Pruning wants the container gone. If something else removed it
+			// first that is the result we wanted, so do not report it.
+			if containerGoneErr(err) {
+				continue
+			}
 			report.Err = errors.Join(report.Err, err)
 		}
 		stageContainersPruneReports = append(stageContainersPruneReports, report)

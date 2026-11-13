@@ -3,13 +3,16 @@
 package libpod
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
 	"go.podman.io/podman/v6/libpod/define"
 )
 
@@ -26,15 +29,34 @@ func (c *Container) pathAbs(path string) string {
 	return path
 }
 
-// resolvePath resolves the container's mount point and the container
-// path as specified by the user.  Both may resolve to paths outside of the
-// container's mount point when the container path hits a volume or bind mount.
-//
-// It returns a bool, indicating whether containerPath resolves outside of
-// mountPoint (e.g., via a mount or volume), the resolved root (e.g., container
-// mount, bind mount or volume) and the resolved path on the root (absolute to
-// the host). If the path is on a named volume, the volume is returned.
-func (c *Container) resolvePath(mountPoint string, containerPath string) (string, string, *Volume, error) {
+// pathResolution holds a resolved path and any mounts that keep its root stable
+// until the operation is done.
+type pathResolution struct {
+	root        string
+	path        string
+	volume      *Volume
+	image       *libimage.Image
+	imageVolume *ContainerImageVolume
+	mount       *safeMountInfo
+	readOnly    bool
+}
+
+func (r pathResolution) close() {
+	if r.mount != nil {
+		r.mount.Close()
+	}
+	if r.image != nil {
+		if err := r.image.Unmount(false); err != nil {
+			logrus.Errorf("Unmounting image %s after copy: %v", r.image.ID(), err)
+		}
+	}
+}
+
+// resolvePath resolves the container's mount point and the container path as
+// specified by the user. Both may resolve outside the container's mount point
+// when the path hits a volume, image mount, or bind mount. The caller must close
+// the result.
+func (c *Container) resolvePath(ctx context.Context, mountPoint string, containerPath string) (pathResolution, error) {
 	// Let's first make sure we have a path relative to the mount point.
 	pathRelativeToContainerMountPoint := c.pathAbs(containerPath)
 	resolvedPathOnTheContainerMountPoint := filepath.Join(mountPoint, pathRelativeToContainerMountPoint)
@@ -52,19 +74,28 @@ func (c *Container) resolvePath(mountPoint string, containerPath string) (string
 
 	searchPath := pathRelativeToContainerMountPoint
 	for {
-		volume, err := findVolume(c, searchPath)
+		volume, namedVolume, err := findVolume(c, searchPath)
 		if err != nil {
-			return "", "", nil, err
+			return pathResolution{}, err
 		}
 		if volume != nil {
 			logrus.Debugf("Container path %q resolved to volume %q on path %q", containerPath, volume.Name(), searchPath)
 
 			mountPoint, err := volume.MountPoint()
 			if err != nil {
-				return "", "", nil, err
+				return pathResolution{}, err
 			}
 			if mountPoint == "" {
-				return "", "", nil, fmt.Errorf("volume %s is not mounted, cannot copy into it", volume.Name())
+				return pathResolution{}, fmt.Errorf("volume %s is not mounted, cannot copy into it", volume.Name())
+			}
+
+			var safeMount *safeMountInfo
+			if namedVolume.SubPath != "" {
+				safeMount, err = c.safeMountSubPath(mountPoint, namedVolume.SubPath)
+				if err != nil {
+					return pathResolution{}, err
+				}
+				mountPoint = safeMount.mountPoint
 			}
 
 			// We found a matching volume for searchPath.  We now
@@ -74,9 +105,40 @@ func (c *Container) resolvePath(mountPoint string, containerPath string) (string
 			pathRelativeToVolume := strings.TrimPrefix(pathRelativeToContainerMountPoint, searchPath)
 			absolutePathOnTheVolumeMount, err := securejoin.SecureJoin(mountPoint, pathRelativeToVolume)
 			if err != nil {
-				return "", "", nil, err
+				if safeMount != nil {
+					safeMount.Close()
+				}
+				return pathResolution{}, err
 			}
-			return mountPoint, absolutePathOnTheVolumeMount, volume, nil
+			return pathResolution{root: mountPoint, path: absolutePathOnTheVolumeMount, volume: volume, mount: safeMount, readOnly: slices.Contains(namedVolume.Options, "ro")}, nil
+		}
+
+		if imageVolume := findImageVolume(c, searchPath); imageVolume != nil {
+			image, _, err := c.runtime.LibimageRuntime().LookupImage(imageVolume.Source, nil)
+			if err != nil {
+				return pathResolution{}, err
+			}
+			imageMountPoint, err := image.Mount(ctx, nil, "")
+			if err != nil {
+				return pathResolution{}, err
+			}
+			resolved := pathResolution{image: image, imageVolume: imageVolume}
+			if imageVolume.SubPath != "" {
+				resolved.mount, err = c.safeMountSubPath(imageMountPoint, imageVolume.SubPath)
+				if err != nil {
+					resolved.close()
+					return pathResolution{}, err
+				}
+				imageMountPoint = resolved.mount.mountPoint
+			}
+			pathRelativeToImage := strings.TrimPrefix(pathRelativeToContainerMountPoint, searchPath)
+			resolved.root = imageMountPoint
+			resolved.path, err = securejoin.SecureJoin(imageMountPoint, pathRelativeToImage)
+			if err != nil {
+				resolved.close()
+				return pathResolution{}, err
+			}
+			return resolved, nil
 		}
 
 		if mount := findBindMount(c, searchPath); mount != nil {
@@ -88,9 +150,9 @@ func (c *Container) resolvePath(mountPoint string, containerPath string) (string
 			pathRelativeToBindMount := strings.TrimPrefix(pathRelativeToContainerMountPoint, searchPath)
 			absolutePathOnTheBindMount, err := securejoin.SecureJoin(mount.Source, pathRelativeToBindMount)
 			if err != nil {
-				return "", "", nil, err
+				return pathResolution{}, err
 			}
-			return mount.Source, absolutePathOnTheBindMount, nil, nil
+			return pathResolution{root: mount.Source, path: absolutePathOnTheBindMount, readOnly: slices.Contains(mount.Options, "ro")}, nil
 		}
 
 		if searchPath == "/" {
@@ -102,20 +164,32 @@ func (c *Container) resolvePath(mountPoint string, containerPath string) (string
 	}
 
 	// No volume, no bind mount but just a normal path on the container.
-	return mountPoint, resolvedPathOnTheContainerMountPoint, nil, nil
+	return pathResolution{root: mountPoint, path: resolvedPathOnTheContainerMountPoint}, nil
+}
+
+// findImageVolume checks whether containerPath matches an image mount's destination.
+func findImageVolume(c *Container, containerPath string) *ContainerImageVolume {
+	cleanedContainerPath := filepath.Clean(containerPath)
+	for _, volume := range c.config.ImageVolumes {
+		if cleanedContainerPath == filepath.Clean(volume.Dest) {
+			return volume
+		}
+	}
+	return nil
 }
 
 // findVolume checks if the specified containerPath matches the destination
-// path of a Volume.  Returns a matching Volume or nil.
-func findVolume(c *Container, containerPath string) (*Volume, error) {
+// path of a Volume. It returns the matching Volume and its container configuration.
+func findVolume(c *Container, containerPath string) (*Volume, *ContainerNamedVolume, error) {
 	runtime := c.Runtime()
 	cleanedContainerPath := filepath.Clean(containerPath)
 	for _, vol := range c.config.NamedVolumes {
 		if cleanedContainerPath == filepath.Clean(vol.Dest) {
-			return runtime.GetVolume(vol.Name)
+			volume, err := runtime.GetVolume(vol.Name)
+			return volume, vol, err
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 // isSubDir checks whether path is a subdirectory of root.

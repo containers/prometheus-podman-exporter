@@ -168,6 +168,8 @@ func (c *Container) getContainerInspectData(size bool, driverData *define.Driver
 		Dependencies:            c.Dependencies(),
 		IsInfra:                 c.IsInfra(),
 		IsService:               c.IsService(),
+		IsInitCtr:               c.IsInitCtr(),
+		InitContainerType:       c.config.InitContainerType,
 		KubeExitCodePropagation: config.KubeExitCodePropagation.String(),
 		LockNumber:              c.lock.ID(),
 		UseImageHosts:           c.config.UseImageHosts,
@@ -623,12 +625,6 @@ func (c *Container) generateInspectContainerHostConfig(ctrSpec *spec.Spec, named
 			hostConfig.Ulimits = append(hostConfig.Ulimits, newLimit)
 		}
 	}
-
-	// Terminal size
-	// We can't actually get this for now...
-	// So default to something sane.
-	// TODO: Populate this.
-	hostConfig.ConsoleSize = []uint{0, 0}
 
 	return hostConfig, nil
 }

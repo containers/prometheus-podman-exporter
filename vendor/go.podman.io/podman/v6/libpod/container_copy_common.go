@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	buildahCopiah "go.podman.io/buildah/copier"
+	"go.podman.io/buildah/copier"
 	"go.podman.io/buildah/pkg/chrootuser"
 	"go.podman.io/buildah/util"
 	"go.podman.io/podman/v6/libpod/define"
@@ -23,11 +24,9 @@ import (
 	"go.podman.io/storage/pkg/stringid"
 )
 
-func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir bool, rename map[string]string, reader io.Reader) (func() error, error) {
+func (c *Container) copyFromArchive(ctx context.Context, path string, chown, noOverwriteDirNonDir bool, rename map[string]string, reader io.Reader) (func() error, error) {
 	var (
 		mountPoint   string
-		resolvedRoot string
-		resolvedPath string
 		unmount      func()
 		cleanupFuncs []func()
 		err          error
@@ -93,7 +92,7 @@ func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir boo
 		// containers that have never started.
 		if len(c.config.NamedVolumes) > 0 {
 			for _, v := range c.config.NamedVolumes {
-				vol, err := c.mountNamedVolume(v, mountPoint)
+				vol, err := c.mountNamedVolume(ctx, v, mountPoint)
 				if err != nil {
 					unmount()
 					return nil, err
@@ -134,13 +133,28 @@ func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir boo
 		}
 	}
 
-	resolvedRoot, resolvedPath, volume, err := c.resolveCopyTarget(mountPoint, path)
+	resolved, err := c.resolveCopyTarget(ctx, mountPoint, path)
 	if err != nil {
 		unmount()
 		return nil, err
 	}
+	cleanup := func() {
+		resolved.close()
+		unmount()
+	}
+	if resolved.image != nil {
+		// The image is mounted directly here, without the container's writable
+		// overlay. Writing to it would modify the image or fail on a read-only mount.
+		cleanup()
+		return nil, fmt.Errorf("cannot copy into an image mount without its writable overlay")
+	}
+	if resolved.readOnly {
+		cleanup()
+		return nil, fmt.Errorf("cannot copy into a read-only mount")
+	}
 
-	if volume != nil {
+	if resolved.volume != nil {
+		volume := resolved.volume
 		// This must be the first cleanup function so it fires before volume unmounts happen.
 		cleanupFuncs = append([]func(){func() {
 			// This is a gross hack to ensure correct permissions
@@ -192,7 +206,7 @@ func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir boo
 		// Make sure we chown the files to the container's main user and group ID.
 		user, err := getContainerUser(c, mountPoint)
 		if err != nil {
-			unmount()
+			cleanup()
 			return nil, err
 		}
 		idPair = &idtools.IDPair{UID: int(user.UID), GID: int(user.GID)}
@@ -200,18 +214,18 @@ func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir boo
 
 	decompressed, err := archive.DecompressStream(reader)
 	if err != nil {
-		unmount()
+		cleanup()
 		return nil, err
 	}
 
 	locked = false
 
-	logrus.Debugf("Container copy *to* %q (resolved: %q) on container %q (ID: %s)", path, resolvedPath, c.Name(), c.ID())
+	logrus.Debugf("Container copy *to* %q (resolved: %q) on container %q (ID: %s)", path, resolved.path, c.Name(), c.ID())
 
 	return func() error {
-		defer unmount()
+		defer cleanup()
 		defer decompressed.Close()
-		putOptions := buildahCopiah.PutOptions{
+		putOptions := copier.PutOptions{
 			UIDMap:               c.config.IDMappings.UIDMap,
 			GIDMap:               c.config.IDMappings.GIDMap,
 			ChownDirs:            idPair,
@@ -223,13 +237,13 @@ func (c *Container) copyFromArchive(path string, chown, noOverwriteDirNonDir boo
 
 		return c.joinMountAndExec(
 			func() error {
-				return buildahCopiah.Put(resolvedRoot, resolvedPath, putOptions, decompressed)
+				return copier.PutContext(ctx, resolved.root, resolved.path, putOptions, decompressed)
 			},
 		)
 	}, nil
 }
 
-func (c *Container) copyToArchive(path string, writer io.Writer) (func() error, error) {
+func (c *Container) copyToArchive(ctx context.Context, path string, writer io.Writer) (func() error, error) {
 	var (
 		mountPoint string
 		unmount    func()
@@ -253,10 +267,15 @@ func (c *Container) copyToArchive(path string, writer io.Writer) (func() error, 
 		}
 	}
 
-	statInfo, resolvedRoot, resolvedPath, err := c.stat(mountPoint, path)
+	statInfo, resolved, err := c.stat(ctx, mountPoint, path)
 	if err != nil {
+		resolved.close()
 		unmount()
 		return nil, err
+	}
+	cleanup := func() {
+		resolved.close()
+		unmount()
 	}
 
 	// We optimistically chown to the host user.  In case of a hypothetical
@@ -264,7 +283,7 @@ func (c *Container) copyToArchive(path string, writer io.Writer) (func() error, 
 	// container user.
 	user, err := getContainerUser(c, mountPoint)
 	if err != nil {
-		unmount()
+		cleanup()
 		return nil, err
 	}
 	hostUID, hostGID, err := util.GetHostIDs(
@@ -274,16 +293,16 @@ func (c *Container) copyToArchive(path string, writer io.Writer) (func() error, 
 		user.GID,
 	)
 	if err != nil {
-		unmount()
+		cleanup()
 		return nil, err
 	}
 	idPair := idtools.IDPair{UID: int(hostUID), GID: int(hostGID)}
 
-	logrus.Debugf("Container copy *from* %q (resolved: %q) on container %q (ID: %s)", path, resolvedPath, c.Name(), c.ID())
+	logrus.Debugf("Container copy *from* %q (resolved: %q) on container %q (ID: %s)", path, resolved.path, c.Name(), c.ID())
 
 	return func() error {
-		defer unmount()
-		getOptions := buildahCopiah.GetOptions{
+		defer cleanup()
+		getOptions := copier.GetOptions{
 			// Unless the specified points to ".", we want to copy the base directory.
 			KeepDirectoryNames: statInfo.IsDir && filepath.Base(path) != ".",
 			UIDMap:             c.config.IDMappings.UIDMap,
@@ -299,7 +318,7 @@ func (c *Container) copyToArchive(path string, writer io.Writer) (func() error, 
 		}
 		return c.joinMountAndExec(
 			func() error {
-				return buildahCopiah.Get(resolvedRoot, "", getOptions, []string{resolvedPath}, writer)
+				return copier.GetContext(ctx, resolved.root, "", getOptions, []string{resolved.path}, writer)
 			},
 		)
 	}, nil
