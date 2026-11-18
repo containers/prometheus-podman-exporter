@@ -76,7 +76,7 @@ export GOFLAGS="-mod=vendor"
 %endif
 
 %if 0%{?rhel} >= 9
-export BUILDTAGS="exclude_graphdriver_btrfs btrfs_noversion systemd libtrust_openssl"
+export BUILDTAGS="exclude_graphdriver_btrfs btrfs_noversion systemd"
 %endif
 
 %if 0%{?fedora}
