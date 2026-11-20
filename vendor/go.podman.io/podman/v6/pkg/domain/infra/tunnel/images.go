@@ -101,8 +101,12 @@ func (ir *ImageEngine) History(_ context.Context, nameOrID string, _ entities.Im
 func (ir *ImageEngine) Prune(_ context.Context, opts entities.ImagePruneOptions) ([]*reports.PruneReport, error) {
 	filters := make(map[string][]string, len(opts.Filter))
 	for _, filter := range opts.Filter {
-		f := strings.Split(filter, "=")
-		filters[f[0]] = f[1:]
+		f := strings.SplitN(filter, "=", 2)
+		if len(f) > 1 {
+			filters[f[0]] = append(filters[f[0]], f[1])
+		} else {
+			filters[f[0]] = append(filters[f[0]], "")
+		}
 	}
 	options := new(images.PruneOptions).WithAll(opts.All).WithFilters(filters).WithExternal(opts.External).WithBuildCache(opts.BuildCache)
 	reports, err := images.Prune(ir.ClientCtx, options)
@@ -204,8 +208,8 @@ func (ir *ImageEngine) Inspect(_ context.Context, namesOrIDs []string, opts enti
 	for _, i := range namesOrIDs {
 		r, err := images.GetImage(ir.ClientCtx, i, options)
 		if err != nil {
-			errModel, ok := err.(*errorhandling.ErrorModel)
-			if !ok {
+			var errModel *errorhandling.ErrorModel
+			if !errors.As(err, &errModel) {
 				return nil, nil, err
 			}
 			if errModel.ResponseCode == 404 {
@@ -225,8 +229,7 @@ func (ir *ImageEngine) Load(_ context.Context, opts entities.ImageLoadOptions) (
 		if err == nil {
 			return report, nil
 		}
-		var errModel *errorhandling.ErrorModel
-		if errors.As(err, &errModel) {
+		if errModel, ok := errors.AsType[*errorhandling.ErrorModel](err); ok {
 			switch errModel.ResponseCode {
 			case http.StatusNotFound, http.StatusMethodNotAllowed:
 			default:
@@ -266,6 +269,7 @@ func (ir *ImageEngine) Import(_ context.Context, opts entities.ImageImportOption
 		if err != nil {
 			return nil, err
 		}
+		defer f.Close()
 	}
 	return images.Import(ir.ClientCtx, f, options)
 }
@@ -274,12 +278,16 @@ func (ir *ImageEngine) Push(_ context.Context, source string, destination string
 	if opts.Signers != nil {
 		return nil, fmt.Errorf("forwarding Signers is not supported for remote clients")
 	}
+	if opts.SignBy != "" || opts.SignBySigstorePrivateKeyFile != "" {
+		return nil, fmt.Errorf("signing is not supported for remote clients")
+	}
 	if opts.OciEncryptConfig != nil {
 		return nil, fmt.Errorf("encryption is not supported for remote clients")
 	}
 
 	options := new(images.PushOptions)
 	options.WithAll(opts.All).WithCompress(opts.Compress).WithUsername(opts.Username).WithPassword(opts.Password).WithAuthfile(opts.Authfile).WithFormat(opts.Format).WithRemoveSignatures(opts.RemoveSignatures).WithQuiet(opts.Quiet).WithCompressionFormat(opts.CompressionFormat).WithProgressWriter(opts.Writer).WithForceCompressionFormat(opts.ForceCompressionFormat)
+	options.WithOS(opts.OS).WithArch(opts.Arch).WithVariant(opts.Variant)
 
 	if opts.CompressionLevel != nil {
 		options.WithCompressionLevel(*opts.CompressionLevel)
@@ -353,6 +361,7 @@ func (ir *ImageEngine) Save(_ context.Context, nameOrID string, tags []string, o
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	info, err := os.Stat(opts.Output)
 	switch {
 	case err == nil:
@@ -420,8 +429,7 @@ func (ir *ImageEngine) Build(_ context.Context, containerFiles []string, opts en
 			}
 			logrus.Debugf("BuildLocal failed: %v", err)
 
-			var errModel *errorhandling.ErrorModel
-			if errors.As(err, &errModel) {
+			if errModel, ok := errors.AsType[*errorhandling.ErrorModel](err); ok {
 				switch errModel.ResponseCode {
 				case http.StatusNotFound, http.StatusMethodNotAllowed:
 				default:
@@ -466,6 +474,12 @@ func (ir *ImageEngine) Scp(_ context.Context, src, dst string, opts entities.Ima
 	}
 	options.Quiet = &opts.Quiet
 	options.Destination = destination
+	// "none" is only spelled out for the CLI; leaving it off the request keeps a
+	// service that predates these options from rejecting it.
+	if utils.ScpCompressionRequested(opts.CompressionFormat) {
+		options.CompressionFormat = &opts.CompressionFormat
+	}
+	options.CompressionLevel = opts.CompressionLevel
 
 	rep, err := images.Scp(ir.ClientCtx, &src, destination, *options)
 	if err != nil {

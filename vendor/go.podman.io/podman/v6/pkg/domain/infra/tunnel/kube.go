@@ -65,7 +65,10 @@ func (ic *ContainerEngine) PlayKube(_ context.Context, body io.Reader, opts enti
 	if opts.Annotations != nil {
 		options.WithAnnotations(opts.Annotations)
 	}
-	options.WithNoHostname(opts.NoHostname).WithNoHosts(opts.NoHosts).WithUserns(opts.Userns)
+	if opts.Labels != nil {
+		options.WithLabels(opts.Labels)
+	}
+	options.WithNoHostname(opts.NoHostname).WithNoHosts(opts.NoHosts).WithUserns(opts.Userns).WithValidate(string(opts.Validate))
 	if s := opts.SkipTLSVerify; s != types.OptionalBoolUndefined {
 		options.WithSkipTLSVerify(s == types.OptionalBoolTrue)
 	}
@@ -76,6 +79,7 @@ func (ic *ContainerEngine) PlayKube(_ context.Context, body io.Reader, opts enti
 	options.WithPublishAllPorts(opts.PublishAllPorts)
 	options.WithNoTrunc(opts.UseLongAnnotations)
 	options.WithNoPodPrefix(opts.NoPodPrefix)
+	options.WithMultiplePods(opts.MultiplePods)
 	return play.KubeWithBody(ic.ClientCtx, body, options)
 }
 

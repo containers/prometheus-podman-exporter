@@ -11,6 +11,7 @@ import (
 	pluginapi "github.com/docker/go-plugins-helpers/volume"
 	"github.com/sirupsen/logrus"
 	"go.podman.io/podman/v6/libpod/define"
+	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,9 +38,18 @@ func (v *Volume) mount() error {
 		return err
 	}
 
-	// If the count is non-zero, the volume is already mounted.
-	// Nothing to do.
 	if v.state.MountCount > 0 {
+		if !v.UsesVolumeDriver() && v.config.Driver != define.VolumeDriverImage {
+			mounted, err := mount.Mounted(v.config.MountPoint)
+			if err != nil {
+				return fmt.Errorf("checking if volume %s is mounted: %w", v.Name(), err)
+			}
+			if !mounted {
+				return fmt.Errorf("volume %s is expected to be mounted, but mountpoint %s is not mounted (mount count: %d)",
+					v.Name(), v.config.MountPoint, v.state.MountCount)
+			}
+		}
+
 		v.state.MountCount++
 		logrus.Debugf("Volume %s mount count now at %d", v.Name(), v.state.MountCount)
 		return v.save()
@@ -50,14 +60,15 @@ func (v *Volume) mount() error {
 	// ours more. So hardcode container ID to something reasonable, and use
 	// the same one for everything.
 	if v.UsesVolumeDriver() {
-		if v.plugin == nil {
-			return fmt.Errorf("volume plugin %s (needed by volume %s) missing: %w", v.Driver(), v.Name(), define.ErrMissingPlugin)
+		plugin, err := v.volumePlugin()
+		if err != nil {
+			return fmt.Errorf("volume plugin %s (needed by volume %s) missing: %w", v.Driver(), v.Name(), err)
 		}
 
 		req := new(pluginapi.MountRequest)
 		req.Name = v.Name()
 		req.ID = pseudoCtrID
-		mountPoint, err := v.plugin.MountVolume(req)
+		mountPoint, err := plugin.MountVolume(req)
 		if err != nil {
 			return err
 		}
@@ -156,14 +167,15 @@ func (v *Volume) unmount(force bool) error {
 
 	if v.state.MountCount == 0 {
 		if v.UsesVolumeDriver() {
-			if v.plugin == nil {
-				return fmt.Errorf("volume plugin %s (needed by volume %s) missing: %w", v.Driver(), v.Name(), define.ErrMissingPlugin)
+			plugin, err := v.volumePlugin()
+			if err != nil {
+				return fmt.Errorf("volume plugin %s (needed by volume %s) missing: %w", v.Driver(), v.Name(), err)
 			}
 
 			req := new(pluginapi.UnmountRequest)
 			req.Name = v.Name()
 			req.ID = pseudoCtrID
-			if err := v.plugin.UnmountVolume(req); err != nil {
+			if err := plugin.UnmountVolume(req); err != nil {
 				return err
 			}
 
@@ -180,9 +192,9 @@ func (v *Volume) unmount(force bool) error {
 
 		// Unmount the volume
 		if err := detachUnmount(v.config.MountPoint); err != nil {
-			if err == unix.EINVAL {
+			if errors.Is(err, unix.EINVAL) {
 				// Ignore EINVAL - the mount no longer exists.
-				return nil
+				return v.save()
 			}
 			return fmt.Errorf("unmounting volume %s: %w", v.Name(), err)
 		}

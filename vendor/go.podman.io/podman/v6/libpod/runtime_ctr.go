@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,7 +58,7 @@ func (r *Runtime) NewContainer(ctx context.Context, rSpec *spec.Spec, spec *spec
 	return r.newContainer(ctx, rSpec, options...)
 }
 
-func (r *Runtime) PrepareVolumeOnCreateContainer(_ context.Context, ctr *Container) error {
+func (r *Runtime) PrepareVolumeOnCreateContainer(ctx context.Context, ctr *Container) error {
 	// Copy the content from the underlying image into the newly created
 	// volume if configured to do so.
 	if !r.config.Containers.PrepareVolumeOnCreate {
@@ -70,7 +71,7 @@ func (r *Runtime) PrepareVolumeOnCreateContainer(_ context.Context, ctr *Contain
 		}
 	}()
 
-	mountPoint, err := ctr.mountStorage()
+	mountPoint, err := ctr.mountStorage(ctx)
 	if err == nil {
 		// Finish up mountStorage
 		ctr.state.Mounted = true
@@ -298,9 +299,8 @@ func (r *Runtime) setupContainer(ctx context.Context, ctr *Container) (_ *Contai
 					return nil, errors.New("failed to find free network interface name")
 				}
 			}
-			network.Aliases = append(network.Aliases, getExtraNetworkAliases(ctr)...)
-
 			network.Name = netName
+			network.Aliases = slices.Compact(slices.Sorted(slices.Values(network.Aliases)))
 			normalizeNetworks = append(normalizeNetworks, network)
 		}
 		ctr.config.Networks = normalizeNetworks
@@ -1195,7 +1195,7 @@ func (r *Runtime) evictContainer(ctx context.Context, idOrName string, removeVol
 			if !volume.Anonymous() {
 				continue
 			}
-			if err := r.removeVolume(ctx, volume, false, timeout, false); err != nil && err != define.ErrNoSuchVolume && err != define.ErrVolumeBeingUsed {
+			if err := r.removeVolume(ctx, volume, false, timeout, false); err != nil && !errors.Is(err, define.ErrNoSuchVolume) && !errors.Is(err, define.ErrVolumeBeingUsed) {
 				logrus.Errorf("Cleaning up volume (%s): %v", v.Name, err)
 			}
 		}
@@ -1386,7 +1386,7 @@ func (r *Runtime) PruneContainers(filterFuncs []ContainerFilter) ([]*reports.Pru
 		if err != nil {
 			report.Err = err
 		} else {
-			report.Size = (uint64)(size)
+			report.Size = uint64(size)
 		}
 		preports = append(preports, report)
 	}
@@ -1457,7 +1457,7 @@ func (r *Runtime) StorageContainers() ([]storage.Container, error) {
 	retCtrs := []storage.Container{}
 	for _, container := range storeContainers {
 		exists, err := r.state.HasContainer(container.ID)
-		if err != nil && err != define.ErrNoSuchCtr {
+		if err != nil && !errors.Is(err, define.ErrNoSuchCtr) {
 			return nil, fmt.Errorf("failed to check if %s container exists in database: %w", container.ID, err)
 		}
 		if exists {
