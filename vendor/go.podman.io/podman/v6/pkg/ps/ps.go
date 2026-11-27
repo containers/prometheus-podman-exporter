@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,7 +53,9 @@ func GetContainerLists(runtime *libpod.Runtime, options entities.ContainerListOp
 
 	// Docker thinks that if status is given as an input, then we should override
 	// the all setting and always deal with all containers.
-	if len(options.Filters["status"]) > 0 {
+	// Negated status filters such as status!=running are also explicit status
+	// filters and must disable the default running-only behavior.
+	if len(options.Filters["status"]) > 0 || len(options.Filters["status!"]) > 0 {
 		all = true
 	}
 	if !all {
@@ -376,9 +377,12 @@ func getNamespaceInfo(path string) (string, error) {
 
 // getStrFromSquareBrackets gets the string inside [] from a string.
 func getStrFromSquareBrackets(cmd string) string {
-	reg := regexp.MustCompile(`.*\[|\].*`)
-	arr := strings.Split(reg.ReplaceAllLiteralString(cmd, ""), ",")
-	return strings.Join(arr, ",")
+	start := strings.IndexByte(cmd, '[')
+	end := strings.IndexByte(cmd, ']')
+	if start != -1 && end != -1 && end > start {
+		return cmd[start+1 : end]
+	}
+	return cmd
 }
 
 // SortContainers helps us set-up ability to sort by createTime

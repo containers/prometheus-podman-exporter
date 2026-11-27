@@ -18,6 +18,7 @@ import (
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
 	"go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/umask"
 	"go.podman.io/podman/v6/pkg/rootless"
 	"golang.org/x/sys/unix"
 )
@@ -34,7 +35,7 @@ func (c *Container) unmountSHM(_ string) error {
 
 // prepare mounts the container and sets up other required resources like net
 // namespaces
-func (c *Container) prepare() error {
+func (c *Container) prepare(ctx context.Context) error {
 	var (
 		wg                              sync.WaitGroup
 		ctrNS                           string
@@ -71,7 +72,7 @@ func (c *Container) prepare() error {
 	// Mount storage if not mounted
 	go func() {
 		defer wg.Done()
-		mountPoint, mountStorageErr = c.mountStorage()
+		mountPoint, mountStorageErr = c.mountStorage(ctx)
 
 		if mountStorageErr != nil {
 			return
@@ -370,7 +371,11 @@ func (s *safeMountInfo) Close() {
 // The caller is responsible for closing the file descriptor and unmounting the subpath
 // when it's no longer needed.
 func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountInfo, err error) {
-	return &safeMountInfo{mountPoint: filepath.Join(mountPoint, subpath)}, nil
+	path, err := securejoin.SecureJoin(mountPoint, subpath)
+	if err != nil {
+		return nil, err
+	}
+	return &safeMountInfo{mountPoint: path}, nil
 }
 
 func (c *Container) makePlatformMtabLink(_, _, _ int) error {
@@ -429,4 +434,25 @@ func containerPathIsFile(unsafeRoot string, containerPath string) (bool, error) 
 		return true, nil
 	}
 	return false, err
+}
+
+// createSecretMountPoint creates the mount point of a secret in the directory
+// mounted on /run/secrets, as the OCI runtime cannot create it when that
+// directory is read-only.
+func (c *Container) createSecretMountPoint(srcDir, name string) error {
+	if srcDir == "" {
+		return nil
+	}
+	path, err := securejoin.SecureJoin(srcDir, name)
+	if err != nil {
+		return err
+	}
+	if err := umask.MkdirAllIgnoreUmask(filepath.Dir(path), os.FileMode(0o755)); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }

@@ -1,6 +1,7 @@
 package volumes
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -45,6 +46,8 @@ const (
 	// All the lockfiles are stored in a separate directory inside `BuildahCacheDir`
 	// Example `/var/tmp/buildah-cache/<target>/buildah-cache-lockfile`
 	BuildahCacheLockfileDir = "buildah-cache-lockfiles"
+	// sharing=private holds this lock while it picks a directory for the cache
+	buildahCachePoolLockfile = "buildah-cache-pool-lockfile"
 )
 
 var (
@@ -131,7 +134,13 @@ func convertToOverlay(m specs.Mount, store storage.Store, mountLabel, tmpDir str
 // clean up the overlay filesystem (if we provided a path to it), unmount and
 // remove the mountpoint for the mounted filesystem (if we provided the path to
 // its mountpoint), and then unmount the image (if we mounted one).
-func GetBindMount(sys *types.SystemContext, args []string, contextDir string, store storage.Store, mountLabel string, additionalMountPoints map[string]internal.StageMountDetails, workDir, tmpDir string) (specs.Mount, string, string, string, error) {
+func GetBindMount(ctx context.Context, sys *types.SystemContext, args []string, contextDir string, store storage.Store, mountLabel string, additionalMountPoints map[string]internal.StageMountDetails, workDir, tmpDir string) (specs.Mount, string, string, string, error) {
+	select {
+	case <-ctx.Done():
+		return specs.Mount{}, "", "", "", ctx.Err()
+	default:
+	}
+
 	newMount := specs.Mount{
 		Type: define.TypeBind,
 	}
@@ -298,7 +307,7 @@ func GetBindMount(sys *types.SystemContext, args []string, contextDir string, st
 	// buildkit parity: support absolute path for sources from current build context
 	if contextDir != "" {
 		// path should be /contextDir/specified path
-		evaluated, err := copier.Eval(contextDir, contextDir+string(filepath.Separator)+newMount.Source, copier.EvalOptions{})
+		evaluated, err := copier.EvalContext(ctx, contextDir, contextDir+string(filepath.Separator)+newMount.Source, copier.EvalOptions{})
 		if err != nil {
 			return newMount, "", "", "", err
 		}
@@ -360,10 +369,15 @@ func GetBindMount(sys *types.SystemContext, args []string, contextDir string, st
 // and remove the mountpoint of the mounted filesystem (if we provided the path
 // to its mountpoint), unmount the image (if we mounted one), and release the
 // lock (if we took one).
-func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store, mountLabel string, additionalMountPoints map[string]internal.StageMountDetails, uidmap, gidmap []specs.LinuxIDMapping, workDir, tmpDir string) (specs.Mount, string, string, string, *lockfile.LockFile, error) {
+func GetCacheMount(ctx context.Context, sys *types.SystemContext, args []string, store storage.Store, mountLabel string, additionalMountPoints map[string]internal.StageMountDetails, uidmap, gidmap []specs.LinuxIDMapping, workDir, tmpDir string) (specs.Mount, string, string, string, *lockfile.LockFile, error) {
+	select {
+	case <-ctx.Done():
+		return specs.Mount{}, "", "", "", nil, ctx.Err()
+	default:
+	}
+
 	var err error
 	var mode uint64
-	var buildahLockFilesDir string
 	var setShared bool
 	setDest := ""
 	setRelabel := ""
@@ -421,6 +435,12 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 		case "sharing":
 			if !hasArgValue || argValue == "" {
 				return newMount, "", "", "", nil, fmt.Errorf("%v: %w", argName, errBadOptionArg)
+			}
+			switch argValue {
+			default:
+				return newMount, "", "", "", nil, fmt.Errorf("unrecognized value %q for field `sharing`: %w", argValue, errBadMntOption)
+			case "shared", "private", "locked":
+				// the modes we know how to handle
 			}
 			sharing = argValue
 		case "bind-propagation":
@@ -511,6 +531,16 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 	needToOverlay := false
 	mountedImage := ""
 	thisCacheRoot := ""
+	// where this user's cache directories and their lock files live
+	cacheParent := CacheParent()
+	// the ID under which this cache's lock file lives, if we need one
+	lockID := ""
+	var targetLock *lockfile.LockFile
+	defer func() {
+		if !succeeded && targetLock != nil {
+			targetLock.Unlock()
+		}
+	}()
 	if fromWhere != "" {
 		// do not create and use a cache directory on the host,
 		// instead use the location in the mounted stage or
@@ -546,11 +576,7 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 			needToOverlay = true
 		}
 		thisCacheRoot = mountPoint
-
-		// decide where the lock file for this cache's root should go, if we need one
-		cacheParent := CacheParent()
-		mountPointID := digest.FromString(mountPoint).Encoded()[:16]
-		buildahLockFilesDir = filepath.Join(cacheParent, BuildahCacheLockfileDir, mountPointID)
+		lockID = digest.FromString(mountPoint).Encoded()[:16]
 	} else {
 		// we need to create the cache directory on the host if no stage is being used
 
@@ -558,31 +584,29 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 		// create a common cache directory, which persists on hosts within temp lifecycle
 		// add subdirectory if specified
 
-		// cache parent directory: creates separate cache parent for each user.
-		cacheParent := CacheParent()
-
 		// create cache on host if not present
 		err = os.MkdirAll(cacheParent, os.FileMode(0o755))
 		if err != nil {
 			return newMount, "", "", "", nil, fmt.Errorf("unable to create build cache directory: %w", err)
 		}
 
-		ownerInfo := fmt.Sprintf(":%d:%d", uid, gid)
-		if id != "" {
-			// Don't let the user try to inject pathname components by directly using
-			// the ID when constructing the cache directory location; distinguish
-			// between caches by ID and ownership
-			dirID := digest.FromString(id + ownerInfo).Encoded()[:16]
-			thisCacheRoot = filepath.Join(cacheParent, dirID)
-			buildahLockFilesDir = filepath.Join(cacheParent, BuildahCacheLockfileDir, dirID)
-		} else {
-			// Don't let the user try to inject pathname components by directly using
-			// the target path when constructing the cache directory location;
-			// distinguish between caches by mount target location and ownership
-			dirID := digest.FromString(newMount.Destination + ownerInfo).Encoded()[:16]
-			thisCacheRoot = filepath.Join(cacheParent, dirID)
-			buildahLockFilesDir = filepath.Join(cacheParent, BuildahCacheLockfileDir, dirID)
+		// caches are told apart by their ID, or by their target if they don't
+		// have one, and by their ownership
+		cacheKey := fmt.Sprintf("%s:%d:%d", cmp.Or(id, newMount.Destination), uid, gid)
+		// hash it, so the user can't inject path components and escape the cache
+		dirID := digest.FromString(cacheKey).Encoded()[:16]
+
+		// a private cache uses a directory which no other build is using, and
+		// keeps it locked until the command we're running has finished
+		if sharing == "private" {
+			dirID, targetLock, err = lockPrivateCacheDir(cacheParent, dirID)
+			if err != nil {
+				return newMount, "", "", "", nil, err
+			}
 		}
+
+		thisCacheRoot = filepath.Join(cacheParent, dirID)
+		lockID = dirID
 
 		idPair := idtools.IDPair{
 			UID: int(hostUID),
@@ -597,23 +621,14 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 	}
 
 	// path should be /mountPoint/specified path
-	evaluated, err := copier.Eval(thisCacheRoot, thisCacheRoot+string(filepath.Separator)+newMount.Source, copier.EvalOptions{})
+	evaluated, err := copier.EvalContext(ctx, thisCacheRoot, thisCacheRoot+string(filepath.Separator)+newMount.Source, copier.EvalOptions{})
 	if err != nil {
 		return newMount, "", "", "", nil, err
 	}
 	newMount.Source = evaluated
 
-	var targetLock *lockfile.LockFile
-	switch sharing {
-	case "locked":
-		// create cache parent directories on host if not already present
-		err = os.MkdirAll(buildahLockFilesDir, os.FileMode(0o755))
-		if err != nil {
-			return newMount, "", "", "", nil, fmt.Errorf("unable to create build cache directory: %w", err)
-		}
-
-		// lock parent cache
-		lockfile, err := lockfile.GetLockFile(filepath.Join(buildahLockFilesDir, BuildahCacheLockfile))
+	if sharing == "locked" {
+		lockfile, err := cacheLockFile(cacheParent, lockID, BuildahCacheLockfile)
 		if err != nil {
 			return newMount, "", "", "", nil, fmt.Errorf("unable to acquire lock when sharing mode is locked: %w", err)
 		}
@@ -621,17 +636,6 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 		// will be unlocked after the RUN step is executed
 		lockfile.Lock()
 		targetLock = lockfile
-		defer func() {
-			if !succeeded {
-				targetLock.Unlock()
-			}
-		}()
-	case "shared":
-		// do nothing since default is `shared`
-		break
-	default:
-		// error out for unknown values
-		return newMount, "", "", "", nil, fmt.Errorf("unrecognized value %q for field `sharing`: %w", sharing, err)
 	}
 
 	// buildkit parity: default sharing should be shared
@@ -681,6 +685,59 @@ func GetCacheMount(sys *types.SystemContext, args []string, store storage.Store,
 	return newMount, mountedImage, intermediateMount, overlayDir, targetLock, nil
 }
 
+// cacheLockFile returns the lock file with the given name for lockID, creating
+// the directory which holds it if necessary.
+func cacheLockFile(cacheParent, lockID, lockName string) (*lockfile.LockFile, error) {
+	lockFilesDir := filepath.Join(cacheParent, BuildahCacheLockfileDir, lockID)
+	if err := os.MkdirAll(lockFilesDir, os.FileMode(0o755)); err != nil {
+		return nil, fmt.Errorf("unable to create build cache lock file directory: %w", err)
+	}
+	return lockfile.GetLockFile(filepath.Join(lockFilesDir, lockName))
+}
+
+// lockPrivateCacheDir locks a directory which no other build is using for the
+// cache named dirID: that directory, or the first free one of "<dirID>-1",
+// "<dirID>-2" and so on.  The pool grows to the number of builds which use the
+// cache at the same time.
+//
+// Returns the directory's name and its lock, for the caller to release when
+// it's finished.
+func lockPrivateCacheDir(cacheParent, dirID string) (string, *lockfile.LockFile, error) {
+	// Builds pick from this cache's pool one at a time, so we take the lowest
+	// free directory, and the pool only grows when they are all busy.
+	poolLock, err := cacheLockFile(cacheParent, dirID, buildahCachePoolLockfile)
+	if err != nil {
+		return "", nil, fmt.Errorf("unable to lock the cache's pool of directories: %w", err)
+	}
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	// only so many builds can use this cache at once, so a name is always free
+	for i := 0; ; i++ {
+		candidate, added := dirID, false
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%d", dirID, i)
+			// numbered directories are only for sharing=private, and get
+			// added under the pool lock, so if this one isn't there yet,
+			// we're the ones adding it
+			_, err := os.Stat(filepath.Join(cacheParent, BuildahCacheLockfileDir, candidate))
+			added = errors.Is(err, os.ErrNotExist)
+		}
+		lock, err := cacheLockFile(cacheParent, candidate, BuildahCacheLockfile)
+		if err != nil {
+			return "", nil, fmt.Errorf("unable to acquire lock when sharing mode is private: %w", err)
+		}
+		lockErr := lock.TryLock()
+		if lockErr == nil {
+			return candidate, lock, nil
+		}
+		if added {
+			return "", nil, fmt.Errorf("unable to lock new private cache directory %q: %w", candidate, lockErr)
+		}
+		logrus.Debugf("cache directory %q is in use, trying another one: %v", candidate, lockErr)
+	}
+}
+
 func getVolumeMounts(volumes []string) (map[string]specs.Mount, error) {
 	finalVolumeMounts := make(map[string]specs.Mount)
 
@@ -715,8 +772,14 @@ func UnlockLockArray(locks []*lockfile.LockFile) {
 // mountpoints for the bind-mounted paths, unmount any images we mounted, and
 // release the locks we returned (either using UnlockLockArray() or by
 // iterating over them and unlocking them).
-func GetVolumes(ctx *types.SystemContext, store storage.Store, mountLabel string, volumes []string, mounts []string, contextDir string, idMaps define.IDMappingOptions, workDir, tmpDir string) ([]specs.Mount, []string, []string, []string, []*lockfile.LockFile, error) {
-	unifiedMounts, mountedImages, intermediateMounts, overlayMounts, targetLocks, err := getMounts(ctx, store, mountLabel, mounts, contextDir, idMaps.UIDMap, idMaps.GIDMap, workDir, tmpDir)
+func GetVolumes(ctx context.Context, sys *types.SystemContext, store storage.Store, mountLabel string, volumes []string, mounts []string, contextDir string, idMaps define.IDMappingOptions, workDir, tmpDir string) ([]specs.Mount, []string, []string, []string, []*lockfile.LockFile, error) {
+	select {
+	case <-ctx.Done():
+		return nil, nil, nil, nil, nil, ctx.Err()
+	default:
+	}
+
+	unifiedMounts, mountedImages, intermediateMounts, overlayMounts, targetLocks, err := getMounts(ctx, sys, store, mountLabel, mounts, contextDir, idMaps.UIDMap, idMaps.GIDMap, workDir, tmpDir)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -778,7 +841,13 @@ func GetVolumes(ctx *types.SystemContext, store storage.Store, mountLabel string
 // to mountpoints), unmount any mounted images (if we provided the IDs of any),
 // and then unlock the locks we returned (either using UnlockLockArray() or by
 // iterating over them and unlocking them).
-func getMounts(ctx *types.SystemContext, store storage.Store, mountLabel string, mounts []string, contextDir string, uidmap, gidmap []specs.LinuxIDMapping, workDir, tmpDir string) (map[string]specs.Mount, []string, []string, []string, []*lockfile.LockFile, error) {
+func getMounts(ctx context.Context, sys *types.SystemContext, store storage.Store, mountLabel string, mounts []string, contextDir string, uidmap, gidmap []specs.LinuxIDMapping, workDir, tmpDir string) (map[string]specs.Mount, []string, []string, []string, []*lockfile.LockFile, error) {
+	select {
+	case <-ctx.Done():
+		return nil, nil, nil, nil, nil, ctx.Err()
+	default:
+	}
+
 	// If `type` is not set default to "bind"
 	mountType := define.TypeBind
 	finalMounts := make(map[string]specs.Mount, len(mounts))
@@ -829,7 +898,7 @@ func getMounts(ctx *types.SystemContext, store storage.Store, mountLabel string,
 		}
 		switch mountType {
 		case define.TypeBind:
-			mount, image, intermediateMount, overlayMount, err := GetBindMount(ctx, tokens, contextDir, store, mountLabel, nil, workDir, tmpDir)
+			mount, image, intermediateMount, overlayMount, err := GetBindMount(ctx, sys, tokens, contextDir, store, mountLabel, nil, workDir, tmpDir)
 			if err != nil {
 				return nil, nil, nil, nil, nil, err
 			}
@@ -847,7 +916,7 @@ func getMounts(ctx *types.SystemContext, store storage.Store, mountLabel string,
 			}
 			finalMounts[mount.Destination] = mount
 		case TypeCache:
-			mount, image, intermediateMount, overlayMount, tl, err := GetCacheMount(ctx, tokens, store, "", nil, uidmap, gidmap, workDir, tmpDir)
+			mount, image, intermediateMount, overlayMount, tl, err := GetCacheMount(ctx, sys, tokens, store, "", nil, uidmap, gidmap, workDir, tmpDir)
 			if err != nil {
 				return nil, nil, nil, nil, nil, err
 			}

@@ -33,6 +33,21 @@ func (o *PlayOptions) GetAnnotations() map[string]string {
 	return o.Annotations
 }
 
+// WithLabels set field Labels to given value
+func (o *PlayOptions) WithLabels(value map[string]string) *PlayOptions {
+	o.Labels = value
+	return o
+}
+
+// GetLabels returns value of field Labels
+func (o *PlayOptions) GetLabels() map[string]string {
+	if o.Labels == nil {
+		var z map[string]string
+		return z
+	}
+	return o.Labels
+}
+
 // WithAuthfile set field Authfile to given value
 func (o *PlayOptions) WithAuthfile(value string) *PlayOptions {
 	o.Authfile = &value
@@ -333,6 +348,21 @@ func (o *PlayOptions) GetUserns() string {
 	return *o.Userns
 }
 
+// WithValidate set field Validate to given value
+func (o *PlayOptions) WithValidate(value string) *PlayOptions {
+	o.Validate = &value
+	return o
+}
+
+// GetValidate returns value of field Validate
+func (o *PlayOptions) GetValidate() string {
+	if o.Validate == nil {
+		var z string
+		return z
+	}
+	return *o.Validate
+}
+
 // WithForce set field Force to given value
 func (o *PlayOptions) WithForce(value bool) *PlayOptions {
 	o.Force = &value
@@ -421,4 +451,19 @@ func (o *PlayOptions) GetNoPodPrefix() bool {
 		return z
 	}
 	return *o.NoPodPrefix
+}
+
+// WithMultiplePods set field MultiplePods to given value
+func (o *PlayOptions) WithMultiplePods(value bool) *PlayOptions {
+	o.MultiplePods = &value
+	return o
+}
+
+// GetMultiplePods returns value of field MultiplePods
+func (o *PlayOptions) GetMultiplePods() bool {
+	if o.MultiplePods == nil {
+		var z bool
+		return z
+	}
+	return *o.MultiplePods
 }

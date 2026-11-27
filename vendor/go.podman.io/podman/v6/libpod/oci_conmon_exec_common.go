@@ -24,6 +24,7 @@ import (
 	"go.podman.io/podman/v6/pkg/errorhandling"
 	"go.podman.io/podman/v6/pkg/lookup"
 	"go.podman.io/podman/v6/pkg/pidhandle"
+	"go.podman.io/storage/pkg/unshare"
 	"golang.org/x/sys/unix"
 )
 
@@ -233,7 +234,7 @@ func (r *ConmonOCIRuntime) ExecStopContainer(ctr *Container, sessionID string, t
 		// Use SIGTERM by default, then SIGSTOP after timeout.
 		logrus.Debugf("Killing exec session %s (PID %d) of container %s with SIGTERM", sessionID, pid, ctr.ID())
 		if err := pidHandle.Kill(unix.SIGTERM); err != nil {
-			if err == unix.ESRCH {
+			if errors.Is(err, unix.ESRCH) {
 				return nil
 			}
 			return fmt.Errorf("killing container %s exec session %s PID %d with SIGTERM: %w", ctr.ID(), sessionID, pid, err)
@@ -251,7 +252,7 @@ func (r *ConmonOCIRuntime) ExecStopContainer(ctr *Container, sessionID string, t
 	// SIGTERM did not work. On to SIGKILL.
 	logrus.Debugf("Killing exec session %s (PID %d) of container %s with SIGKILL", sessionID, pid, ctr.ID())
 	if err := pidHandle.Kill(unix.SIGKILL); err != nil {
-		if err == unix.ESRCH {
+		if errors.Is(err, unix.ESRCH) {
 			return nil
 		}
 		return fmt.Errorf("killing container %s exec session %s PID %d with SIGKILL: %w", ctr.ID(), sessionID, pid, err)
@@ -689,6 +690,16 @@ func (c *Container) prepareProcessExec(options *ExecOptions, env []string, sessi
 	}
 	pspec.SelinuxLabel = c.config.ProcessLabel
 	pspec.Args = options.Cmd
+
+	// A rootless runtime cannot lower oom_score_adj below the value it
+	// inherited, so clamp it as generateSpec does for the container start.
+	if unshare.IsRootless() && pspec.OOMScoreAdj != nil {
+		oomScoreAdj, err := maybeClampOOMScoreAdj(*pspec.OOMScoreAdj)
+		if err != nil {
+			return nil, err
+		}
+		pspec.OOMScoreAdj = &oomScoreAdj
+	}
 
 	// We need to default this to false else it will inherit terminal as true
 	// from the container.

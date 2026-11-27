@@ -44,7 +44,14 @@ func getSeccompConfig(s *specgen.SpecGenerator, configSpec *spec.Spec, img *libi
 		return seccompConfig, nil
 	}
 
-	if s.SeccompProfilePath != "" {
+	switch {
+	case s.SeccompProfile != "":
+		logrus.Debug("Loading inline seccomp profile")
+		seccompConfig, err = goSeccomp.LoadProfile(s.SeccompProfile, configSpec)
+		if err != nil {
+			return nil, fmt.Errorf("loading inline seccomp profile failed: %w", err)
+		}
+	case s.SeccompProfilePath != "":
 		logrus.Debugf("Loading seccomp profile from %q", s.SeccompProfilePath)
 		seccompProfile, err := os.ReadFile(s.SeccompProfilePath)
 		if err != nil {
@@ -54,7 +61,7 @@ func getSeccompConfig(s *specgen.SpecGenerator, configSpec *spec.Spec, img *libi
 		if err != nil {
 			return nil, fmt.Errorf("loading seccomp profile (%s) failed: %w", s.SeccompProfilePath, err)
 		}
-	} else {
+	default:
 		logrus.Debug("Loading default seccomp profile")
 		seccompConfig, err = goSeccomp.GetDefaultProfile(configSpec)
 		if err != nil {
