@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -46,7 +47,7 @@ func (c *Container) mountSHM(shmOptions string) error {
 
 func (c *Container) unmountSHM(mount string) error {
 	if err := unix.Unmount(mount, unix.MNT_DETACH); err != nil {
-		if err == syscall.EINVAL || err == syscall.ENOENT {
+		if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOENT) {
 			logrus.Debugf("Container %s failed to unmount %s : %v", c.ID(), mount, err)
 			return nil
 		}
@@ -57,7 +58,7 @@ func (c *Container) unmountSHM(mount string) error {
 
 // prepare mounts the container and sets up other required resources like net
 // namespaces
-func (c *Container) prepare() error {
+func (c *Container) prepare(ctx context.Context) error {
 	var (
 		wg                              sync.WaitGroup
 		netNS                           string
@@ -106,7 +107,7 @@ func (c *Container) prepare() error {
 	// Mount storage if not mounted
 	go func() {
 		defer wg.Done()
-		mountPoint, mountStorageErr = c.mountStorage()
+		mountPoint, mountStorageErr = c.mountStorage(ctx)
 
 		if mountStorageErr != nil {
 			return
@@ -636,6 +637,7 @@ type safeMountInfo struct {
 func (s *safeMountInfo) Close() {
 	_ = unix.Unmount(s.mountPoint, unix.MNT_DETACH)
 	_ = s.file.Close()
+	_ = os.Remove(s.mountPoint)
 }
 
 // safeMountSubPath securely mounts a subpath inside a volume to a new temporary location.
@@ -649,6 +651,15 @@ func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountIn
 	if err != nil {
 		return nil, err
 	}
+	var npath string
+	defer func() {
+		if err != nil {
+			_ = file.Close()
+			if npath != "" {
+				_ = os.Remove(npath)
+			}
+		}
+	}()
 
 	// we need to always reference the file by its fd, that points inside the mountpoint.
 	fname := fmt.Sprintf("/proc/self/fd/%d", int(file.Fd()))
@@ -657,7 +668,6 @@ func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountIn
 	if err != nil {
 		return nil, err
 	}
-	var npath string
 	switch {
 	case fi.Mode()&fs.ModeSymlink != 0:
 		return nil, fmt.Errorf("file %q is a symlink", filepath.Join(mountPoint, subpath))
@@ -749,4 +759,52 @@ func containerPathIsFile(unsafeRoot string, containerPath string) (bool, error) 
 		return true, nil
 	}
 	return false, err
+}
+
+// createSecretMountPoint creates the mount point of a secret in the directory
+// mounted on /run/secrets, as the OCI runtime cannot create it when that
+// directory is read-only.  The source directory can be controlled by the
+// container, so every component is resolved without following symlinks out
+// of it.
+func (c *Container) createSecretMountPoint(srcDir, name string) error {
+	if srcDir == "" {
+		return nil
+	}
+	dir, err := os.OpenFile(srcDir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	for comp := range strings.SplitSeq(filepath.Dir(name), string(os.PathSeparator)) {
+		if comp == "." {
+			continue
+		}
+		next, err := pathrs.MkdirAllHandle(dir, comp, 0o755)
+		_ = dir.Close()
+		if err != nil {
+			return err
+		}
+		dir = next
+		if err := chmodHandle(dir, 0o755); err != nil {
+			_ = dir.Close()
+			return err
+		}
+	}
+	defer dir.Close()
+
+	fd, err := unix.Openat(int(dir.Fd()), filepath.Base(name), unix.O_CREAT|unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return err
+	}
+	return unix.Close(fd)
+}
+
+// chmodHandle sets the mode of the directory referenced by an O_PATH handle,
+// ignoring the umask.
+func chmodHandle(handle *os.File, mode os.FileMode) error {
+	f, err := pathrs.Reopen(handle, unix.O_RDONLY|unix.O_DIRECTORY)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Chmod(mode)
 }

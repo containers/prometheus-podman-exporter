@@ -164,6 +164,16 @@ func MakeContainer(ctx context.Context, rt *libpod.Runtime, s *specgen.SpecGener
 		return nil, nil, nil, err
 	}
 
+	// Check for checkpoint annotation.
+	// This was removed in 3721ff82ffb44a4ceeaecc5abd3808e924a6b669 as a result of CVE-2026-94603.
+	// If we get it, throw an error stating that `podman container restore` must be used instead.
+	if imageData != nil {
+		_, isCheckpointImage := imageData.Annotations[define.CheckpointAnnotationRuntimeName]
+		if isCheckpointImage {
+			return nil, nil, nil, fmt.Errorf("%s is a checkpoint and must be started using `podman container restore` instead", s.Image)
+		}
+	}
+
 	if len(s.OCIRuntime) > 0 {
 		options = append(options, libpod.WithCtrOCIRuntime(s.OCIRuntime))
 	} else if imageData != nil {
@@ -214,6 +224,22 @@ func MakeContainer(ctx context.Context, rt *libpod.Runtime, s *specgen.SpecGener
 		} else {
 			// as root default to bridge
 			s.NetNS.NSMode = specgen.Bridge
+		}
+	}
+
+	// if userns is auto, set up annotation, and default IDMappings if none are set
+	if s.UserNS.IsAuto() {
+		if s.Annotations == nil {
+			s.Annotations = make(map[string]string)
+		}
+		s.Annotations[define.UserNsAnnotation] = string(s.UserNS.NSMode)
+
+		if s.IDMappings == nil {
+			mappings, err := util.ParseIDMapping(namespaces.UsernsMode(s.UserNS.NSMode), nil, nil, "", "")
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			s.IDMappings = mappings
 		}
 	}
 

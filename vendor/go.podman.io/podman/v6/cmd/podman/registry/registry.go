@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 
@@ -22,7 +21,6 @@ type CliCommand struct {
 }
 
 var (
-	cliCtx          = context.Background()
 	containerEngine entities.ContainerEngine
 	exitCode        = 0
 	imageEngine     entities.ImageEngine
@@ -90,10 +88,6 @@ func NewContainerEngine(cmd *cobra.Command, _ []string) (entities.ContainerEngin
 		containerEngine = engine
 	}
 	return containerEngine, nil
-}
-
-func Context() context.Context {
-	return cliCtx
 }
 
 func DefaultAPIAddress() string {

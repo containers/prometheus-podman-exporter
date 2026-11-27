@@ -3,15 +3,18 @@
 package libpod
 
 import (
+	"cmp"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 	"go.podman.io/common/libnetwork/types"
 	"go.podman.io/podman/v6/libpod/define"
+	"go.podman.io/podman/v6/libpod/plugin"
 )
 
 const (
@@ -297,21 +300,12 @@ func (s *BoltState) getVolumeFromDB(name []byte, volume *Volume, volBkt *bolt.Bu
 
 	// Need this for UsesVolumeDriver() so set it now.
 	volume.runtime = s.runtime
-
-	// Retrieve volume driver
-	if volume.UsesVolumeDriver() {
-		plugin, err := s.runtime.getVolumePlugin(volume.config)
-		if err != nil {
-			// We want to fail gracefully here, to ensure that we
-			// can still remove volumes even if their plugin is
-			// missing. Otherwise, we end up with volumes that
-			// cannot even be retrieved from the database and will
-			// cause things like `volume ls` to fail.
-			logrus.Errorf("Volume %s uses volume plugin %s, but it cannot be accessed - some functionality may not be available: %v", volume.Name(), volume.config.Driver, err)
-		} else {
-			volume.plugin = plugin
+	volume.volumePlugin = sync.OnceValues(func() (*plugin.VolumePlugin, error) {
+		if !volume.UsesVolumeDriver() {
+			return nil, nil
 		}
-	}
+		return volume.runtime.getVolumePlugin(volume.config)
+	})
 
 	// Get the lock
 	lock, err := s.runtime.lockManager.RetrieveLock(volume.config.LockID)
@@ -337,9 +331,7 @@ func ocicniPortsToNetTypesPorts(ports []types.OCICNIPortMapping) []types.PortMap
 	newPorts := make([]types.PortMapping, 0, len(ports))
 
 	// first sort the ports
-	sort.Slice(ports, func(i, j int) bool {
-		return compareOCICNIPorts(ports[i], ports[j])
-	})
+	slices.SortFunc(ports, compareOCICNIPorts)
 
 	// we already check if the slice is empty so we can use the first element
 	currentPort := types.PortMapping{
@@ -378,18 +370,18 @@ func ocicniPortsToNetTypesPorts(ports []types.OCICNIPortMapping) []types.PortMap
 // 4) container port
 //
 //nolint:staticcheck // OCICNIPortMapping is deprecated; kept for backwards-compatible DB migration
-func compareOCICNIPorts(i, j types.OCICNIPortMapping) bool {
-	if i.HostIP != j.HostIP {
-		return i.HostIP < j.HostIP
+func compareOCICNIPorts(i, j types.OCICNIPortMapping) int {
+	if c := cmp.Compare(i.HostIP, j.HostIP); c != 0 {
+		return c
 	}
 
-	if i.Protocol != j.Protocol {
-		return i.Protocol < j.Protocol
+	if c := cmp.Compare(i.Protocol, j.Protocol); c != 0 {
+		return c
 	}
 
-	if i.HostPort != j.HostPort {
-		return i.HostPort < j.HostPort
+	if c := cmp.Compare(i.HostPort, j.HostPort); c != 0 {
+		return c
 	}
 
-	return i.ContainerPort < j.ContainerPort
+	return cmp.Compare(i.ContainerPort, j.ContainerPort)
 }

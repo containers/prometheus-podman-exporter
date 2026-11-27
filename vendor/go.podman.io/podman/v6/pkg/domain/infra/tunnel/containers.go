@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -331,8 +330,8 @@ func (ic *ContainerEngine) ContainerInspect(_ context.Context, namesOrIds []stri
 	for _, name := range namesOrIds {
 		inspect, err := containers.Inspect(ic.ClientCtx, name, options)
 		if err != nil {
-			errModel, ok := err.(*errorhandling.ErrorModel)
-			if !ok {
+			var errModel *errorhandling.ErrorModel
+			if !errors.As(err, &errModel) {
 				return nil, nil, err
 			}
 			if errModel.ResponseCode == 404 {
@@ -635,6 +634,15 @@ func (ic *ContainerEngine) ContainerExec(_ context.Context, nameOrID string, opt
 	if err != nil {
 		return 125, err
 	}
+	// Forward our signals on, so killing `podman exec` stops what it started,
+	// same as the local path does via ProxyExecSignals.
+	remoteProxySignals(sessionID, func(sigName string) error {
+		err := containers.ExecKill(ic.ClientCtx, sessionID, sigName, nil)
+		if err != nil {
+			logrus.Debugf("forwarding signal %q to exec session %s: %v", sigName, sessionID, err)
+		}
+		return err
+	})
 	defer func() {
 		if err := containers.ExecRemove(ic.ClientCtx, sessionID, nil); err != nil {
 			apiErr := new(bindings.APIVersionError)
@@ -822,7 +830,7 @@ func (ic *ContainerEngine) ContainerStart(_ context.Context, namesOrIds []string
 		ctrRunning := ctr.State == define.ContainerStateRunning.String()
 		if options.Attach {
 			code, err := startAndAttach(ic, name, &options.DetachKeys, options.SigProxy, options.Stdin, options.Stdout, options.Stderr)
-			if err == define.ErrDetach {
+			if errors.Is(err, define.ErrDetach) {
 				// User manually detached
 				// Exit cleanly immediately
 				reports = append(reports, &report)
@@ -886,30 +894,6 @@ func (ic *ContainerEngine) ContainerListExternal(_ context.Context) ([]entities.
 }
 
 func (ic *ContainerEngine) ContainerRun(ctx context.Context, opts entities.ContainerRunOptions) (*entities.ContainerRunReport, error) {
-	if opts.Spec != nil && !reflect.ValueOf(opts.Spec).IsNil() && opts.Spec.RawImageName != "" {
-		// If this is a checkpoint image, restore it.
-		getImageOptions := new(images.GetOptions).WithSize(false)
-		inspectReport, err := images.GetImage(ic.ClientCtx, opts.Spec.RawImageName, getImageOptions)
-		if err != nil {
-			return nil, fmt.Errorf("no such container or image: %s", opts.Spec.RawImageName)
-		}
-		if inspectReport != nil {
-			_, isCheckpointImage := inspectReport.Annotations[define.CheckpointAnnotationRuntimeName]
-			if isCheckpointImage {
-				restoreOptions := new(containers.RestoreOptions)
-				restoreOptions.WithName(opts.Spec.Name)
-				restoreOptions.WithPod(opts.Spec.Pod)
-
-				restoreReport, err := containers.Restore(ic.ClientCtx, inspectReport.ID, restoreOptions)
-				if err != nil {
-					return nil, err
-				}
-				runReport := entities.ContainerRunReport{Id: restoreReport.Id}
-				return &runReport, nil
-			}
-		}
-	}
-
 	con, err := containers.CreateWithSpec(ic.ClientCtx, opts.Spec, nil)
 	if err != nil {
 		return nil, err
@@ -962,7 +946,7 @@ func (ic *ContainerEngine) ContainerRun(ctx context.Context, opts entities.Conta
 
 	code, err := startAndAttach(ic, con.ID, &opts.DetachKeys, opts.SigProxy, opts.InputStream, opts.OutputStream, opts.ErrorStream)
 	if err != nil {
-		if err == define.ErrDetach {
+		if errors.Is(err, define.ErrDetach) {
 			return &report, nil
 		}
 
